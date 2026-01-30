@@ -1,65 +1,72 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.js file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100vh",
+        fontFamily: "sans-serif",
+      }}
+    >
+      <h1 style={{ fontSize: "3rem", marginBottom: "10px" }}>MindEase 🌿</h1>
+      <p style={{ fontSize: "1.2rem", color: "#666", marginBottom: "30px" }}>
+        Platform Konsultasi Kesehatan Mental Terpercaya
+      </p>
+
+      <div style={{ display: "flex", gap: "20px" }}>
+        <Link href="/login">
+          <button
+            style={{
+              padding: "15px 30px",
+              fontSize: "1rem",
+              cursor: "pointer",
+              backgroundColor: "#0070f3",
+              color: "white",
+              border: "none",
+              borderRadius: "5px",
+            }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Masuk (Login)
+          </button>
+        </Link>
+
+        <Link href="/register">
+          <button
+            style={{
+              padding: "15px 30px",
+              fontSize: "1rem",
+              cursor: "pointer",
+              backgroundColor: "transparent",
+              color: "#0070f3",
+              border: "2px solid #0070f3",
+              borderRadius: "5px",
+            }}
           >
-            Documentation
-          </a>
-        </div>
-      </main>
+            Daftar Akun
+          </button>
+        </Link>
+      </div>
+
+      <div
+        style={{
+          marginTop: "50px",
+          padding: "20px",
+          backgroundColor: "#f0f0f0",
+          borderRadius: "10px",
+        }}
+      >
+        <h3>Cara Kerja:</h3>
+        <ol style={{ textAlign: "left" }}>
+          <li>Daftar sebagai Pasien atau Dokter.</li>
+          <li>Login ke Dashboard.</li>
+          <li>Dokter buka jadwal, Pasien booking jadwal.</li>
+          <li>Konsultasi via WhatsApp!</li>
+        </ol>
+      </div>
     </div>
   );
 }
