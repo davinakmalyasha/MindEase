@@ -1,65 +1,73 @@
 const express = require("express");
-const mysql = require('mysql2');
-const cors = require('cors');
-const multer = require('multer');
-const path = require('path');
-const jwt = require('jsonwebtoken'); 
-const SECRET_KEY = "rahasia_negara_davin_123"; 
-const bcrypt = require('bcrypt');
+const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const morgan = require("morgan");
+const path = require("path");
+const doctorRoutes = require("./routes/doctorRoutes");
+const patientRoutes = require("./routes/patientRoutes");
+const appointmentRoutes = require("./routes/appointmentRoutes");
+const userRoutes = require("./routes/userRoutes");
+const verifyRole = require("./middleware/roleMiddleware");
+const adminRoutes = require("./routes/adminRoutes");
+const reviewRoutes = require("./routes/reviewRoutes");
+require("dotenv").config();
+
+const authRoutes = require("./routes/authRoutes");
+
 const app = express();
-const PORT = 5000;
-app.use(cors());
+const port = 5000;
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Terlalu banyak request dari IP ini, coba lagi nanti.",
+});
+app.use(limiter);
+app.use(morgan("dev"));
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
-app.use('/images', express.static('public/images'));
+app.use(express.urlencoded({ extended: true }));
+app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
 
+app.use("/auth", authRoutes);
+app.use("/auth", authRoutes);
+app.use("/doctor", doctorRoutes);
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'public/images') 
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname))
-    }
-})
+app.use("/auth", authRoutes);
+app.use("/doctor", doctorRoutes);
+app.use("/patient", patientRoutes);
+app.use("/users", userRoutes);
+app.use("/admin", adminRoutes);
 
-const upload = multer({ storage: storage });
+app.use("/auth", authRoutes);
+app.use("/doctor", doctorRoutes);
+app.use("/patient", patientRoutes);
+app.use("/appointments", appointmentRoutes);
 
+app.use("/reviews", reviewRoutes);
 
-const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: '',
-    database: 'mindease_db' 
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    message: "Terjadi kesalahan pada server!",
+    error: process.env.NODE_ENV === "production" ? {} : err.message,
+  });
 });
-
-db.connect(err => {
- if(err) {
-    console.error("Database ga nyambung", err);
- } else {
-    console.log('Database Nyambung');
- }
-});
-
-const verifyToken = (req, res, next) => {
-    const tokenHeader = req.headers['authorization']; 
-
-    if (!tokenHeader) {
-        return res.status(403).send("Akses Ditolak! Mana tokennya?");
-    }
-    const token = tokenHeader.split(' ')[1]; 
-
-    if (!token) return res.status(403).send("Token format salah");
-
-    jwt.verify(token, SECRET_KEY, (err, decoded) => {
-        if (err) return res.status(500).send("Token Gagal / Kadaluarsa");
-        req.userId = decoded.id;
-        next(); 
-    });
-};
-app.get('/', (req, res) => {
-    res.send('Server MindEase Ready to Rock! 🚀');
-});
+const PORT = process.env.PORT || 5000;
 
 app.listen(port, () => {
-    console.log(`Server berjalan di http://localhost:${port}`);
+  console.log(`Server running at http://localhost:${port}`);
 });
