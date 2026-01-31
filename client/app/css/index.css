@@ -1,0 +1,150 @@
+.font-jakarta {
+  /* font-family: var(--font-jakarta);  */
+}
+body {
+    display: flex;
+    background-color: #ffffff;
+    color: black;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: center;
+    align-items: center;
+    font-family: var(--font-jakarta);
+}
+.container {
+    width: 90%;
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.topbar {
+    width: 100%;
+    height: 10vh;
+    max-height: 20vh;
+    padding: 12px 0;
+    border-radius: 0px 10px 10px 0px;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10vh;
+    
+}
+.kiriNavbar {
+    display: flex;
+}
+
+.brand {
+    display: flex;
+    margin-right: 5rem;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+}
+.navList {
+    display: flex;
+    gap: 5rem;
+    justify-content: center;
+    align-items: center;
+}
+.loginRegis {
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    background: linear-gradient(to right, #4837F2, #8643FF);
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+.heroSection {
+    display: flex;
+    justify-content: center;
+    height: 80vh;
+    padding: 0 0 20px 0;
+    gap: 5%;
+}
+.kiriHero {
+    width: 30%;
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+    flex-wrap: wrap;
+
+}
+.kiriHero h1 {
+    font-size: 45px;
+}
+.tengahHero {
+    width: 40%;
+}
+.tengahHeroimg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+.kananHero {
+    width: 30%; 
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.doktorLogin {
+    display: flex;
+    width: 100%;
+    height: 35%;
+    align-items: center;
+    justify-content: space-between;
+
+}
+.kiriDoktorLogin {
+    width: 60%;
+}
+.bungkusSVG {
+    padding: 20px;
+     border: 1px solid #2c2c2c;
+   border-radius: 50%;
+}
+.doktorLogin svg{
+    width: 40px;
+    height: 40px;
+}
+.kananHeroimg {
+    width: 100%;
+    height: 65%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+.introductionSection {
+    width: 70%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+   
+   
+}
+.introductionSection h1 {
+    font-size: 70px;
+}
+.mainIntro {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 5%;
+     justify-content: space-between;
+    padding: 30px 0;
+}
+.introImg {
+    width: 50%;
+    aspect-ratio: 1/1;
+}
+
+.mainIntro h4 {
+    width: 40%;
+}
