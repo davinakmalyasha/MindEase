@@ -53,17 +53,40 @@ export default function Home() {
           <img className="introImg" src="ImgOrIcon/kananHero.png"/>
           <h4>A bridge for those seeking to consult their mental health with qualified psychologists and experts. We connect you to professional support for a better understanding of your mental well-being.</h4>
         </div>
-        
       </div>
 
       <div className="promoSection">
         <div className="promoHeader">
           <h1>Here’ what you  can do with our Mental health care services</h1>
-          <button>Explore <img src="" alt="" /></button>
+          <Link className="buttonPromoHeader" href="/">
+             Explore
+            <svg xmlns="http://www.w3.org/2000/svg"  viewBox="0 0 30 30" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-arrow-up-right-icon lucide-arrow-up-right"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+          </Link>
         </div>
         <div className="promoContent">
           <div className="promoCard">
-            
+            <img src="ImgOrIcon/foto1Promo.png" alt="" />
+            <div className="textKananPromo">
+                <h4>Telepathy Platforms</h4>
+            </div>
+          </div>
+          <div className="promoCard">
+            <img src="ImgOrIcon/foto1Promo.png" alt="" />
+            <div className="textKananPromo">
+                <h4>Telepathy Platforms</h4>
+            </div>
+          </div>
+          <div className="promoCard">
+            <img src="ImgOrIcon/foto1Promo.png" alt="" />
+            <div className="textKananPromo">
+                <h4>Telepathy Platforms</h4>
+            </div>
+          </div>
+          <div className="promoCard">
+            <img src="ImgOrIcon/foto1Promo.png" alt="" />
+            <div className="textKananPromo">
+                <h4>Telepathy Platforms</h4>
+            </div>
           </div>
         </div>
       </div>
