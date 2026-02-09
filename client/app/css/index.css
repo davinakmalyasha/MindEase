@@ -204,3 +204,38 @@ body {
     justify-content: center;
     align-items: center;
 }
+
+.reviewSection {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+.reviewHeader {
+    display: flex;
+}
+
+.reviewContent {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.reviewRow1, .reviewRow3 {
+    display: flex;
+    flex-wrap: wrap;
+    width: 80%;
+}
+.reviewRow2 {
+    width: 100%;
+}
+.reviewCard {
+    display: flex;
+    flex-direction: column;
+}
+
+.atasReview, .bawahReview {
+    display: flex;
+}
