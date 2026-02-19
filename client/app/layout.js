@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import InteractiveBlobs from "@/components/ui/InteractiveBlobs";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,10 +13,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const jakarta = Plus_Jakarta_Sans({ 
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   weight: ['300', '400', '500', '600', '700', '800'],
-  variable: '--font-jakarta', 
+  variable: '--font-jakarta',
 });
 
 export const metadata = {
@@ -25,8 +26,9 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-   <html lang="id">
-      <body className={`${jakarta.className} ${jakarta.variable}`}>
+    <html lang="id" className="scroll-smooth">
+      <body className={`${jakarta.className} ${jakarta.variable}`} suppressHydrationWarning>
+        <InteractiveBlobs />
         {children}
       </body>
     </html>

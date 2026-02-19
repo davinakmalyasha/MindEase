@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Basic User Model with Auth fields
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  password      String? // Nullable for Google Auth users
+  name          String?
+  avatar        String?
+  role          String         @default("patient") // patient, doctor, admin
+  phone_number  String?
+  provider      String         @default("local") // "local" or "google"
+  googleId      String?        @unique
+  refreshTokens RefreshToken[]
+  appointments  Appointment[]
+  reviews       Review[]
+  messagesSent     Message[]      @relation("SentMessages")
+  messagesReceived Message[]      @relation("ReceivedMessages")
+  notifications Notification[]
+  doctorProfile Doctor?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Doctor {
+  id               Int                @id @default(autoincrement())
+  userId           Int                @unique
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialty        String
+  bio              String             @db.Text
+  experience       Int                @default(0)
+  rating           Float              @default(5.0)
+  price            Int                @default(0)
+  availability     String             @default("Available")
+  appointments     Appointment[]
+  reviews          Review[]
+  consultationSlots ConsultationSlot[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+model Appointment {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctorId        Int
+  doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  appointmentDate DateTime
+  startTime       String?
+  endTime         String?
+  consultationType String   @default("video") // video, voice, chat
+  status          String   @default("pending") // pending, confirmed, cancelled, completed
+  notes           String?  @db.Text
+  meetingLink     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  rating    Int
+  comment   String   @db.Text
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctorId  Int
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  content    String   @db.Text
+  senderId   Int
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId Int
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  type      String? // appointment, message, system
+  createdAt DateTime @default(now())
+}
+
+model ConsultationSlot {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date      DateTime
+  startTime String
+  endTime   String
+  isBooked  Boolean  @default(false)
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique @db.VarChar(500)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
