@@ -1,0 +1,13 @@
+node_modules/
+.env
+.next/
+dist/
+build/
+.DS_Store
+*.log
+.vscode/
+.idea/
+server/node_modules/
+client/node_modules/
+client/.next/
+server/dist/
