@@ -10,4 +10,6 @@ build/
 server/node_modules/
 client/node_modules/
 client/.next/
+package.json
+package-lock.json
 server/dist/
