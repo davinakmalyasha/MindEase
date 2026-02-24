@@ -24,6 +24,7 @@ model User {
   messagesSent     Message[]      @relation("SentMessages")
   messagesReceived Message[]      @relation("ReceivedMessages")
   notifications Notification[]
+  moodEntries   MoodEntry[]
   doctorProfile Doctor?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -113,4 +114,13 @@ model RefreshToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
+}
+
+model MoodEntry {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mood      Int
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
 }

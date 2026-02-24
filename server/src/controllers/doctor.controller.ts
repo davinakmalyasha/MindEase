@@ -34,4 +34,35 @@ export class DoctorController {
             res.status(500).json({ status: "error", message: error.message });
         }
     }
+
+    static async getSlots(req: Request, res: Response) {
+        try {
+            const doctorId = parseInt(req.params.id as string);
+            const slots = await DoctorService.getSlots(doctorId);
+            res.json(slots); // Match frontend expectation of direct array or wrapped
+        } catch (error: any) {
+            res.status(500).json({ status: "error", message: error.message });
+        }
+    }
+
+    static async createSlot(req: Request, res: Response) {
+        try {
+            const slot = await DoctorService.createSlot(req.body);
+            res.status(201).json(slot);
+        } catch (error: any) {
+            res.status(500).json({ status: "error", message: error.message });
+        }
+    }
+
+    static async deleteSlot(req: Request, res: Response) {
+        try {
+            const slotId = parseInt(req.params.id as string);
+            const doctorId = (req as any).user?.doctorProfile?.id || (req as any).user?.id;
+            const result = await DoctorService.deleteSlot(slotId, doctorId);
+            res.json({ status: "success", data: result });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to delete slot.";
+            res.status(400).json({ status: "error", message });
+        }
+    }
 }

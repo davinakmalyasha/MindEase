@@ -8,14 +8,14 @@ import BottomBar from "@/components/layout/BottomBar";
 
 export default function Home() {
   return (
-    <main className="w-full flex flex-col items-center bg-white min-h-screen text-black font-sans">
-      <div className="w-[90%] flex flex-col">
-        <Navbar />
-        <HeroSection />
+    <main className="w-full flex flex-col items-center bg-white min-h-screen text-black font-sans overflow-x-hidden">
+      <Navbar />
+      <HeroSection />
+      <div className="w-full max-w-[90%] mx-auto flex flex-col">
         <IntroductionSection />
         <PromoSection />
-        <ReviewsSection />
       </div>
+      <ReviewsSection />
       <Footer />
     </main>
   );

@@ -63,9 +63,41 @@ export class DoctorService {
 
         return {
             totalPatients,
-            pendingAppointments,
-            confirmedAppointments,
+            pendingAppointments: pendingAppointments,
+            confirmedAppointments: confirmedAppointments,
             totalAppointments: appointments.length,
         };
+    }
+
+    static async getSlots(doctorId: number) {
+        return await prisma.consultationSlot.findMany({
+            where: { doctorId },
+            orderBy: { date: "desc" }
+        });
+    }
+
+    static async createSlot(data: { doctorId: number; date: string; start_time: string; end_time: string }) {
+        return await prisma.consultationSlot.create({
+            data: {
+                doctorId: data.doctorId,
+                date: new Date(data.date),
+                startTime: data.start_time,
+                endTime: data.end_time,
+                isBooked: false
+            }
+        });
+    }
+
+    static async deleteSlot(slotId: number, doctorId: number) {
+        const slot = await prisma.consultationSlot.findFirst({
+            where: { id: slotId, doctorId },
+        });
+
+        if (!slot) throw new Error("Slot not found.");
+        if (slot.isBooked) throw new Error("Cannot delete a booked slot.");
+
+        return await prisma.consultationSlot.delete({
+            where: { id: slotId },
+        });
     }
 }
