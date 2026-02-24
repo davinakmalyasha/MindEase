@@ -13,7 +13,11 @@ export class UserService {
     }
 
     static async updateProfile(userId: number, data: any) {
-        const { name, phone_number, avatar, bio, specialization, price } = data;
+        if (!data) throw new Error("Data is undefined");
+        const { name, phone_number, avatar, bio, specialization, price, consultation_fee } = data;
+
+        // fee can come as consultation_fee from UI or price from other places
+        const finalPrice = price || consultation_fee;
 
         const user = await prisma.user.update({
             where: { id: userId },
@@ -30,13 +34,13 @@ export class UserService {
                 update: {
                     bio,
                     specialty: specialization,
-                    price: parseInt(price) || 0,
+                    price: parseInt(finalPrice) || 0,
                 },
                 create: {
                     userId: user.id,
                     bio: bio || "",
                     specialty: specialization || "General Psychologist",
-                    price: parseInt(price) || 0,
+                    price: parseInt(finalPrice) || 0,
                 },
             });
         }

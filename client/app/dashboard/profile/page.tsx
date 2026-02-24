@@ -49,8 +49,10 @@ export default function ProfilePage() {
     const [fee, setFee] = useState<string | number>("");
     const [file, setFile] = useState<File | null>(null);
     const [preview, setPreview] = useState("");
+    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
+        setMounted(true);
         const fetchProfile = async () => {
             try {
                 const res = await api.get("/users/profile");
@@ -137,6 +139,8 @@ export default function ProfilePage() {
         }
     };
 
+    if (!mounted) return null;
+
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -146,7 +150,7 @@ export default function ProfilePage() {
     }
 
     return (
-        <main className="min-h-screen bg-gray-50/50 pb-20 pt-10 px-4 md:px-8">
+        <main className="min-h-screen bg-white pb-20 pt-10 px-4 md:px-8">
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}

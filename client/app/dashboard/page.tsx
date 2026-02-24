@@ -23,8 +23,10 @@ export default function Dashboard() {
     const router = useRouter();
     const [user, setUser] = useState<any>(null);
     const [stats, setStats] = useState<any>(null);
+    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
+        setMounted(true);
         const userData = localStorage.getItem("user");
         if (!userData) {
             router.push("/login");
@@ -53,10 +55,33 @@ export default function Dashboard() {
         }
     };
 
+    if (!mounted) return null;
+
     if (!user) return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        </div>
+        <main className="min-h-screen bg-white">
+            <Navbar />
+            <div className="pt-32 pb-20 px-4 md:px-8 max-w-7xl mx-auto animate-pulse">
+                {/* Welcome skeleton */}
+                <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 flex flex-col md:flex-row items-center gap-8 mb-12">
+                    <div className="w-24 h-24 rounded-3xl bg-gray-100" />
+                    <div className="flex-1 space-y-3">
+                        <div className="h-4 w-32 bg-gray-100 rounded-lg" />
+                        <div className="h-7 w-64 bg-gray-100 rounded-lg" />
+                        <div className="h-3 w-48 bg-gray-50 rounded-lg" />
+                    </div>
+                </div>
+                {/* Card skeletons */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {[1, 2, 3].map((i) => (
+                        <div key={i} className="bg-white p-6 rounded-3xl border border-gray-100 space-y-4">
+                            <div className="w-14 h-14 rounded-2xl bg-gray-100" />
+                            <div className="h-5 w-36 bg-gray-100 rounded-lg" />
+                            <div className="h-3 w-48 bg-gray-50 rounded-lg" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </main>
     );
 
     const cards = {
@@ -75,10 +100,10 @@ export default function Dashboard() {
         ]
     };
 
-    const userCards = cards[user.role as keyof typeof cards] || [];
+    const userCards = (cards[user.role as keyof typeof cards] || cards.patient) as any[];
 
     return (
-        <main className="min-h-screen bg-gray-50/50">
+        <main className="min-h-screen bg-white">
             <Navbar />
 
             <div className="pt-32 pb-20 px-4 md:px-8 max-w-7xl mx-auto">

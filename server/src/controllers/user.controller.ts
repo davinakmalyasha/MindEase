@@ -17,11 +17,18 @@ export class UserController {
         try {
             // @ts-ignore
             const userId = req.user.id;
-            // Note: In real app we'd use multer for avatar upload
-            // For now assuming data comes in body
-            const updatedProfile = await UserService.updateProfile(userId, req.body);
+
+            // req.body will now contain the text fields since we use multer
+            // req.file will contain the avatar if uploaded
+            const profileData = {
+                ...req.body,
+                avatar: req.file ? `/uploads/${req.file.filename}` : req.body.avatar
+            };
+
+            const updatedProfile = await UserService.updateProfile(userId, profileData);
             res.json({ status: "success", user: updatedProfile });
         } catch (error: any) {
+            console.error("[Update Profile Error]", error);
             res.status(500).json({ status: "error", message: error.message });
         }
     }
