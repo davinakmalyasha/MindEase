@@ -13,8 +13,11 @@ export class DoctorController {
 
     static async getById(req: Request, res: Response) {
         try {
-            const id = req.params.id as string;
-            const doctor = await DoctorService.getDoctorById(parseInt(id));
+            const id = parseInt(req.params.id as string);
+            if (!id) {
+                return res.status(400).json({ status: "error", message: "Invalid doctor id" });
+            }
+            const doctor = await DoctorService.getDoctorById(id);
             if (!doctor) {
                 return res.status(404).json({ status: "error", message: "Doctor not found" });
             }
@@ -26,8 +29,10 @@ export class DoctorController {
 
     static async getStats(req: Request, res: Response) {
         try {
-            // @ts-ignore
-            const doctorId = req.user?.doctorProfile?.id || req.user?.id;
+            const doctorId = req.user!.doctorProfileId;
+            if (!doctorId) {
+                return res.status(400).json({ status: "error", message: "Doctor profile not found" });
+            }
             const stats = await DoctorService.getDoctorStats(doctorId);
             res.json({ status: "success", data: stats });
         } catch (error: any) {
@@ -38,8 +43,11 @@ export class DoctorController {
     static async getSlots(req: Request, res: Response) {
         try {
             const doctorId = parseInt(req.params.id as string);
+            if (!doctorId) {
+                return res.status(400).json({ status: "error", message: "Invalid doctor id" });
+            }
             const slots = await DoctorService.getSlots(doctorId);
-            res.json(slots); // Match frontend expectation of direct array or wrapped
+            res.json({ status: "success", data: slots });
         } catch (error: any) {
             res.status(500).json({ status: "error", message: error.message });
         }
@@ -47,17 +55,30 @@ export class DoctorController {
 
     static async createSlot(req: Request, res: Response) {
         try {
-            const slot = await DoctorService.createSlot(req.body);
-            res.status(201).json(slot);
-        } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            const doctorId = req.user!.doctorProfileId;
+            if (!doctorId) {
+                return res.status(400).json({ status: "error", message: "Doctor profile not found" });
+            }
+            const slot = await DoctorService.createSlot({
+                doctorId,
+                date: req.body.date,
+                start_time: req.body.start_time,
+                end_time: req.body.end_time,
+            });
+            res.status(201).json({ status: "success", data: slot });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to create slot.";
+            res.status(400).json({ status: "error", message });
         }
     }
 
     static async deleteSlot(req: Request, res: Response) {
         try {
             const slotId = parseInt(req.params.id as string);
-            const doctorId = (req as any).user?.doctorProfile?.id || (req as any).user?.id;
+            const doctorId = req.user!.doctorProfileId;
+            if (!doctorId) {
+                return res.status(400).json({ status: "error", message: "Doctor profile not found" });
+            }
             const result = await DoctorService.deleteSlot(slotId, doctorId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
