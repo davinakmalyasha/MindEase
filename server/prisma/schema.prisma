@@ -18,7 +18,16 @@ model User {
   phone_number  String?
   provider      String         @default("local") // "local" or "google"
   googleId      String?        @unique
+  isBanned      Boolean        @default(false)
+  isVerified    Boolean        @default(false)
+  failedAttempts Int           @default(0)
+  lockedUntil   DateTime?
+  totpSecret    String?
+  totpEnabled   Boolean        @default(false)
+  resetOtpHash  String?
+  resetOtpExpiresAt DateTime?
   refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]     @relation("ActorLogs")
   appointments  Appointment[]
   reviews       Review[]
   messagesSent     Message[]      @relation("SentMessages")
@@ -39,6 +48,9 @@ model Doctor {
   experience       Int                @default(0)
   rating           Float              @default(5.0)
   price            Int                @default(0)
+  bankName         String?
+  bankAccount      String?
+  bankHolder       String?
   availability     String             @default("Available")
   appointments     Appointment[]
   reviews          Review[]
@@ -53,6 +65,8 @@ model Appointment {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   doctorId        Int
   doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  slotId          Int?     @unique
+  slot            ConsultationSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
   appointmentDate DateTime
   startTime       String?
   endTime         String?
@@ -60,19 +74,24 @@ model Appointment {
   status          String   @default("pending") // pending, confirmed, cancelled, completed
   notes           String?  @db.Text
   meetingLink     String?
+  idempotencyKey  String?  @unique
+  preSessionData  PreSessionData?
+  reviews         Review[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
 
 model Review {
-  id        Int      @id @default(autoincrement())
-  rating    Int
-  comment   String   @db.Text
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  doctorId  Int
-  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  rating        Int
+  comment       String   @db.Text
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctorId      Int
+  doctor        Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  appointmentId Int?     @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
 }
 
 model Message {
@@ -105,6 +124,18 @@ model ConsultationSlot {
   startTime String
   endTime   String
   isBooked  Boolean  @default(false)
+  appointment Appointment?
+}
+
+model PreSessionData {
+  id            Int      @id @default(autoincrement())
+  appointmentId Int      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  questionsJson String?  @db.Text
+  answersJson   String?  @db.Text
+  briefingText  String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model RefreshToken {
@@ -123,4 +154,18 @@ model MoodEntry {
   mood      Int
   notes     String?  @db.Text
   createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actorId   Int?
+  actor     User?    @relation("ActorLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  targetType String?
+  targetId  Int?
+  meta      String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetType, targetId])
 }
