@@ -8,50 +8,50 @@ const prisma = new PrismaClient();
 export class AppointmentController {
     static async book(req: Request, res: Response) {
         try {
-            const { doctorId, appointmentDate, startTime, endTime, consultationType, notes } = req.body;
-            // @ts-ignore
-            const userId = req.user.id;
+            const userId = req.user!.id;
+            const { doctorId, appointmentDate, startTime, endTime, consultationType, notes, slotId, idempotencyKey } = req.body;
 
             const appointment = await AppointmentService.createAppointment({
                 userId,
                 doctorId,
-                appointmentDate: new Date(appointmentDate),
+                appointmentDate,
                 startTime,
                 endTime,
-                consultationType,
+                consultationType: consultationType || "video",
                 notes,
+                slotId,
+                idempotencyKey,
             });
 
             res.status(201).json({ status: "success", data: appointment });
 
-            // Auto-notify: tell the doctor about the new booking
             try {
-                const doctor = await prisma.doctor.findUnique({ where: { id: doctorId }, include: { user: true } });
+                const doctor = await prisma.doctor.findUnique({
+                    where: { id: doctorId },
+                    include: { user: { select: { id: true } } },
+                });
                 if (doctor) {
                     await NotificationService.create({
                         userId: doctor.userId,
                         title: "New Appointment Request",
-                        message: `A patient has booked a session on ${new Date(appointmentDate).toLocaleDateString()}.`,
+                        message: `A patient has booked a session on ${new Date(appointmentDate).toLocaleDateString()} at ${startTime}.`,
                         type: "appointment",
                     });
                 }
             } catch (_) { /* non-critical */ }
-        } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to book appointment.";
+            res.status(400).json({ status: "error", message });
         }
     }
 
     static async getMy(req: Request, res: Response) {
         try {
-            // @ts-ignore
-            const user = req.user;
-
-            console.log(`[Appointments] Fetching for user: ${user.email} (Role: ${user.role})`);
-
-            const appointments = await AppointmentService.getAppointmentsByRole(user);
-            console.log(`[Appointments] Found ${appointments.length} records`);
-
-            res.json({ status: "success", data: appointments });
+            const user = req.user!;
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = parseInt(req.query.limit as string) || 20;
+            const result = await AppointmentService.getAppointmentsByRole(user, page, limit);
+            res.json({ status: "success", data: result });
         } catch (error: any) {
             res.status(500).json({ status: "error", message: error.message });
         }
@@ -59,9 +59,11 @@ export class AppointmentController {
 
     static async updateStatus(req: Request, res: Response) {
         try {
+            const id = parseInt(req.params.id as string);
+            if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
+
             const { status } = req.body;
-            const id = req.params.id as string;
-            const appointment = await AppointmentService.updateStatus(parseInt(id), status);
+            const appointment = await AppointmentService.updateStatus(id, status, req.user!);
             res.json({ status: "success", data: appointment });
 
             // Auto-notify based on status change
@@ -70,17 +72,16 @@ export class AppointmentController {
                     await NotificationService.create({
                         userId: appointment.userId,
                         title: "Appointment Confirmed",
-                        message: `Your appointment on ${new Date(appointment.appointmentDate).toLocaleDateString()} has been confirmed by the doctor.`,
+                        message: `Your appointment on ${new Date(appointment.appointmentDate).toLocaleDateString()} at ${appointment.startTime} has been confirmed.`,
                         type: "appointment",
                     });
                 } else if (status === "cancelled") {
-                    // Notify the other party
-                    const user = (req as any).user;
-                    if (user.role === "doctor") {
+                    const actor = req.user!;
+                    if (actor.role === "doctor") {
                         await NotificationService.create({
                             userId: appointment.userId,
                             title: "Appointment Cancelled",
-                            message: `Your appointment on ${new Date(appointment.appointmentDate).toLocaleDateString()} has been cancelled by the doctor.`,
+                            message: `Your appointment on ${new Date(appointment.appointmentDate).toLocaleDateString()} was cancelled by the doctor.`,
                             type: "appointment",
                         });
                     } else {
@@ -89,7 +90,7 @@ export class AppointmentController {
                             await NotificationService.create({
                                 userId: doctor.userId,
                                 title: "Appointment Cancelled",
-                                message: `A patient has cancelled their appointment on ${new Date(appointment.appointmentDate).toLocaleDateString()}.`,
+                                message: `A patient cancelled their appointment on ${new Date(appointment.appointmentDate).toLocaleDateString()}.`,
                                 type: "appointment",
                             });
                         }
@@ -103,8 +104,45 @@ export class AppointmentController {
                     });
                 }
             } catch (_) { /* non-critical */ }
-        } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to update status.";
+            res.status(403).json({ status: "error", message });
+        }
+    }
+
+    static async reschedule(req: Request, res: Response) {
+        try {
+            const id = parseInt(req.params.id as string);
+            if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
+
+            const { appointmentDate, startTime, endTime, slotId } = req.body;
+            const appointment = await AppointmentService.reschedule(id, req.user!, {
+                appointmentDate,
+                startTime,
+                endTime,
+                slotId,
+            });
+
+            res.json({ status: "success", data: appointment });
+
+            // Notify the doctor about the reschedule
+            try {
+                const doctor = await prisma.doctor.findUnique({
+                    where: { id: appointment.doctorId },
+                    include: { user: { select: { id: true } } },
+                });
+                if (doctor) {
+                    await NotificationService.create({
+                        userId: doctor.userId,
+                        title: "Appointment Rescheduled",
+                        message: `A patient rescheduled their appointment to ${new Date(appointment.appointmentDate).toLocaleDateString()} at ${appointment.startTime}. Please re-confirm.`,
+                        type: "appointment",
+                    });
+                }
+            } catch (_) { /* non-critical */ }
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to reschedule appointment.";
+            res.status(400).json({ status: "error", message });
         }
     }
 }
