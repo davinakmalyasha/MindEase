@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { sanitize } from "../utils/sanitize";
 
 const prisma = new PrismaClient();
 
@@ -12,7 +13,7 @@ interface CreateReviewInput {
 
 export class ReviewService {
     static async createReview(data: CreateReviewInput) {
-        // Validate: appointment must exist, belong to user, and be completed
+        // Validate: appointment must exist, belong to user, match doctor, and be completed
         const appointment = await prisma.appointment.findFirst({
             where: {
                 id: data.appointmentId,
@@ -26,22 +27,21 @@ export class ReviewService {
             throw new Error("Invalid appointment or not eligible for review.");
         }
 
-        // Validate: no duplicate review for the same appointment
-        const existingReview = await prisma.review.findFirst({
-            where: {
-                userId: data.userId,
-                doctorId: data.doctorId,
-            },
+        // Enforce one review per appointment
+        const existing = await prisma.review.findUnique({
+            where: { appointmentId: data.appointmentId },
         });
-
-        // Allow multiple reviews per doctor but could restrict per appointment if needed
+        if (existing) {
+            throw new Error("You have already reviewed this appointment.");
+        }
 
         const review = await prisma.review.create({
             data: {
                 userId: data.userId,
                 doctorId: data.doctorId,
+                appointmentId: data.appointmentId,
                 rating: data.rating,
-                comment: data.comment,
+                comment: sanitize(data.comment),
             },
             include: {
                 user: {
@@ -64,7 +64,11 @@ export class ReviewService {
             },
         });
 
-        return { review, averageRating: aggregation._avg.rating, totalReviews: aggregation._count.rating };
+        return {
+            review,
+            averageRating: aggregation._avg.rating,
+            totalReviews: aggregation._count.rating,
+        };
     }
 
     static async getReviewsByDoctor(doctorId: number) {
@@ -86,9 +90,17 @@ export class ReviewService {
             _count: { rating: true },
         });
 
+        // Rating distribution for the summary card
+        const distribution = await prisma.review.groupBy({
+            by: ["rating"],
+            where: { doctorId },
+            _count: { rating: true },
+        });
+
         return {
             averageRating: Math.round((aggregation._avg.rating || 0) * 10) / 10,
             totalReviews: aggregation._count.rating,
+            distribution: Object.fromEntries(distribution.map((d) => [d.rating, d._count.rating])),
         };
     }
 }
