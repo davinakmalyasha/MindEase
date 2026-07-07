@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { AuthService } from "../services/auth.service";
+import { TwoFactorService } from "../services/twoFactor.service";
 
 // Cookie Options
 const COOKIE_OPTIONS = {
@@ -26,6 +27,15 @@ export class AuthController {
     static async login(req: Request, res: Response) {
         try {
             const result = await AuthService.login(req.body);
+
+            // 2FA gate: issue a short-lived ticket instead of session cookies
+            if (result.user.totpEnabled) {
+                const twoFactorToken = TwoFactorService.issuePendingToken(result.user.id);
+                return res.json({
+                    status: "success",
+                    data: { requires2FA: true, twoFactorToken, user: result.user },
+                });
+            }
 
             res.cookie("refreshToken", result.refreshToken, COOKIE_OPTIONS);
             res.cookie("accessToken", result.accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
