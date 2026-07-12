@@ -1,11 +1,16 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/index.ts",
-    "start": "ts-node src/index.ts"
+    "start": "ts-node src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "db:push": "prisma db push",
+    "db:seed": "ts-node scripts/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:db": "cross-env DATABASE_URL=mysql://root:@localhost:3306/mindease_test prisma db push --skip-generate"
   },
   "keywords": [],
   "author": "",
@@ -13,6 +18,7 @@
   "type": "commonjs",
   "description": "",
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.2.1",
     "@types/multer": "^2.0.0",
@@ -30,6 +36,14 @@
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "mysql2": "^3.16.2",
+    "nodemailer": "^9.0.3",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "qrcode": "^1.5.4",
+    "redis": "^6.2.0",
+    "sanitize-html": "^2.17.6",
+    "speakeasy": "^2.0.0",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -39,9 +53,18 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^25.2.2",
+    "@types/nodemailer": "^8.0.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/sanitize-html": "^2.16.1",
+    "@types/speakeasy": "^2.0.10",
+    "@types/supertest": "^7.2.1",
+    "@types/swagger-ui-express": "^4.1.8",
+    "cross-env": "^10.1.0",
     "nodemon": "^3.1.11",
-    "prisma": "^7.3.0",
+    "prisma": "^6.2.1",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   }
 }
