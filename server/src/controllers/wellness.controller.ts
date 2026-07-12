@@ -4,8 +4,9 @@ import { WellnessService } from "../services/wellness.service";
 export class WellnessController {
     static async logMood(req: Request, res: Response) {
         try {
-            const userId = (req as any).user.id;
-            const { mood, notes } = req.body;
+            const userId = req.user!.id;
+            const mood = Number(req.body.mood);
+            const notes = req.body.notes;
 
             if (!mood || mood < 1 || mood > 5) {
                 res.status(400).json({ status: "error", message: "Mood must be 1-5." });
@@ -22,7 +23,7 @@ export class WellnessController {
 
     static async getMoodHistory(req: Request, res: Response) {
         try {
-            const userId = (req as any).user.id;
+            const userId = req.user!.id;
             const days = parseInt(req.query.days as string) || 14;
             const entries = await WellnessService.getMoodHistory(userId, days);
             res.json({ status: "success", data: entries });
@@ -34,7 +35,7 @@ export class WellnessController {
 
     static async getMoodStats(req: Request, res: Response) {
         try {
-            const userId = (req as any).user.id;
+            const userId = req.user!.id;
             const stats = await WellnessService.getMoodStats(userId);
             res.json({ status: "success", data: stats });
         } catch (error: unknown) {
