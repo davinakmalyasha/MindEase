@@ -3,19 +3,31 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const genAI = process.env.GEMINI_API_KEY
+    ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    : null;
 
 export class AIService {
     private static getModel() {
+        if (!genAI) throw new Error("GEMINI_API_KEY is not configured");
         return genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    }
+
+    private static async generate(prompt: string): Promise<string | null> {
+        try {
+            const model = this.getModel();
+            const result = await model.generateContent(prompt);
+            return result.response.text().trim();
+        } catch (error: any) {
+            console.error("[AI Service] Gemini call failed, using fallback:", error.message);
+            return null;
+        }
     }
 
     static async generatePreSessionQuestions(
         specialty: string,
         appointmentNotes?: string
     ): Promise<string[]> {
-        const model = this.getModel();
-
         const prompt = `You are a compassionate mental health assistant for MindEase, a mental health platform.
 A patient has an upcoming session with a ${specialty} specialist.
 ${appointmentNotes ? `Patient's notes: "${appointmentNotes}"` : "No prior notes provided."}
@@ -30,20 +42,25 @@ The questions should:
 Return ONLY a JSON array of 5 strings, no markdown formatting, no explanation. Example:
 ["Question 1?", "Question 2?", "Question 3?", "Question 4?", "Question 5?"]`;
 
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const fallback = [
+            "How have you been feeling emotionally this past week?",
+            "Have you noticed any changes in your sleep or appetite?",
+            "What situations or thoughts have been most challenging lately?",
+            "What would you most like to address in this session?",
+            "Are there any coping strategies that have been helpful or unhelpful?",
+        ];
+
+        const text = await this.generate(prompt);
+        if (!text) return fallback;
 
         try {
             const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-            return JSON.parse(cleaned);
+            const parsed = JSON.parse(cleaned);
+            return Array.isArray(parsed) && parsed.length > 0 && parsed.every((q) => typeof q === "string")
+                ? parsed.slice(0, 5)
+                : fallback;
         } catch {
-            return [
-                "How have you been feeling emotionally this past week?",
-                "Have you noticed any changes in your sleep or appetite?",
-                "What situations or thoughts have been most challenging lately?",
-                "What would you most like to address in this session?",
-                "Are there any coping strategies that have been helpful or unhelpful?",
-            ];
+            return fallback;
         }
     }
 
@@ -53,8 +70,6 @@ Return ONLY a JSON array of 5 strings, no markdown formatting, no explanation. E
         moodHistory: { mood: number; notes: string | null; createdAt: Date }[],
         preSessionAnswers: { question: string; answer: string }[]
     ): Promise<string> {
-        const model = this.getModel();
-
         const moodSummary = moodHistory.length > 0
             ? moodHistory.map((m) => `Mood: ${m.mood}/5${m.notes ? ` — "${m.notes}"` : ""}`).join("; ")
             : "No mood data available.";
@@ -79,15 +94,30 @@ Write a single professional paragraph (3-5 sentences) that:
 
 Return ONLY the paragraph text, no markdown, no formatting.`;
 
-        const result = await model.generateContent(prompt);
-        return result.response.text().trim();
+        const result = await this.generate(prompt);
+        if (!result) {
+            // Local fallback: compile a data-driven summary without the LLM
+            const avg = moodHistory.length
+                ? (moodHistory.reduce((s, m) => s + m.mood, 0) / moodHistory.length).toFixed(1)
+                : "n/a";
+            const concerns = preSessionAnswers
+                .map((a) => a.answer)
+                .join(" ")
+                .trim();
+            return (
+                `Patient has logged ${moodHistory.length} mood entries in the past 14 days with an average of ${avg}/5. ` +
+                (concerns ? `They shared: "${concerns.slice(0, 200)}". ` : "") +
+                "Consider exploring sleep quality, stress triggers, and coping strategies. " +
+                "Revisit their pre-session responses during the session for deeper context."
+            );
+        }
+
+        return result;
     }
 
     static async suggestResources(
         recentMoods: { mood: number; notes: string | null }[]
     ): Promise<{ title: string; description: string; type: string }[]> {
-        const model = this.getModel();
-
         const moodData = recentMoods.length > 0
             ? recentMoods.map((m) => `${m.mood}/5${m.notes ? ` ("${m.notes}")` : ""}`).join(", ")
             : "No mood data yet";
@@ -110,18 +140,34 @@ Return ONLY a JSON array of 3 objects, each with:
 No markdown formatting. Example:
 [{"title":"5-Minute Breathing","description":"Try box breathing to reduce anxiety.","type":"breathing"}]`;
 
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const fallback = [
+            { title: "Deep Breathing", description: "Try 4-7-8 breathing for 5 minutes to calm your mind.", type: "breathing" },
+            { title: "Gratitude Journal", description: "Write down 3 things you're grateful for today.", type: "journaling" },
+            { title: "Gentle Walk", description: "Take a 15-minute walk outside to boost your mood.", type: "exercise" },
+        ];
+
+        const text = await this.generate(prompt);
+        if (!text) return fallback;
 
         try {
             const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-            return JSON.parse(cleaned);
+            const parsed = JSON.parse(cleaned);
+            if (
+                Array.isArray(parsed) &&
+                parsed.length > 0 &&
+                parsed.every(
+                    (s) =>
+                        s &&
+                        typeof s.title === "string" &&
+                        typeof s.description === "string" &&
+                        typeof s.type === "string"
+                )
+            ) {
+                return parsed.slice(0, 3);
+            }
+            return fallback;
         } catch {
-            return [
-                { title: "Deep Breathing", description: "Try 4-7-8 breathing for 5 minutes to calm your mind.", type: "breathing" },
-                { title: "Gratitude Journal", description: "Write down 3 things you're grateful for today.", type: "journaling" },
-                { title: "Gentle Walk", description: "Take a 15-minute walk outside to boost your mood.", type: "exercise" },
-            ];
+            return fallback;
         }
     }
 }
