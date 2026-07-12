@@ -33,22 +33,20 @@ export class WellnessService {
 
         const average = entries.reduce((sum, e) => sum + e.mood, 0) / entries.length;
 
-        // Calculate streak (consecutive days with entries)
+        // Calculate streak (consecutive days with entries) — timezone-safe local dates
         let streak = 0;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
+        const localDateKey = (d: Date) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+        const entryDates = new Set(entries.map((e) => localDateKey(new Date(e.createdAt))));
+
         for (let i = 0; i < 30; i++) {
             const checkDate = new Date(today);
             checkDate.setDate(today.getDate() - i);
-            const dateStr = checkDate.toISOString().split("T")[0];
-
-            const hasEntry = entries.some((e) => {
-                const entryDate = new Date(e.createdAt).toISOString().split("T")[0];
-                return entryDate === dateStr;
-            });
-
-            if (hasEntry) {
+            if (entryDates.has(localDateKey(checkDate))) {
                 streak++;
             } else {
                 break;
