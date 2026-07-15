@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { notifyUser } from "./realtime.service";
 
 const prisma = new PrismaClient();
 
@@ -11,7 +12,7 @@ interface CreateNotificationInput {
 
 export class NotificationService {
     static async create(data: CreateNotificationInput) {
-        return await prisma.notification.create({
+        const notification = await prisma.notification.create({
             data: {
                 userId: data.userId,
                 title: data.title,
@@ -19,6 +20,11 @@ export class NotificationService {
                 type: data.type || "system",
             },
         });
+
+        // Live push via the Go realtime service (fire-and-forget)
+        await notifyUser(data.userId, data.title, data.message, data.type || "system");
+
+        return notification;
     }
 
     static async getUserNotifications(userId: number, limit = 20) {
