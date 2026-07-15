@@ -1,43 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Check, CheckCheck, Clock } from "lucide-react";
-import api from "@/lib/api";
-
-interface Notification {
-    id: number;
-    title: string;
-    message: string;
-    isRead: boolean;
-    type: string | null;
-    createdAt: string;
-}
+import Link from "next/link";
+import { useNotifications } from "@/hooks/useNotifications";
+import { useRealtime } from "@/hooks/useRealtime";
 
 export default function NotificationBell() {
-    const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+    const { notifications, unreadCount, markAsRead, markAllAsRead, refresh } = useNotifications(30000);
+    const { connected, onMessage } = useRealtime();
 
-    const fetchNotifications = useCallback(async () => {
-        try {
-            const [notifRes, countRes] = await Promise.all([
-                api.get("/notifications"),
-                api.get("/notifications/unread-count"),
-            ]);
-            setNotifications(notifRes.data.data || []);
-            setUnreadCount(countRes.data.data?.count || 0);
-        } catch {
-            // User might not be logged in
-        }
-    }, []);
-
+    // Live refresh when a notification event arrives over the socket
     useEffect(() => {
-        fetchNotifications();
-        const interval = setInterval(fetchNotifications, 30000); // poll every 30s
-        return () => clearInterval(interval);
-    }, [fetchNotifications]);
+        onMessage((msg) => {
+            if (msg.type === "notification:new") refresh();
+        });
+    }, [onMessage, refresh]);
 
     // Close on click outside
     useEffect(() => {
@@ -50,25 +31,8 @@ export default function NotificationBell() {
         return () => document.removeEventListener("mousedown", handler);
     }, []);
 
-    const markAsRead = async (id: number) => {
-        try {
-            await api.patch(`/notifications/${id}/read`);
-            setNotifications((prev) =>
-                prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-            );
-            setUnreadCount((prev) => Math.max(0, prev - 1));
-        } catch { /* ignore */ }
-    };
-
-    const markAllAsRead = async () => {
-        try {
-            await api.patch("/notifications/read-all");
-            setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-            setUnreadCount(0);
-        } catch { /* ignore */ }
-    };
-
     const timeAgo = (dateStr: string) => {
+        // eslint-disable-next-line react-hooks/purity
         const diff = Date.now() - new Date(dateStr).getTime();
         const mins = Math.floor(diff / 60000);
         if (mins < 1) return "Just now";
@@ -91,6 +55,7 @@ export default function NotificationBell() {
                         {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                 )}
+                {connected && <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" title="Live" />}
             </button>
 
             <AnimatePresence>
@@ -102,21 +67,24 @@ export default function NotificationBell() {
                         transition={{ duration: 0.2 }}
                         className="absolute right-0 top-14 w-80 md:w-96 bg-white rounded-2xl border border-gray-100 shadow-2xl shadow-black/10 overflow-hidden z-50"
                     >
-                        {/* Header */}
                         <div className="px-5 py-4 border-b border-gray-50 flex justify-between items-center">
                             <h3 className="font-bold text-gray-900 text-sm">Notifications</h3>
-                            {unreadCount > 0 && (
-                                <button
-                                    onClick={markAllAsRead}
-                                    className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
-                                >
-                                    <CheckCheck className="w-3.5 h-3.5" />
-                                    Mark all read
-                                </button>
-                            )}
+                            <div className="flex items-center gap-2">
+                                {unreadCount > 0 && (
+                                    <button
+                                        onClick={markAllAsRead}
+                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                    >
+                                        <CheckCheck className="w-3.5 h-3.5" />
+                                        Mark all read
+                                    </button>
+                                )}
+                                <Link href="/notifications" onClick={() => setIsOpen(false)} className="text-xs font-bold text-gray-400 hover:text-gray-600">
+                                    View all
+                                </Link>
+                            </div>
                         </div>
 
-                        {/* List */}
                         <div className="max-h-80 overflow-y-auto">
                             {notifications.length === 0 ? (
                                 <div className="py-12 text-center">
@@ -124,7 +92,7 @@ export default function NotificationBell() {
                                     <p className="text-sm text-gray-400 font-medium">No notifications yet</p>
                                 </div>
                             ) : (
-                                notifications.map((notif) => (
+                                notifications.slice(0, 10).map((notif) => (
                                     <button
                                         key={notif.id}
                                         onClick={() => !notif.isRead && markAsRead(notif.id)}
