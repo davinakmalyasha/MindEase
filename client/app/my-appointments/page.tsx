@@ -1,39 +1,62 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { MOCK_MY_APPOINTMENTS, AppointmentWithDoctor } from "@/lib/data";
+import { useState, useEffect, useCallback } from "react";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import AppointmentCard from "@/components/appointments/AppointmentCard";
 import AppointmentFilters from "@/components/appointments/AppointmentFilters";
 import EmptyState from "@/components/appointments/EmptyState";
 import { motion, AnimatePresence } from "framer-motion";
-import { Calendar, ChevronRight, LayoutDashboard } from "lucide-react";
+import { Calendar, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import api, { getErrorMessage } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/components/ui/Toast";
 
 type Status = 'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled';
 
 export default function MyAppointmentsPage() {
-    const [appointments, setAppointments] = useState<AppointmentWithDoctor[]>(MOCK_MY_APPOINTMENTS);
+    const [appointments, setAppointments] = useState<any[]>([]);
     const [activeStatus, setActiveStatus] = useState<Status>('all');
     const [isLoading, setIsLoading] = useState(true);
+    const { user } = useAuth();
+    const { toast } = useToast();
+
+    const fetchAppointments = useCallback(async () => {
+        try {
+            const res = await api.get("/appointments/my");
+            setAppointments(res.data?.data || []);
+        } catch (error) {
+            toast(getErrorMessage(error, "Failed to load appointments"), "error");
+        } finally {
+            setIsLoading(false);
+        }
+    }, [toast]);
 
     useEffect(() => {
-        // Simulate loading state
-        const timer = setTimeout(() => {
-            setIsLoading(false);
-        }, 800);
-        return () => clearTimeout(timer);
-    }, []);
+        fetchAppointments();
+    }, [fetchAppointments]);
 
     const filteredAppointments = activeStatus === 'all'
         ? appointments
         : appointments.filter(app => app.status === activeStatus);
 
-    const handleCancel = (id: number) => {
-        setAppointments(prev => prev.map(app =>
-            app.id === id ? { ...app, status: 'cancelled' } : app
-        ));
+    const handleCancel = async (id: number) => {
+        try {
+            await api.put(`/appointments/${id}/status`, { status: "cancelled" });
+            toast("Appointment cancelled", "success");
+            setAppointments(prev => prev.map(app =>
+                app.id === id ? { ...app, status: 'cancelled' } : app
+            ));
+        } catch (error) {
+            toast(getErrorMessage(error, "Failed to cancel appointment"), "error");
+        }
+    };
+
+    const handleViewDetails = (id: number) => {
+        // Scroll to the appointment in the dashboard history is not possible here;
+        // open the booking history page for full detail.
+        window.location.href = "/dashboard/appointments";
     };
 
     return (
@@ -41,7 +64,6 @@ export default function MyAppointmentsPage() {
             <Navbar />
 
             <div className="pt-32 pb-20 px-4 md:px-8 max-w-6xl mx-auto">
-                {/* Header Section */}
                 <header className="mb-10">
                     <motion.div
                         initial={{ opacity: 0, x: -20 }}
@@ -70,7 +92,6 @@ export default function MyAppointmentsPage() {
                     </motion.div>
                 </header>
 
-                {/* Filters */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -83,10 +104,8 @@ export default function MyAppointmentsPage() {
                     />
                 </motion.div>
 
-                {/* Appointments List */}
                 <div className="space-y-4">
                     {isLoading ? (
-                        // Skeleton State
                         Array.from({ length: 3 }).map((_, i) => (
                             <div key={i} className="h-32 w-full bg-gray-50 animate-pulse rounded-3xl" />
                         ))
@@ -97,7 +116,8 @@ export default function MyAppointmentsPage() {
                                     <AppointmentCard
                                         key={app.id}
                                         appointment={app}
-                                        onCancel={handleCancel}
+                                        onCancel={app.status === "pending" ? handleCancel : undefined}
+                                        onViewDetails={handleViewDetails}
                                     />
                                 ))
                             ) : (
@@ -106,6 +126,15 @@ export default function MyAppointmentsPage() {
                         </AnimatePresence>
                     )}
                 </div>
+
+                {user?.role === "doctor" && (
+                    <p className="mt-6 text-sm text-gray-400 text-center">
+                        You are viewing this page as a patient view. Doctors should use the{" "}
+                        <Link href="/dashboard/appointments" className="text-indigo-600 font-semibold hover:underline">
+                            Dashboard History
+                        </Link>.
+                    </p>
+                )}
             </div>
 
             <Footer />
