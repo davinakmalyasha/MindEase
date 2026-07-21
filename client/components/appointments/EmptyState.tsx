@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Calendar, Plus } from "lucide-react";
 import Link from "next/link";
@@ -16,7 +16,7 @@ export default function EmptyState() {
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-2">No Appointments Yet</h3>
             <p className="text-gray-500 max-w-sm mb-8">
-                It seems you haven't booked any consultations yet. Start your wellness journey today.
+                It seems you haven&apos;t booked any consultations yet. Start your wellness journey today.
             </p>
             <Link
                 href="/appointments"
