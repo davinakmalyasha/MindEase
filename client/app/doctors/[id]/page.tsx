@@ -1,50 +1,97 @@
-import { DOCTORS } from "@/lib/data/doctors";
+"use client";
+
+import { useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import DoctorProfile from "@/components/doctors/DoctorProfile";
+import api from "@/lib/api";
 
-// Mock reviews data (could also be fetched from a server in the future)
-const MOCK_REVIEWS = [
-    {
-        id: 1,
-        name: "Ahmad Fauzi",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Ahmad",
-        rating: 5,
-        date: "Feb 10, 2026",
-        comment: "Sangat membantu dalam memahami kondisi kecemasan saya. Penjelasan yang diberikan sangat tenang dan mudah dimengerti."
-    },
-    {
-        id: 2,
-        name: "Siti Aminah",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Siti",
-        rating: 5,
-        date: "Jan 28, 2026",
-        comment: "Dr. Sarah Mitchell sangat profesional dan empatik. Saya merasa didengarkan sepenuhnya."
-    },
-    {
-        id: 3,
-        name: "Budi Pratama",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Pratama",
-        rating: 4,
-        date: "Jan 15, 2026",
-        comment: "Sesi konsultasi yang produktif. Ruangannya nyaman dan platformnya lancar."
-    }
-];
+interface ApiReview {
+    id: number;
+    rating: number;
+    comment: string;
+    createdAt: string;
+    user: { id: number; name: string; avatar?: string };
+}
 
-export default async function DoctorDetailPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = await params;
-    const doctorId = parseInt(id);
-    const doctor = DOCTORS.find(d => d.id === doctorId);
+const mapReview = (r: ApiReview) => ({
+    id: r.id,
+    name: r.user?.name || "Patient",
+    avatar: r.user?.avatar,
+    rating: r.rating,
+    date: new Date(r.createdAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }),
+    comment: r.comment,
+});
 
-    if (!doctor) {
-        notFound();
+const mapDoctor = (d: any) => ({
+    id: d.id,
+    name: d.user?.name || "Doctor",
+    specialty: d.specialty,
+    avatar: d.user?.avatar || "",
+    image: d.user?.avatar || "",
+    rating: d.rating || 0,
+    reviewCount: d.reviews?.length || 0,
+    experience: d.experience || 0,
+    isAvailable: d.availability === "Available",
+    isVerified: true,
+    bio: d.bio || "",
+    price: d.price || 0,
+    availability: d.availability,
+});
+
+export default function DoctorDetailPage({ params }: { params: Promise<{ id: string }> }) {
+    const [doctor, setDoctor] = useState<any>(null);
+    const [reviews, setReviews] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [notFoundState, setNotFoundState] = useState(false);
+
+    useEffect(() => {
+        let active = true;
+        params.then(({ id }) => {
+            api.get(`/doctors/${id}`)
+                .then((res) => {
+                    if (!active) return;
+                    const data = res.data?.data;
+                    if (!data) return setNotFoundState(true);
+                    setDoctor(mapDoctor(data));
+                    setReviews((data.reviews || []).map(mapReview));
+                })
+                .catch((err) => {
+                    if (!active) return;
+                    if (err?.response?.status === 404) setNotFoundState(true);
+                })
+                .finally(() => active && setIsLoading(false));
+        });
+        return () => {
+            active = false;
+        };
+    }, [params]);
+
+    if (notFoundState) notFound();
+
+    if (isLoading || !doctor) {
+        return (
+            <main className="min-h-screen bg-white">
+                <Navbar />
+                <div className="pt-32 px-4 md:px-8 max-w-7xl mx-auto">
+                    <div className="w-40 h-40 rounded-full bg-gray-100 animate-pulse mx-auto md:mx-0" />
+                    <div className="h-8 w-64 bg-gray-100 rounded-lg animate-pulse mt-8" />
+                    <div className="h-4 w-96 bg-gray-50 rounded animate-pulse mt-4 max-w-full" />
+                    <div className="grid md:grid-cols-2 gap-6 mt-12">
+                        {[1, 2].map((i) => (
+                            <div key={i} className="h-48 bg-gray-50 rounded-3xl animate-pulse" />
+                        ))}
+                    </div>
+                </div>
+            </main>
+        );
     }
 
     return (
         <main className="min-h-screen bg-white">
             <Navbar />
-            <DoctorProfile doctor={doctor} reviews={MOCK_REVIEWS} />
+            <DoctorProfile doctor={doctor} reviews={reviews} />
             <Footer />
         </main>
     );
