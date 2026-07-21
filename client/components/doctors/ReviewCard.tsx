@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Star } from "lucide-react";
 import { motion } from "framer-motion";
@@ -42,7 +42,7 @@ export default function ReviewCard({ review }: { review: Review }) {
                 </div>
             </div>
             <p className="text-gray-600 text-sm leading-relaxed italic">
-                "{review.comment}"
+                &ldquo;{review.comment}&rdquo;
             </p>
         </motion.div>
     );

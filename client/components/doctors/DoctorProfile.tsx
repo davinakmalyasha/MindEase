@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Doctor } from "@/lib/types/doctor";
 import ReviewCard from "@/components/doctors/ReviewCard";
@@ -25,6 +26,8 @@ interface DoctorProfileProps {
 }
 
 export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
+    const [showAllReviews, setShowAllReviews] = useState(false);
+    const visibleReviews = showAllReviews ? reviews : reviews.slice(0, 4);
     const treatments = [
         "Anxiety Disorder",
         "Depression",
@@ -122,7 +125,7 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                     <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
                         {[
                             { icon: Briefcase, label: "Experience", value: `${doctor.experience} Years`, color: "text-indigo-500" },
-                            { icon: Users, label: "Patients", value: "450+", color: "text-purple-500" },
+                            { icon: Users, label: "Patients", value: `${doctor.reviewCount} Reviews`, color: "text-purple-500" },
                             { icon: Star, label: "Avg Rating", value: `${doctor.rating} / 5.0`, color: "text-amber-500" }
                         ].map((stat, i) => (
                             <motion.div
@@ -187,15 +190,27 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                                 <Star className="w-7 h-7 text-amber-500" />
                                 Latest Reviews
                             </h2>
-                            <button className="text-indigo-600 font-bold text-sm hover:underline">
-                                See all {doctor.reviewCount} reviews
-                            </button>
+                            {reviews.length > 4 && (
+                                <button
+                                    onClick={() => setShowAllReviews((prev) => !prev)}
+                                    className="text-indigo-600 font-bold text-sm hover:underline"
+                                >
+                                    {showAllReviews ? "Show fewer reviews" : `See all ${reviews.length} reviews`}
+                                </button>
+                            )}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {reviews.map((review) => (
-                                <ReviewCard key={review.id} review={review} />
-                            ))}
-                        </div>
+                        {visibleReviews.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {visibleReviews.map((review) => (
+                                    <ReviewCard key={review.id} review={review} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="bg-gray-50 rounded-3xl py-12 text-center">
+                                <Star className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 font-medium">No reviews yet. Be the first to rate this doctor!</p>
+                            </div>
+                        )}
                     </section>
                 </div>
 
