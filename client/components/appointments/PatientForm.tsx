@@ -55,10 +55,11 @@ export default function PatientForm({ patientInfo, onChange }: PatientFormProps)
 
             {/* Patient Name */}
             <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                <label htmlFor="booking-name" className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
                     <User className="w-3.5 h-3.5" /> Patient Full Name
                 </label>
                 <input
+                    id="booking-name"
                     type="text"
                     value={patientInfo.name}
                     onChange={(e) => onChange({ ...patientInfo, name: e.target.value })}

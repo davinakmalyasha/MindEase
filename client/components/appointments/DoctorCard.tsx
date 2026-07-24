@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Doctor } from "@/lib/types/doctor";
 import { Star, Clock, Briefcase, ChevronRight } from "lucide-react";
@@ -21,7 +21,7 @@ export default function DoctorCard({ doctor, onSelect }: DoctorCardProps) {
                 {/* Avatar */}
                 <div className="relative w-full md:w-32 aspect-square rounded-2xl overflow-hidden bg-indigo-50 border border-indigo-100">
                     <NextImage
-                        src={doctor.image || "/doctor-placeholder.jpg"}
+                        src={doctor.image || `https://api.dicebear.com/9.x/avataaars/svg?seed=${doctor.name || doctor.id}`}
                         alt={doctor.name}
                         fill
                         className="object-cover group-hover:scale-110 transition-transform duration-500"
