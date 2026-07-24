@@ -1,97 +1,118 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { useState, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import {
     Users,
     ShieldCheck,
     History,
     TrendingUp,
-    ArrowLeft,
     Loader2,
-    Calendar,
-    Activity
-} from 'lucide-react';
-import api from '@/lib/api';
-import Navbar from '@/components/layout/Navbar';
+    Activity,
+    Search,
+    Ban,
+    ChevronLeft,
+    ChevronRight,
+} from "lucide-react";
+import api, { getErrorMessage } from "@/lib/api";
+import DashboardLayout from "@/components/layout/DashboardLayout";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/components/ui/Toast";
+import { cn } from "@/lib/utils";
+
+const ROLE_STYLES: Record<string, string> = {
+    admin: "bg-rose-100 text-rose-600",
+    doctor: "bg-indigo-100 text-indigo-600",
+    patient: "bg-blue-100 text-blue-600",
+};
 
 export default function AdminDashboard() {
-    const router = useRouter();
+    const { user } = useAuth();
+    const { toast } = useToast();
     const [stats, setStats] = useState<any>(null);
     const [users, setUsers] = useState<any[]>([]);
+    const [pagination, setPagination] = useState<any>({ page: 1, totalPages: 1, total: 0 });
     const [loading, setLoading] = useState(true);
-    const [mounted, setMounted] = useState(false);
+    const [search, setSearch] = useState("");
+    const [roleFilter, setRoleFilter] = useState("");
+    const [page, setPage] = useState(1);
+    const [actionLoading, setActionLoading] = useState<number | null>(null);
 
-    const fetchAdminData = async () => {
+    const fetchAdminData = useCallback(async () => {
         try {
             const [resStats, resUsers] = await Promise.all([
-                api.get('/admin/stats'),
-                api.get('/admin/users')
+                api.get("/admin/stats"),
+                api.get(`/admin/users?page=${page}&limit=10&search=${encodeURIComponent(search)}&role=${roleFilter}`),
             ]);
-            setStats(resStats.data);
-            setUsers(resUsers.data);
+            setStats(resStats.data.data);
+            const userData = resUsers.data.data;
+            setUsers(userData.users || []);
+            setPagination(userData.pagination || {});
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to load admin data"), "error");
+        } finally {
             setLoading(false);
-        } catch (err) {
-            console.error(err);
-            setLoading(false);
+        }
+    }, [page, search, roleFilter, toast]);
+
+    useEffect(() => {
+        if (user?.role === "admin") fetchAdminData();
+    }, [user, fetchAdminData]);
+
+    const changeRole = async (userId: number, currentRole: string) => {
+        const next = currentRole === "patient" ? "doctor" : currentRole === "doctor" ? "admin" : "patient";
+        setActionLoading(userId);
+        try {
+            await api.patch(`/admin/users/${userId}/role`, { role: next });
+            toast(`Role changed to ${next}`, "success");
+            fetchAdminData();
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to change role"), "error");
+        } finally {
+            setActionLoading(null);
         }
     };
 
-    useEffect(() => {
-        setMounted(true);
-        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-
-        if (!userData || userData.role !== 'admin') {
-            router.push('/dashboard');
-            return;
+    const toggleBan = async (u: any) => {
+        setActionLoading(u.id);
+        try {
+            await api.patch(`/admin/users/${u.id}/ban`);
+            toast(u.isBanned ? "User unbanned" : "User banned", "success");
+            fetchAdminData();
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to update ban status"), "error");
+        } finally {
+            setActionLoading(null);
         }
-        fetchAdminData();
-    }, [router]);
+    };
 
-    if (!mounted) return null;
-
-    if (loading) return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-            <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
-        </div>
-    );
+    if (user?.role !== "admin") {
+        return <DashboardLayout><div className="h-40 bg-gray-50 rounded-3xl animate-pulse" /></DashboardLayout>;
+    }
 
     return (
-        <main className="min-h-screen bg-white pb-20">
-            <Navbar />
+        <DashboardLayout>
+            <div className="mb-10">
+                <h1 className="text-4xl font-extrabold text-gray-900 font-outfit uppercase tracking-tight">
+                    Admin <span className="text-rose-500">Dashboard</span>
+                </h1>
+                <p className="text-gray-500 font-medium mt-2">System overview and user management.</p>
+            </div>
 
-            <div className="pt-32 px-4 md:px-8 max-w-7xl mx-auto">
-                {/* Header */}
-                <div className="mb-12">
-                    <button
-                        onClick={() => router.push("/dashboard")}
-                        className="flex items-center gap-2 text-gray-500 hover:text-indigo-600 transition-colors mb-4 group"
-                    >
-                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                        <span className="font-medium">Back to Dashboard</span>
-                    </button>
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-500">
-                            <ShieldCheck className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <h1 className="text-4xl font-extrabold text-gray-900 font-outfit uppercase tracking-tight">
-                                Admin <span className="text-rose-500">Dashboard</span>
-                            </h1>
-                            <p className="text-gray-500 font-medium">System overview and user management.</p>
-                        </div>
-                    </div>
+            {loading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="h-24 bg-white border border-gray-100 rounded-[2rem] animate-pulse" />
+                    ))}
                 </div>
-
-                {/* Stats Grid */}
-                {stats && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            ) : (
+                stats && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
                         {[
                             { label: "Total Patients", value: stats.total_patients, icon: Users, color: "text-blue-500", bg: "bg-blue-50" },
                             { label: "Total Doctors", value: stats.total_doctors, icon: Activity, color: "text-purple-500", bg: "bg-purple-50" },
-                            { label: "Success Bookings", value: stats.successful_bookings, icon: History, color: "text-emerald-500", bg: "bg-emerald-50" },
-                            { label: "Est. Revenue", value: `Rp ${stats.total_estimated_revenue.toLocaleString()}`, icon: TrendingUp, color: "text-amber-500", bg: "bg-amber-50" },
+                            { label: "Completed Bookings", value: stats.successful_bookings, icon: History, color: "text-emerald-500", bg: "bg-emerald-50" },
+                            { label: "Est. Revenue", value: `Rp ${(stats.total_estimated_revenue || 0).toLocaleString()}`, icon: TrendingUp, color: "text-amber-500", bg: "bg-amber-50" },
                         ].map((stat, i) => (
                             <motion.div
                                 key={i}
@@ -110,71 +131,133 @@ export default function AdminDashboard() {
                             </motion.div>
                         ))}
                     </div>
-                )}
+                )
+            )}
 
-                {/* User List */}
-                <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-500/5 overflow-hidden">
-                    <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+            {/* User List */}
+            <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-500/5 overflow-hidden">
+                <div className="p-6 border-b border-gray-50 bg-gray-50/50 space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <h2 className="text-xl font-bold text-gray-900 font-outfit flex items-center gap-2">
                             <Users className="w-5 h-5 text-indigo-500" />
                             System Users
+                            <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold">
+                                {pagination.total || 0}
+                            </span>
                         </h2>
-                        <span className="px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-widest">
-                            {users.length} Total
-                        </span>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead>
-                                <tr className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50">
-                                    <th className="px-8 py-6">User Info</th>
-                                    <th className="px-8 py-6">Role</th>
-                                    <th className="px-8 py-6">Joined Date</th>
-                                    <th className="px-8 py-6 text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50 font-medium">
-                                {users.map((u, idx) => (
-                                    <motion.tr
-                                        key={u.id}
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ delay: 0.2 + (idx * 0.05) }}
-                                        className="hover:bg-gray-50/50 transition-colors group"
-                                    >
-                                        <td className="px-8 py-6">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center font-bold text-indigo-600">
-                                                    {u.name.charAt(0)}
-                                                </div>
-                                                <div>
-                                                    <p className="font-bold text-gray-900 leading-none mb-1">{u.name}</p>
-                                                    <p className="text-xs text-gray-400">{u.email}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-8 py-6">
-                                            <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter ${u.role === 'admin' ? 'bg-rose-100 text-rose-600' :
-                                                    u.role === 'doctor' ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'
-                                                }`}>
-                                                {u.role}
-                                            </span>
-                                        </td>
-                                        <td className="px-8 py-6 text-sm text-gray-500 font-outfit">
-                                            {new Date(u.createdAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-8 py-6 text-right">
-                                            <button className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-100 text-gray-400 hover:text-indigo-600 transition-all">
-                                                <ShieldCheck className="w-4 h-4" />
-                                            </button>
-                                        </td>
-                                    </motion.tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        <div className="flex gap-2 flex-wrap">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input
+                                    value={search}
+                                    onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                                    placeholder="Search name or email..."
+                                    className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                />
+                            </div>
+                            <select
+                                value={roleFilter}
+                                onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+                                className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none"
+                            >
+                                <option value="">All roles</option>
+                                <option value="patient">Patient</option>
+                                <option value="doctor">Doctor</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead>
+                            <tr className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50">
+                                <th className="px-6 py-5">User Info</th>
+                                <th className="px-6 py-5">Role</th>
+                                <th className="px-6 py-5">Joined Date</th>
+                                <th className="px-6 py-5 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50 font-medium">
+                            {users.map((u, idx) => (
+                                <motion.tr
+                                    key={u.id}
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    transition={{ delay: 0.1 + (idx * 0.03) }}
+                                    className={cn("hover:bg-gray-50/50 transition-colors", u.isBanned && "opacity-50")}
+                                >
+                                    <td className="px-6 py-5">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center font-bold text-indigo-600 overflow-hidden">
+                                                {u.avatar ? <img src={u.avatar} className="w-full h-full object-cover" /> : u.name?.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-gray-900 leading-none mb-1">{u.name} {u.isBanned && <span className="text-[9px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full ml-1 uppercase">banned</span>}</p>
+                                                <p className="text-xs text-gray-400">{u.email}</p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-5">
+                                        <span className={cn("px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter", ROLE_STYLES[u.role])}>
+                                            {u.role}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-5 text-sm text-gray-500">
+                                        {new Date(u.createdAt).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-6 py-5">
+                                        <div className="flex items-center justify-end gap-2">
+                                            {u.role !== "admin" && (
+                                                <button
+                                                    onClick={() => changeRole(u.id, u.role)}
+                                                    disabled={actionLoading === u.id}
+                                                    title="Cycle role: patient → doctor → admin"
+                                                    className="p-2 rounded-lg border border-gray-100 text-indigo-500 hover:bg-indigo-50 transition-all disabled:opacity-50 flex items-center gap-1.5"
+                                                >
+                                                    {actionLoading === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => toggleBan(u)}
+                                                disabled={actionLoading === u.id || u.role === "admin"}
+                                                title={u.isBanned ? "Unban user" : "Ban user"}
+                                                className={cn(
+                                                    "p-2 rounded-lg border transition-all disabled:opacity-30 flex items-center gap-1.5",
+                                                    u.isBanned ? "border-emerald-100 text-emerald-500 hover:bg-emerald-50" : "border-gray-100 text-rose-400 hover:bg-rose-50"
+                                                )}
+                                            >
+                                                <Ban className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </motion.tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                {pagination.totalPages > 1 && (
+                    <div className="p-4 flex items-center justify-center gap-2 border-t border-gray-50">
+                        <button
+                            disabled={page <= 1}
+                            onClick={() => setPage((p) => p - 1)}
+                            className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-sm font-bold text-gray-500">Page {page} of {pagination.totalPages}</span>
+                        <button
+                            disabled={page >= pagination.totalPages}
+                            onClick={() => setPage((p) => p + 1)}
+                            className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
             </div>
-        </main>
+        </DashboardLayout>
     );
 }
