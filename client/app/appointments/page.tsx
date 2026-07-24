@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useMemo } from "react";
 import Navbar from "@/components/layout/Navbar";
@@ -30,7 +30,7 @@ const SORT_OPTIONS: { value: SortOption; label: string; icon: React.ReactNode }[
 const PRICE_RANGES: { value: PriceRange; label: string }[] = [
     { value: "all", label: "All Prices" },
     { value: "under100", label: "< Rp 100k" },
-    { value: "100to300", label: "100k – 300k" },
+    { value: "100to300", label: "100k â€“ 300k" },
     { value: "over300", label: "> Rp 300k" },
 ];
 
@@ -248,8 +248,12 @@ export default function AppointmentPage() {
                                                 id: doc.id,
                                                 name: doc.user.name,
                                                 specialty: doc.specialty,
-                                                image: doc.user.avatar || "/doctor-placeholder.jpg",
+                                                avatar: doc.user.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${doc.user.name || doc.id}`,
+                                                image: doc.user.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${doc.user.name || doc.id}`,
                                                 rating: doc.rating,
+                                                reviewCount: doc.reviews?.length || 0,
+                                                isAvailable: doc.availability === "Available",
+                                                isVerified: true,
                                                 price: doc.price,
                                                 availability: doc.availability,
                                                 experience: doc.experience,

@@ -1,17 +1,21 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Doctor } from "@/lib/types/doctor";
-import api from "@/lib/api";
+import { getErrorMessage } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import NextImage from "next/image";
 import DatePicker from "./DatePicker";
-import TimeSlots from "./TimeSlots";
+import TimeSlots, { RealSlot } from "./TimeSlots";
 import PatientForm from "./PatientForm";
 import BookingSummary from "./BookingSummary";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useToast } from "@/components/ui/Toast";
+import { isSameDay } from "date-fns";
+import { useBookAppointment } from "@/hooks/queries/useAppointmentsQuery";
+import { useDoctorSlots } from "@/hooks/queries/useDoctorsQuery";
 
 interface BookingModalProps {
     doctor: Doctor;
@@ -22,6 +26,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     const [step, setStep] = useState(1);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
+    const [selectedSlot, setSelectedSlot] = useState<RealSlot | null>(null);
     const [patientInfo, setPatientInfo] = useState({
         name: "",
         notes: "",
@@ -29,6 +34,51 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     });
     const [isBooking, setIsBooking] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
+    const { toast } = useToast();
+    const bookMutation = useBookAppointment();
+
+    // Booking mutation wrapper with local UI state
+    const handleBooking = async () => {
+        setIsBooking(true);
+        try {
+            await bookMutation.mutateAsync({
+                doctorId: doctor.id,
+                appointmentDate: selectedDate,
+                startTime: selectedTime,
+                endTime: selectedSlot?.endTime || "23:59",
+                consultationType: patientInfo.type,
+                notes: patientInfo.notes,
+                slotId: selectedSlot?.id,
+                idempotencyKey: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            });
+            setIsSuccess(true);
+        } catch (error: any) {
+            toast(getErrorMessage(error, "Failed to book appointment"), "error");
+        } finally {
+            setIsBooking(false);
+        }
+    };
+
+    // Load the doctor's real published slots (cached via TanStack Query)
+    const { data: rawSlots = [], isFetching: slotsLoading } = useDoctorSlots(doctor.id);
+    const [slots, setSlots] = useState<RealSlot[]>([]);
+
+    useEffect(() => {
+        const doctorSlots = Array.isArray(rawSlots)
+            ? rawSlots.map((s: any) => ({
+                  id: s.id,
+                  startTime: s.startTime,
+                  endTime: s.endTime,
+                  isBooked: !!s.isBooked,
+                  date: s.date ? new Date(s.date) : null,
+              }))
+            : [];
+        setSlots(doctorSlots);
+    }, [rawSlots]);
+
+    const daySlots = selectedDate
+        ? slots.filter((s) => s.date && isSameDay(s.date, selectedDate))
+        : slots;
 
     const steps = [
         { id: 1, name: "Date" },
@@ -46,24 +96,10 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
         if (step > 1) setStep(step - 1);
     };
 
-    const handleBooking = async () => {
-        setIsBooking(true);
-        try {
-            await api.post("/appointments/book", {
-                doctorId: doctor.id,
-                appointmentDate: selectedDate,
-                startTime: selectedTime,
-                endTime: selectedTime, // Placeholder or calculate
-                consultationType: patientInfo.type,
-                notes: patientInfo.notes,
-            });
-            setIsSuccess(true);
-        } catch (error: any) {
-            console.error("Booking failed:", error);
-            alert("Gagal melakukan booking: " + (error.response?.data?.message || error.message));
-        } finally {
-            setIsBooking(false);
-        }
+    const onSelectTime = (time: string) => {
+        setSelectedTime(time);
+        const match = daySlots.find((s) => s.startTime === time);
+        setSelectedSlot(match || null);
     };
 
     const isNextDisabled = () => {
@@ -179,7 +215,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                             transition={{ duration: 0.3 }}
                         >
                             {step === 1 && <DatePicker selectedDate={selectedDate} onChange={setSelectedDate} />}
-                            {step === 2 && <TimeSlots selectedTime={selectedTime} onChange={setSelectedTime} />}
+                            {step === 2 && <TimeSlots selectedTime={selectedTime} onChange={onSelectTime} slots={daySlots} loading={slotsLoading} />}
                             {step === 3 && <PatientForm patientInfo={patientInfo} onChange={setPatientInfo} />}
                             {step === 4 && <BookingSummary doctor={doctor} date={selectedDate!} time={selectedTime!} patientInfo={patientInfo} />}
                         </motion.div>
