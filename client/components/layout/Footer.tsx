@@ -48,9 +48,9 @@ export default function Footer() {
                         <Link href="/appointments" className="px-10 py-5 bg-white text-indigo-600 rounded-[1.5rem] font-bold shadow-xl shadow-black/10 hover:shadow-2xl hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 group/btn active:scale-95">
                             Consult Now <ArrowRight className="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" />
                         </Link>
-                        <button className="px-10 py-5 bg-indigo-500/20 text-white border border-indigo-400/30 rounded-[1.5rem] font-bold hover:bg-indigo-500/30 transition-all backdrop-blur-md active:scale-95">
-                            View Specials
-                        </button>
+                        <Link href="/doctors" className="px-10 py-5 bg-indigo-500/20 text-white border border-indigo-400/30 rounded-[1.5rem] font-bold hover:bg-indigo-500/30 transition-all backdrop-blur-md active:scale-95">
+                            Explore Specialists
+                        </Link>
                     </div>
                 </div>
 
