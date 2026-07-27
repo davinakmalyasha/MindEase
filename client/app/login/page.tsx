@@ -1,15 +1,18 @@
-"use client";
+﻿"use client";
 
+import { Suspense } from "react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import api from "@/lib/api"; // Import the axios instance
+import { useAuth } from "@/context/AuthContext";
+import { useTranslations } from "next-intl";
+import { getErrorMessage } from "@/lib/api";
 
-// Schemas
 const RegisterSchema = z.object({
     email: z.string().email(),
     password: z
@@ -19,6 +22,7 @@ const RegisterSchema = z.object({
         .regex(/[0-9]/, "Must contain number")
         .regex(/[^A-Za-z0-9]/, "Must contain special char"),
     name: z.string().min(2, "Name must be at least 2 characters"),
+    role: z.enum(["patient", "doctor"]),
 });
 
 const LoginSchema = z.object({
@@ -30,9 +34,33 @@ type LoginFormData = z.infer<typeof LoginSchema>;
 type RegisterFormData = z.infer<typeof RegisterSchema>;
 
 export default function AuthPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+            <AuthForm />
+        </Suspense>
+    );
+}
+
+function AuthForm() {
     const [isLogin, setIsLogin] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const t = useTranslations("auth");
+    const tc = useTranslations("common");
+    const { login, register } = useAuth();
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const nextPath = searchParams.get("next") || "";
+
+    const redirectByRole = (role: string) => {
+        const target =
+            nextPath && nextPath.startsWith("/")
+                ? nextPath
+                : role === "patient"
+                ? "/dashboard/mood"
+                : "/dashboard";
+        window.location.href = target;
+    };
 
     const {
         register: loginRegister,
@@ -43,25 +71,21 @@ export default function AuthPage() {
     const {
         register: registerRegister,
         handleSubmit: handleRegisterSubmit,
+        setValue,
+        watch,
         formState: { errors: registerErrors },
-    } = useForm<RegisterFormData>({ resolver: zodResolver(RegisterSchema) });
+    } = useForm<RegisterFormData>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
+
+    const selectedRole = watch("role");
 
     const onLogin = async (data: LoginFormData) => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await api.post("/auth/login", data);
-            const user = response.data.data.user;
-            localStorage.setItem("user", JSON.stringify(user));
-
-            // Role-based redirection
-            if (user.role === "doctor") {
-                window.location.href = "/dashboard";
-            } else {
-                window.location.href = "/";
-            }
+            const user = await login(data.email, data.password);
+            redirectByRole(user.role);
         } catch (err: any) {
-            setError(err.response?.data?.message || err.message);
+            setError(getErrorMessage(err, "Login failed"));
         } finally {
             setIsLoading(false);
         }
@@ -71,18 +95,10 @@ export default function AuthPage() {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await api.post("/auth/register", data);
-            const user = response.data.data.user;
-            localStorage.setItem("user", JSON.stringify(user));
-
-            // Role-based redirection
-            if (user.role === "doctor") {
-                window.location.href = "/dashboard";
-            } else {
-                window.location.href = "/";
-            }
+            const user = await register(data);
+            redirectByRole(user.role);
         } catch (err: any) {
-            setError(err.response?.data?.message || err.message);
+            setError(getErrorMessage(err, "Registration failed"));
         } finally {
             setIsLoading(false);
         }
@@ -99,8 +115,8 @@ export default function AuthPage() {
                 className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden relative"
             >
                 <div className="p-8">
-                    <h2 className="text-3xl font-bold text-gray-900 mb-2">{isLogin ? "Welcome Back" : "Create Account"}</h2>
-                    <p className="text-gray-500 mb-8">{isLogin ? "Enter your details to sign in" : "Sign up to get started"}</p>
+                    <h2 className="text-3xl font-bold text-gray-900 mb-2">{isLogin ? t("welcomeBack") : t("createAccount")}</h2>
+                    <p className="text-gray-500 mb-8">{isLogin ? t("enterDetails") : t("signUpToStart")}</p>
 
                     {error && (
                         <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">
@@ -119,17 +135,22 @@ export default function AuthPage() {
                                 className="space-y-4"
                             >
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                    <input {...loginRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                                    <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
+                                    <input id="auth-email" {...loginRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     {loginErrors.email && <p className="text-red-500 text-xs mt-1">{loginErrors.email.message}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                                    <input type="password" {...loginRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                                    <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
+                                    <input id="auth-password" type="password" {...loginRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     {loginErrors.password && <p className="text-red-500 text-xs mt-1">{loginErrors.password.message}</p>}
                                 </div>
+                                <div className="flex justify-end">
+                                    <Link href="/forgot-password" className="text-xs font-semibold text-indigo-600 hover:underline">
+                                        {t("forgotPassword")}
+                                    </Link>
+                                </div>
                                 <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
-                                    {isLoading ? <Loader2 className="animate-spin" /> : "Sign In"}
+                                    {isLoading ? <Loader2 className="animate-spin" /> : t("signIn")}
                                 </button>
                             </motion.form>
                         ) : (
@@ -142,22 +163,41 @@ export default function AuthPage() {
                                 className="space-y-4"
                             >
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("fullName")}</label>
                                     <input {...registerRegister("name")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     {registerErrors.name && <p className="text-red-500 text-xs mt-1">{registerErrors.name.message}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                    <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
                                     <input {...registerRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     {registerErrors.email && <p className="text-red-500 text-xs mt-1">{registerErrors.email.message}</p>}
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                    <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
                                     <input type="password" {...registerRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                                    <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
                                     {registerErrors.password && <p className="text-red-500 text-xs mt-1">{registerErrors.password.message}</p>}
                                 </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">I want to join as</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {(["patient", "doctor"] as const).map((role) => (
+                                            <button
+                                                key={role}
+                                                type="button"
+                                                onClick={() => setValue("role", role)}
+                                                className={`py-2.5 rounded-lg border-2 text-sm font-semibold capitalize transition-all ${selectedRole === role
+                                                    ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                                                    : "border-gray-200 text-gray-500 hover:border-indigo-200"
+                                                    }`}
+                                            >
+                                                {role}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                                 <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
-                                    {isLoading ? <Loader2 className="animate-spin" /> : "Create Account"}
+                                    {isLoading ? <Loader2 className="animate-spin" /> : t("createAccountBtn")}
                                 </button>
                             </motion.form>
                         )}
@@ -165,9 +205,9 @@ export default function AuthPage() {
 
                     <div className="mt-6 text-center">
                         <p className="text-gray-500 text-sm">
-                            {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
+                            {isLogin ? t("dontHaveAccount") : t("alreadyHaveAccount")}{" "}
                             <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-medium hover:underline">
-                                {isLogin ? "Sign Up" : "Sign In"}
+                                {isLogin ? "Sign Up" : t("signIn")}
                             </button>
                         </p>
                     </div>
