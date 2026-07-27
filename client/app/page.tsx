@@ -4,7 +4,6 @@ import IntroductionSection from "@/components/home/IntroductionSection";
 import PromoSection from "@/components/home/PromoSection";
 import ReviewsSection from "@/components/home/ReviewsSection";
 import Footer from "@/components/layout/Footer";
-import BottomBar from "@/components/layout/BottomBar";
 
 export default function Home() {
   return (

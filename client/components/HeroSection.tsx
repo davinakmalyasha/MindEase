@@ -66,17 +66,17 @@ export default function HeroSection() {
                     </motion.p>
 
                     <motion.div variants={itemVariants} className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                        <Link href="/explore">
+                        <Link href="/doctors">
                             <button className="group relative inline-flex items-center justify-center gap-2 px-8 py-4 text-base font-semibold text-white transition-all duration-300 bg-gray-900 rounded-full hover:bg-gray-800 hover:shadow-lg hover:shadow-indigo-500/20 active:scale-95">
                                 Start Exploring
                                 <ArrowUpRight className="w-5 h-5 transition-transform group-hover:translate-x-1 group-hover:-translate-y-1" />
                             </button>
                         </Link>
 
-                        <Link href="/video">
+                        <Link href="/appointments">
                             <button className="inline-flex items-center justify-center gap-2 px-8 py-4 text-base font-semibold text-gray-700 transition-all duration-300 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 active:scale-95">
                                 <PlayCircle className="w-5 h-5 text-gray-400" />
-                                Watch Demo
+                                Book a Session
                             </button>
                         </Link>
                     </motion.div>
