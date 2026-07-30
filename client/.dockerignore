@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.env
+.env.local
+*.log
+client/node_modules
+server/node_modules
+server-realtime/realtime
