@@ -1,0 +1,97 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: mindease-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mindease_secure_root}
+      MYSQL_DATABASE: mindease_db
+      MYSQL_USER: mindease
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mindease_secure}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-mindease_secure_root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mindease-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./server
+    container_name: mindease-api
+    restart: unless-stopped
+    environment:
+      PORT: 5000
+      DATABASE_URL: mysql://mindease:${MYSQL_PASSWORD:-mindease_secure}@mysql:3306/mindease_db
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_SECRET: ${REFRESH_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:3000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    volumes:
+      - uploads_data:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  realtime:
+    build: ./server-realtime
+    container_name: mindease-realtime
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: ./client
+    container_name: mindease-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000/api
+      NEXT_PUBLIC_REALTIME_URL: ws://localhost:8080/ws
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+volumes:
+  mysql_data:
+  uploads_data:
