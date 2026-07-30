@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  server:
+    name: Server (lint, typecheck, test)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: mindease_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - name: Prepare test DB
+        run: npx prisma db push --skip-generate
+        env:
+          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
+      - name: Run tests
+        run: npm test
+        env:
+          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
+          JWT_SECRET: ci-jwt-secret
+          REFRESH_SECRET: ci-refresh-secret
+          NODE_ENV: test
+
+  client:
+    name: Client (lint, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  realtime:
+    name: Realtime (Go build, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server-realtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go build ./...
+      - run: go test ./...
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [server, client, realtime]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: docker compose build
