@@ -13,3 +13,9 @@ client/.next/
 package.json
 package-lock.json
 server/dist/
+dump.rdb
+client/test-results/
+playwright-report/
+uploads/
+server/public/uploads/*
+!server/public/uploads/.gitkeep
