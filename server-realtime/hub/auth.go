@@ -20,7 +20,11 @@ var secret []byte
 func init() {
 	secret = []byte(os.Getenv("JWT_SECRET"))
 	if len(secret) == 0 {
-		secret = []byte("supersecret")
+		if os.Getenv("NODE_ENV") == "production" {
+			panic("JWT_SECRET is required in production: refusing to start with an insecure default")
+		}
+		// Dev-only fallback — mirrors server/src/config/env.ts. Never used in production.
+		secret = []byte("dev_only_insecure_jwt_secret_change_me")
 	}
 }
 

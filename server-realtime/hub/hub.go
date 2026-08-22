@@ -40,15 +40,20 @@ func (h *Hub) Register(userID int64, c *Client) {
 	h.clients[userID][c] = true
 }
 
-// Unregister removes a client, cleaning up empty rooms.
+// Unregister removes a client, cleaning up empty rooms. It is safe to call
+// multiple times for the same client (e.g. from both writePump and readPump
+// goroutines): the channel is closed exactly once, only if the client was
+// still registered.
 func (h *Hub) Unregister(userID int64, c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if room := h.clients[userID]; room != nil {
-		delete(room, c)
-		close(c.Send)
-		if len(room) == 0 {
-			delete(h.clients, userID)
+		if _, ok := room[c]; ok {
+			delete(room, c)
+			close(c.Send)
+			if len(room) == 0 {
+				delete(h.clients, userID)
+			}
 		}
 	}
 }
