@@ -3,6 +3,8 @@ package hub
 import (
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -18,8 +20,40 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// Allow the Next.js dev/prod origins; real auth happens via JWT.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// Restrict cross-site WebSocket hijacking (CSWSH): only origins listed in
+	// ALLOWED_ORIGINS (comma-separated) or FRONTEND_URL may connect. Localhost
+	// is always allowed for local development.
+	CheckOrigin: checkOrigin,
+}
+
+var allowedOrigins []string
+
+func init() {
+	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			allowedOrigins = append(allowedOrigins, o)
+		}
+	}
+	if fe := strings.TrimSpace(os.Getenv("FRONTEND_URL")); fe != "" {
+		allowedOrigins = append(allowedOrigins, fe)
+	}
+	allowedOrigins = append(allowedOrigins, "http://localhost:3000", "http://127.0.0.1:3000")
+}
+
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser clients (e.g. mobile) omit Origin — allow when they
+		// authenticate with a token, matching the pre-existing behavior.
+		return true
+	}
+	for _, o := range allowedOrigins {
+		if strings.EqualFold(o, origin) {
+			return true
+		}
+	}
+	return false
 }
 
 // ServeWS upgrades the connection, authenticates via token (cookie or query),
