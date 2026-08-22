@@ -20,10 +20,18 @@ model User {
   googleId      String?        @unique
   isBanned      Boolean        @default(false)
   isVerified    Boolean        @default(false)
+  weeklyReportEnabled Boolean  @default(false)
+  notificationPrefs String?    @db.Text // JSON: { appointment: {inApp,email}, message: {...}, system: {...} }
+  referralCode  String?        @unique
+  timezone      String?        @default("Asia/Jakarta")
+  lastMoodNudgeAt DateTime?
+  lastDeclineNudgeAt DateTime?
   failedAttempts Int           @default(0)
   lockedUntil   DateTime?
   totpSecret    String?
   totpEnabled   Boolean        @default(false)
+  backupCodes   String?        @db.Text // JSON array of argon2 hashes, single-use
+  sessionCredits Int           @default(0) // referral reward: one free session per credit
   resetOtpHash  String?
   resetOtpExpiresAt DateTime?
   refreshTokens RefreshToken[]
@@ -34,6 +42,14 @@ model User {
   messagesReceived Message[]      @relation("ReceivedMessages")
   notifications Notification[]
   moodEntries   MoodEntry[]
+  journalEntries JournalEntry[]
+  assessments   Assessment[]
+  reviewReports ReviewReport[]
+  waitlistEntries WaitlistEntry[]
+  packagePurchases PackagePurchase[]
+  referralsMade Referral[]      @relation("ReferralsMade")
+  referralReceived Referral?    @relation("ReferralReceived")
+  pushSubscriptions PushSubscription[]
   doctorProfile Doctor?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -52,9 +68,17 @@ model Doctor {
   bankAccount      String?
   bankHolder       String?
   availability     String             @default("Available")
+  verificationStatus String           @default("pending") // pending, approved, rejected
+  licenseNumber    String?
+  licenseIssuer    String?
   appointments     Appointment[]
   reviews          Review[]
   consultationSlots ConsultationSlot[]
+  availabilityPatterns AvailabilityPattern[]
+  waitlistEntries WaitlistEntry[]
+  packages      Package[]
+  followUps     FollowUp[]
+  awayUntil     DateTime?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 }
@@ -75,10 +99,19 @@ model Appointment {
   notes           String?  @db.Text
   meetingLink     String?
   idempotencyKey  String?  @unique
+  reminderSentAt  DateTime?
+  checkinSentAt   DateTime?
+  packagePurchaseId Int?
+  packagePurchase PackagePurchase? @relation(fields: [packagePurchaseId], references: [id], onDelete: SetNull)
+  creditApplied  Boolean @default(false) // session paid with a referral credit
   preSessionData  PreSessionData?
+  followUp        FollowUp?
   reviews         Review[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@index([doctorId, appointmentDate, status])
+  @@index([userId, status])
 }
 
 model Review {
@@ -91,7 +124,25 @@ model Review {
   doctor        Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   appointmentId Int?     @unique
   appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  reply         String?  @db.Text
+  repliedAt     DateTime?
+  hidden        Boolean  @default(false)
+  reports       ReviewReport[]
   createdAt     DateTime @default(now())
+}
+
+model ReviewReport {
+  id         Int      @id @default(autoincrement())
+  reviewId   Int
+  review     Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reporterId Int
+  reporter   User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason     String   @db.Text
+  status     String   @default("open") // open, resolved, dismissed
+  createdAt  DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([status])
 }
 
 model Message {
@@ -102,7 +153,15 @@ model Message {
   receiverId Int
   receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
   isRead     Boolean  @default(false)
+  readAt     DateTime?
+  attachmentUrl String?
+  attachmentType String?
+  deletedAt  DateTime?
+  reaction   String?
   createdAt  DateTime @default(now())
+
+  @@index([senderId, receiverId, createdAt])
+  @@index([receiverId, senderId])
 }
 
 model Notification {
@@ -114,6 +173,8 @@ model Notification {
   isRead    Boolean  @default(false)
   type      String? // appointment, message, system
   createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
 }
 
 model ConsultationSlot {
@@ -125,6 +186,22 @@ model ConsultationSlot {
   endTime   String
   isBooked  Boolean  @default(false)
   appointment Appointment?
+
+  @@index([doctorId, date, isBooked])
+}
+
+model AvailabilityPattern {
+  id         Int      @id @default(autoincrement())
+  doctorId   Int
+  doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  weekday    Int // 0 (Monday) - 6 (Sunday)
+  startTime  String
+  endTime    String
+  activeFrom DateTime
+  activeUntil DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([doctorId])
 }
 
 model PreSessionData {
@@ -153,7 +230,34 @@ model MoodEntry {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   mood      Int
   notes     String?  @db.Text
+  factors   String?  @db.Text // JSON array of factor tags
   createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model JournalEntry {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  aiSummary String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Assessment {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String // phq9, gad7
+  answersJson String  @db.Text
+  score      Int
+  severity   String // minimal, mild, moderate, moderately-severe, severe
+  createdAt  DateTime @default(now())
+
+  @@index([userId, type])
 }
 
 model AuditLog {
@@ -168,4 +272,91 @@ model AuditLog {
 
   @@index([actorId])
   @@index([targetType, targetId])
+}
+
+model FollowUp {
+  id              Int      @id @default(autoincrement())
+  appointmentId   Int      @unique
+  appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  doctorId        Int
+  doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  suggestedDate   DateTime
+  startTime       String
+  endTime         String
+  consultationType String  @default("video")
+  notes           String?  @db.Text
+  status          String   @default("pending") // pending, accepted, declined, expired
+  createdAt       DateTime @default(now())
+
+  @@index([doctorId])
+  @@index([status])
+}
+
+model WaitlistEntry {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  patientId Int
+  patient   User     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  status    String   @default("waiting") // waiting, notified, booked, expired
+  createdAt DateTime @default(now())
+
+  @@unique([doctorId, patientId, status])
+  @@index([doctorId, status])
+}
+
+model Package {
+  id           Int      @id @default(autoincrement())
+  doctorId     Int
+  doctor       Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?  @db.Text
+  sessionCount Int
+  totalPrice   Int
+  active       Boolean  @default(true)
+  purchases    PackagePurchase[]
+  createdAt    DateTime @default(now())
+
+  @@index([doctorId])
+}
+
+model PackagePurchase {
+  id           Int      @id @default(autoincrement())
+  packageId    Int
+  package      Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionsLeft Int
+  status       String   @default("active") // active, completed
+  appointments Appointment[]
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Referral {
+  id         Int      @id @default(autoincrement())
+  referrerId Int
+  referrer   User     @relation("ReferralsMade", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId Int      @unique
+  referred   User     @relation("ReferralReceived", fields: [referredId], references: [id], onDelete: Cascade)
+  code       String
+  status     String   @default("pending") // pending, credited
+  createdAt  DateTime @default(now())
+
+  @@index([referrerId])
+  @@index([status])
 }

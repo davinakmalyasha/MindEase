@@ -1,13 +1,14 @@
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { AuthService } from "../services/auth.service";
 import { TwoFactorService } from "../services/twoFactor.service";
+import { env } from "../config/env";
 
-const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
-const REFRESH_SECRET = process.env.REFRESH_SECRET || "superrefreshsecret";
+
+const JWT_SECRET = env.jwtSecret;
+const REFRESH_SECRET = env.refreshSecret;
 
 const COOKIE_OPTIONS = {
     httpOnly: true,
@@ -34,8 +35,10 @@ export class TwoFactorController {
 
             const user = await prisma.user.findUnique({ where: { id: userId } });
             if (!user || !user.totpSecret) throw new Error("Invalid session");
+            // Accept either a live TOTP code or an unused single-use backup code
             if (!TwoFactorService.verifyCode(user.totpSecret, code)) {
-                throw new Error("Invalid verification code");
+                const usedBackup = await TwoFactorService.consumeBackupCode(user.id, String(code));
+                if (!usedBackup) throw new Error("Invalid verification code");
             }
 
             const accessToken = generateAccessFor(user);
@@ -75,8 +78,8 @@ export class TwoFactorController {
     static async disable(req: Request, res: Response) {
         try {
             const user = req.user!;
-            const { code } = req.body;
-            const result = await TwoFactorService.disable(user.id, code);
+            const { code, password } = req.body;
+            const result = await TwoFactorService.disable(user.id, code, password);
             res.json({ status: "success", data: result });
         } catch (error: any) {
             res.status(400).json({ status: "error", message: error.message });

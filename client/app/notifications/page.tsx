@@ -30,7 +30,7 @@ const timeAgo = (dateStr: string) => {
 };
 
 export default function NotificationsPage() {
-    const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(15000);
+    const { notifications, unreadCount, markAsRead, markAllAsRead, loadMore, totalPages, page } = useNotifications(15000);
 
     return (
         <main className="min-h-screen bg-gray-50">
@@ -97,6 +97,17 @@ export default function NotificationsPage() {
                         })
                     )}
                 </div>
+
+                {page < totalPages && (
+                    <div className="mt-8 text-center">
+                        <button
+                            onClick={loadMore}
+                            className="px-8 py-3 bg-white border-2 border-indigo-100 text-indigo-600 rounded-2xl font-black hover:bg-indigo-50 transition-all"
+                        >
+                            Load more
+                        </button>
+                    </div>
+                )}
             </div>
         </main>
     );

@@ -67,8 +67,13 @@ export default function Footer() {
                             Empowering individuals through professional psychological support and modern mental wellness tools.
                         </p>
                         <div className="flex gap-4">
-                            {[Facebook, Instagram, Twitter, Linkedin].map((Icon, i) => (
-                                <Link key={i} href="#" className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-indigo-600 hover:text-white transition-all transform hover:-translate-y-1">
+                            {[
+                                { Icon: Facebook, href: "https://facebook.com/mindease.id" },
+                                { Icon: Instagram, href: "https://instagram.com/mindease.id" },
+                                { Icon: Twitter, href: "https://twitter.com/mindease" },
+                                { Icon: Linkedin, href: "https://linkedin.com/company/mindease" }
+                            ].map(({ Icon, href }, i) => (
+                                <Link key={i} href={href} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-indigo-600 hover:text-white transition-all transform hover:-translate-y-1">
                                     <Icon className="w-5 h-5" />
                                 </Link>
                             ))}
@@ -78,11 +83,17 @@ export default function Footer() {
                     <div>
                         <h4 className="text-white font-bold mb-8 uppercase tracking-widest text-xs">Resources</h4>
                         <ul className="space-y-4">
-                            {["Find Doctor", "Services", "Health Articles", "Mental Checkup", "Success Stories"].map((item) => (
-                                <li key={item}>
-                                    <Link href="#" className="text-gray-400 hover:text-indigo-400 transition-colors font-medium flex items-center gap-2 group">
+                            {[
+                                { label: "Find Doctor", href: "/doctors" },
+                                { label: "Book Session", href: "/appointments" },
+                                { label: "Mental Checkup", href: "/dashboard/mood" },
+                                { label: "FAQ", href: "/faq" },
+                                { label: "Help Center", href: "/help" }
+                            ].map((item) => (
+                                <li key={item.label}>
+                                    <Link href={item.href} className="text-gray-400 hover:text-indigo-400 transition-colors font-medium flex items-center gap-2 group">
                                         <div className="w-1 h-1 bg-gray-700 rounded-full group-hover:bg-indigo-400 transition-all"></div>
-                                        {item}
+                                        {item.label}
                                     </Link>
                                 </li>
                             ))}
@@ -92,11 +103,18 @@ export default function Footer() {
                     <div>
                         <h4 className="text-white font-bold mb-8 uppercase tracking-widest text-xs">Company</h4>
                         <ul className="space-y-4">
-                            {["About Us", "Contact", "Careers", "Privacy Policy", "Terms of Service"].map((item) => (
-                                <li key={item}>
-                                    <Link href="#" className="text-gray-400 hover:text-indigo-400 transition-colors font-medium flex items-center gap-2 group">
+                            {[
+                                { label: "About Us", href: "/about" },
+                                { label: "Contact", href: "/contact" },
+                                { label: "Privacy Policy", href: "/privacy" },
+                                { label: "Terms of Service", href: "/terms" },
+                                { label: "Medical Disclaimer", href: "/disclaimer" },
+                                { label: "Crisis Support", href: "/crisis" }
+                            ].map((item) => (
+                                <li key={item.label}>
+                                    <Link href={item.href} className="text-gray-400 hover:text-indigo-400 transition-colors font-medium flex items-center gap-2 group">
                                         <div className="w-1 h-1 bg-gray-700 rounded-full group-hover:bg-indigo-400 transition-all"></div>
-                                        {item}
+                                        {item.label}
                                     </Link>
                                 </li>
                             ))}
@@ -127,9 +145,9 @@ export default function Footer() {
                         &copy; {new Date().getFullYear()} MindEase Platform. All rights reserved.
                     </p>
                     <div className="flex gap-8 text-xs font-bold text-gray-600 uppercase tracking-widest">
-                        <Link href="#" className="hover:text-indigo-400 transition-colors">Privacy</Link>
-                        <Link href="#" className="hover:text-indigo-400 transition-colors">Terms</Link>
-                        <Link href="#" className="hover:text-indigo-400 transition-colors">Cookies</Link>
+                        <Link href="/privacy" className="hover:text-indigo-400 transition-colors">Privacy</Link>
+                        <Link href="/terms" className="hover:text-indigo-400 transition-colors">Terms</Link>
+                        <Link href="/privacy#cookies" className="hover:text-indigo-400 transition-colors">Cookies</Link>
                     </div>
                 </div>
             </div>

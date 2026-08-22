@@ -18,21 +18,34 @@ import {
     Sparkles,
     MessageCircle,
     ArrowUpRight,
+    CalendarClock,
+    CalendarPlus,
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import ReviewModal from "@/components/ReviewModal";
+import RescheduleModal from "@/components/appointments/RescheduleModal";
+import RebookModal from "@/components/appointments/RebookModal";
+import FollowUpModal from "@/components/appointments/FollowUpModal";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Spinner from "@/components/ui/Spinner";
+import api, { getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useMyAppointments, useUpdateAppointmentStatus } from "@/hooks/queries/useAppointmentsQuery";
 
 export default function AppointmentHistory() {
     const router = useRouter();
     const { user } = useAuth();
     const { toast } = useToast();
+    const confirm = useConfirm();
     const queryClient = useQueryClient();
     const [reviewTarget, setReviewTarget] = useState<any>(null);
+    const [rescheduleTarget, setRescheduleTarget] = useState<any>(null);
+    const [rebookOptions, setRebookOptions] = useState<any>(null);
+    const [rebookTarget, setRebookTarget] = useState<any>(null);
+    const [isFetchingRebook, setIsFetchingRebook] = useState(false);
+    const [followUpTarget, setFollowUpTarget] = useState<any>(null);
 
     const { data: appointments = [], isLoading } = useMyAppointments();
     const statusMutation = useUpdateAppointmentStatus();
@@ -54,8 +67,27 @@ export default function AppointmentHistory() {
     };
 
     const handleCancel = async (id: number) => {
-        if (!confirm("Cancel this appointment?")) return;
+        const ok = await confirm({
+            title: "Cancel this appointment?",
+            message: "The slot will be released and the doctor will be notified.",
+            confirmLabel: "Yes, cancel it",
+            danger: true,
+        });
+        if (!ok) return;
         handleStatusUpdate(id, "cancelled");
+
+        // Rebook assist: fetch alternative slots for the patient
+        if (user?.role === "patient") {
+            setIsFetchingRebook(true);
+            try {
+                const res = await api.get(`/appointments/${id}/rebook-options`);
+                setRebookOptions(res.data?.data);
+                setRebookTarget({ id });
+            } catch { /* no alternatives available */ }
+            finally {
+                setIsFetchingRebook(false);
+            }
+        }
     };
 
     if (!user) return <DashboardLayout><div className="h-40 bg-gray-50 rounded-3xl animate-pulse" /></DashboardLayout>;
@@ -194,15 +226,56 @@ export default function AppointmentHistory() {
                                             </button>
                                         )}
 
+                                        {app.status === "confirmed" && app.meetingLink && ["video", "voice"].includes(app.consultationType) && (
+                                            <button
+                                                onClick={() => router.push(`/dashboard/video/${app.id}`)}
+                                                className="flex items-center gap-1 px-3 py-2 bg-rose-500 text-white rounded-xl font-bold text-xs hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
+                                            >
+                                                {app.consultationType === "voice" ? <Phone className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                                                Join {app.consultationType === "voice" ? "Voice Call" : "Video Call"}
+                                            </button>
+                                        )}
+
                                         {app.status === "confirmed" && (
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        const res = await api.get(`/appointments/${app.id}/ics`, { responseType: "blob" });
+                                                        const url = URL.createObjectURL(new Blob([res.data], { type: "text/calendar" }));
+                                                        const a = document.createElement("a");
+                                                        a.href = url;
+                                                        a.download = `mindease-session-${app.id}.ics`;
+                                                        a.click();
+                                                        URL.revokeObjectURL(url);
+                                                        toast("Calendar file downloaded — open it to add to your calendar", "success");
+                                                    } catch (err: any) {
+                                                        toast(getErrorMessage(err, "Failed to export calendar file"), "error");
+                                                    }
+                                                }}
+                                                className="flex items-center gap-1 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
+                                            >
+                                                <CalendarPlus className="w-4 h-4" /> Add to Calendar
+                                            </button>
+                                        )}
+
+                                        {app.status === "confirmed" && (user.role === "doctor" ? app.user?.phone_number : app.doctor?.user?.phone_number) && (
                                             <a
-                                                href={`https://wa.me/${((user.role === "doctor" ? app.user?.phone_number : app.doctor?.user?.phone_number) || "628123456789").replace(/\D/g, '')}`}
+                                                href={`https://wa.me/${(user.role === "doctor" ? app.user?.phone_number : app.doctor?.user?.phone_number)!.replace(/\D/g, '')}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 className="flex items-center gap-1 px-3 py-2 bg-emerald-500 text-white rounded-xl font-bold text-xs hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
                                             >
                                                 <MessageSquare className="w-4 h-4" /> WhatsApp
                                             </a>
+                                        )}
+
+                                        {user.role === "patient" && (app.status === "pending" || app.status === "confirmed") && (
+                                            <button
+                                                onClick={() => setRescheduleTarget(app)}
+                                                className="flex items-center gap-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-all"
+                                            >
+                                                <CalendarClock className="w-4 h-4" /> Reschedule
+                                            </button>
                                         )}
 
                                         {app.status === "confirmed" && (
@@ -241,6 +314,26 @@ export default function AppointmentHistory() {
                                             </button>
                                         )}
 
+                                        {user.role === "patient" && app.status === "cancelled" && (
+                                            <button
+                                                onClick={async () => {
+                                                    setIsFetchingRebook(true);
+                                                    try {
+                                                        const res = await api.get(`/appointments/${app.id}/rebook-options`);
+                                                        setRebookOptions(res.data?.data);
+                                                        setRebookTarget({ id: app.id });
+                                                    } catch {
+                                                        toast("No open slots right now — try the doctor directory", "error");
+                                                    } finally {
+                                                        setIsFetchingRebook(false);
+                                                    }
+                                                }}
+                                                className="flex items-center gap-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-all"
+                                            >
+                                                <CalendarClock className="w-4 h-4" /> Find Alternatives
+                                            </button>
+                                        )}
+
                                         {user.role === "patient" && app.status === "completed" && (
                                             <button
                                                 onClick={() => setReviewTarget(app)}
@@ -248,6 +341,48 @@ export default function AppointmentHistory() {
                                             >
                                                 <Star className="w-4 h-4" /> Rate
                                             </button>
+                                        )}
+
+                                        {user.role === "doctor" && app.status === "completed" && !app.followUp && (
+                                            <button
+                                                onClick={() => setFollowUpTarget(app)}
+                                                className="flex items-center gap-1 px-3 py-2 bg-violet-50 text-violet-600 rounded-xl font-bold text-xs hover:bg-violet-100 transition-all"
+                                            >
+                                                <CalendarClock className="w-4 h-4" /> Suggest Follow-up
+                                            </button>
+                                        )}
+
+                                        {user.role === "patient" && app.followUp?.status === "pending" && (
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            await api.post(`/follow-ups/${app.followUp.id}/accept`);
+                                                            toast("Follow-up accepted — the doctor will confirm it", "success");
+                                                            queryClient.invalidateQueries({ queryKey: ["appointments", "mine"] });
+                                                        } catch (err: any) {
+                                                            toast(getErrorMessage(err, "Failed to accept follow-up"), "error");
+                                                        }
+                                                    }}
+                                                    className="flex items-center gap-1 px-3 py-2 bg-emerald-500 text-white rounded-xl font-bold text-xs hover:bg-emerald-600 transition-all"
+                                                >
+                                                    <CheckCircle2 className="w-4 h-4" /> Accept Follow-up
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            await api.post(`/follow-ups/${app.followUp.id}/decline`);
+                                                            toast("Follow-up declined", "success");
+                                                            queryClient.invalidateQueries({ queryKey: ["appointments", "mine"] });
+                                                        } catch (err: any) {
+                                                            toast(getErrorMessage(err, "Failed to decline follow-up"), "error");
+                                                        }
+                                                    }}
+                                                    className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-xs hover:bg-gray-200 transition-all"
+                                                >
+                                                    <XCircle className="w-4 h-4" /> Decline
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -285,6 +420,29 @@ export default function AppointmentHistory() {
                         appointmentId={reviewTarget.id}
                         onClose={() => setReviewTarget(null)}
                         onSuccess={() => queryClient.invalidateQueries({ queryKey: ["appointments", "mine"] })}
+                    />
+                )}
+                {rescheduleTarget && (
+                    <RescheduleModal
+                        appointment={rescheduleTarget}
+                        onClose={() => setRescheduleTarget(null)}
+                    />
+                )}
+                {rebookTarget && rebookOptions && (
+                    <RebookModal
+                        options={rebookOptions}
+                        isFetching={isFetchingRebook}
+                        onClose={() => {
+                            setRebookTarget(null);
+                            setRebookOptions(null);
+                        }}
+                    />
+                )}
+                {followUpTarget && (
+                    <FollowUpModal
+                        appointmentId={followUpTarget.id}
+                        onClose={() => setFollowUpTarget(null)}
+                        onDone={() => queryClient.invalidateQueries({ queryKey: ["appointments", "mine"] })}
                     />
                 )}
             </AnimatePresence>

@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
             await api.post("/account/forgot-password", data);
             setEmail(data.email);
             setStep(2);
-            setSentInfo(`A 6-digit reset code was sent to ${data.email}. (In development it is printed in the server console.)`);
+            setSentInfo(`A 6-digit reset code was sent to ${data.email}. It expires in 10 minutes.`);
         } catch (err: any) {
             setError(getErrorMessage(err, "Failed to send code"));
         } finally {

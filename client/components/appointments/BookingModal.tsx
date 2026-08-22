@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { isSameDay } from "date-fns";
 import { useBookAppointment } from "@/hooks/queries/useAppointmentsQuery";
+import api from "@/lib/api";
 import { useDoctorSlots } from "@/hooks/queries/useDoctorsQuery";
 
 interface BookingModalProps {
@@ -34,8 +35,21 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     });
     const [isBooking, setIsBooking] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
+    const [usePackage, setUsePackage] = useState(false);
+    const [myPackages, setMyPackages] = useState<any[]>([]);
     const { toast } = useToast();
     const bookMutation = useBookAppointment();
+
+    useEffect(() => {
+        api.get("/packages/my")
+            .then((res) => {
+                const purchases = (res.data?.data || []).filter(
+                    (p: any) => p.status === "active" && p.sessionsLeft > 0 && p.package?.doctor?.id === doctor.id
+                );
+                setMyPackages(purchases);
+            })
+            .catch(() => {});
+    }, [doctor.id]);
 
     // Booking mutation wrapper with local UI state
     const handleBooking = async () => {
@@ -50,6 +64,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                 notes: patientInfo.notes,
                 slotId: selectedSlot?.id,
                 idempotencyKey: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                packagePurchaseId: usePackage ? myPackages[0]?.id : undefined,
             });
             setIsSuccess(true);
         } catch (error: any) {
@@ -217,6 +232,22 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                             {step === 1 && <DatePicker selectedDate={selectedDate} onChange={setSelectedDate} />}
                             {step === 2 && <TimeSlots selectedTime={selectedTime} onChange={onSelectTime} slots={daySlots} loading={slotsLoading} />}
                             {step === 3 && <PatientForm patientInfo={patientInfo} onChange={setPatientInfo} />}
+                            {step === 3 && myPackages.length > 0 && (
+                                <label className="flex items-center justify-between gap-3 mt-3 p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl cursor-pointer">
+                                    <div>
+                                        <p className="text-sm font-bold text-gray-900">Use a package session</p>
+                                        <p className="text-xs text-gray-500">
+                                            {myPackages[0].package.name} · {myPackages[0].sessionsLeft} session{myPackages[0].sessionsLeft === 1 ? "" : "s"} left
+                                        </p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={usePackage}
+                                        onChange={(e) => setUsePackage(e.target.checked)}
+                                        className="w-5 h-5 accent-emerald-500"
+                                    />
+                                </label>
+                            )}
                             {step === 4 && <BookingSummary doctor={doctor} date={selectedDate!} time={selectedTime!} patientInfo={patientInfo} />}
                         </motion.div>
                     </AnimatePresence>

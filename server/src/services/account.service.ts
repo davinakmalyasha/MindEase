@@ -1,10 +1,10 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import argon2 from "argon2";
 import crypto from "crypto";
 import { MailerService } from "./mailer.service";
 import { AuditService } from "./audit.service";
 
-const prisma = new PrismaClient();
+
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 const generateOtp = () => crypto.randomInt(100000, 999999).toString();
@@ -48,7 +48,7 @@ export class AccountService {
             },
         });
 
-        const { subject, html } = MailerService.buildOtpEmail(otp);
+        const { subject, html } = MailerService.buildOtpEmail(otp, "reset");
         await MailerService.send(user.email, subject, html);
 
         return { success: true };
@@ -93,15 +93,8 @@ export class AccountService {
             },
         });
 
-        await MailerService.send(
-            user.email,
-            "Verify your MindEase email",
-            `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
-  <h2 style="color:#4f46e5">MindEase</h2>
-  <p>Confirm your email address with this code — it expires in 10 minutes.</p>
-  <div style="font-size:28px;font-weight:bold;letter-spacing:8px;padding:16px;background:#eef2ff;border-radius:8px;text-align:center">${otp}</div>
-</div>`
-        );
+        const { subject, html } = MailerService.buildOtpEmail(otp, "verify");
+        await MailerService.send(user.email, subject, html);
 
         return { success: true };
     }
@@ -124,7 +117,8 @@ export class AccountService {
     }
 
     // GDPR-style account deletion: purge PII, keep anonymized records
-    static async deleteAccount(userId: number) {        const user = await prisma.user.findUnique({
+    static async deleteAccount(userId: number) {
+        const user = await prisma.user.findUnique({
             where: { id: userId },
             include: { doctorProfile: true },
         });
@@ -132,7 +126,21 @@ export class AccountService {
 
         const anonymizedEmail = `deleted-${userId}-${Date.now()}@mindease.app`;
 
-        await prisma.$transaction([            prisma.review.deleteMany({ where: { userId } }),
+        // Doctors whose public rating is influenced by this user's reviews
+        const ratedDoctors = await prisma.review.findMany({
+            where: { userId },
+            select: { doctorId: true },
+            distinct: ["doctorId"],
+        });
+
+        await prisma.$transaction([
+            prisma.journalEntry.deleteMany({ where: { userId } }),
+            prisma.assessment.deleteMany({ where: { userId } }),
+            prisma.pushSubscription.deleteMany({ where: { userId } }),
+            prisma.waitlistEntry.deleteMany({ where: { patientId: userId } }),
+            prisma.referral.deleteMany({ where: { OR: [{ referrerId: userId }, { referredId: userId }] } }),
+            prisma.packagePurchase.deleteMany({ where: { userId } }),
+            prisma.review.deleteMany({ where: { userId } }),
             prisma.moodEntry.deleteMany({ where: { userId } }),
             prisma.message.deleteMany({
                 where: { OR: [{ senderId: userId }, { receiverId: userId }] },
@@ -166,6 +174,10 @@ export class AccountService {
                 },
             }),
         ]);
+
+        // Deleted reviews must stop influencing doctors' public averages
+        const { ReviewService } = await import("./review.service");
+        await Promise.all(ratedDoctors.map((r) => ReviewService.recalcDoctorRating(r.doctorId).catch(() => {})));
 
         await AuditService.log({
             action: "user.account_deleted",

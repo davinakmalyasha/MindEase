@@ -16,6 +16,10 @@ import {
     LogOut,
     CalendarClock,
     Sparkles,
+    Lock,
+    BookOpen,
+    ClipboardCheck,
+    BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
@@ -24,6 +28,9 @@ import Avatar from "@/components/ui/Avatar";
 import NotificationBell from "@/components/layout/NotificationBell";
 import LanguageSwitcher from "@/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import CrisisBanner from "@/components/ui/CrisisBanner";
+import SOSButton from "@/components/ui/SOSButton";
+import SOSAlertModal from "@/components/ui/SOSAlertModal";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const { user, logout, isLoading } = useAuth();
@@ -39,12 +46,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             { label: t("findSpecialist"), href: "/appointments", icon: Calendar, roles: ["patient"] },
             { label: t("myAppointments"), href: "/dashboard/appointments", icon: History, roles: ["patient", "doctor"] },
             { label: t("moodTracker"), href: "/dashboard/mood", icon: HeartPulse, roles: ["patient"] },
+            { label: t("assessments"), href: "/dashboard/assessments", icon: ClipboardCheck, roles: ["patient"] },
+            { label: t("journal"), href: "/dashboard/journal", icon: BookOpen, roles: ["patient"] },
             { label: t("mySchedule"), href: "/dashboard/doctor/schedule", icon: CalendarClock, roles: ["doctor"] },
             { label: t("aiBriefings"), href: "/dashboard/appointments", icon: Sparkles, roles: ["doctor"] },
+            { label: t("analytics"), href: "/dashboard/analytics", icon: BarChart3, roles: ["doctor"] },
             { label: t("adminOverview"), href: "/dashboard/admin", icon: ShieldCheck, roles: ["admin"] },
             { label: tc("messages"), href: "/messages", icon: MessageCircle, roles: ["patient", "doctor"] },
             { label: tc("notifications"), href: "/notifications", icon: Bell, roles: ["patient", "doctor", "admin"] },
             { label: tc("profile"), href: "/dashboard/profile", icon: UserIcon, roles: ["patient", "doctor", "admin"] },
+            { label: "Security", href: "/dashboard/security", icon: Lock, roles: ["patient", "doctor", "admin"] },
         ];
         return user ? items.filter((item) => item.roles.includes(user.role)) : [];
     }, [user, t, tc]);
@@ -121,6 +132,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div className="flex items-center gap-3">
                     <ThemeToggle />
                     <NotificationBell />
+                    {user.role === "patient" && <SOSButton />}
                     <Link href="/dashboard/profile">
                         <Avatar src={user.avatar} name={user.name} size="sm" />
                     </Link>
@@ -129,8 +141,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             {/* Main content */}
             <main className="flex-1 min-w-0 pt-16 lg:pt-0">
-                <div className="px-4 md:px-8 py-8 max-w-7xl mx-auto">{children}</div>
+                <div className="px-4 md:px-8 py-8 max-w-7xl mx-auto">
+                    {user.role !== "admin" && user.isVerified === false && (
+                        <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3 justify-between p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                            <p className="text-sm text-amber-800">
+                                <span className="font-bold">Verify your email</span> to secure your account and
+                                receive important notifications.
+                            </p>
+                            <Link
+                                href={`/verify-email?email=${encodeURIComponent(user.email || "")}`}
+                                className="shrink-0 px-4 py-2 bg-amber-500 text-white rounded-xl font-bold text-xs hover:bg-amber-600 transition-all"
+                            >
+                                Verify now
+                            </Link>
+                        </div>
+                    )}
+                    <CrisisBanner />
+                    {children}
+                </div>
             </main>
+
+            <SOSAlertModal />
         </div>
     );
 }

@@ -6,6 +6,7 @@ import { Sparkles, ArrowLeft, CheckCircle2, Loader2, MessageCircleQuestion } fro
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Spinner from "@/components/ui/Spinner";
+import AIDisclaimer from "@/components/ui/AIDisclaimer";
 import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
@@ -91,6 +92,10 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                     Take a few quiet minutes to reflect before your session. Your answers help your doctor prepare
                     a better experience for you — and they stay private between you two.
                 </p>
+            </div>
+
+            <div className="max-w-3xl mb-8">
+                <AIDisclaimer />
             </div>
 
             {isLoading ? (

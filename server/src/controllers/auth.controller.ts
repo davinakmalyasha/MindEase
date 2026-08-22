@@ -50,6 +50,15 @@ export class AuthController {
         try {
             const result = await AuthService.googleLogin(req.body.token);
 
+            // 2FA gate: users with TOTP enabled must complete a second factor
+            if (result.user.totpEnabled) {
+                const twoFactorToken = TwoFactorService.issuePendingToken(result.user.id);
+                return res.json({
+                    status: "success",
+                    data: { requires2FA: true, twoFactorToken, user: result.user },
+                });
+            }
+
             res.cookie("refreshToken", result.refreshToken, COOKIE_OPTIONS);
             res.cookie("accessToken", result.accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
 

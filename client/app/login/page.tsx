@@ -4,7 +4,6 @@ import { Suspense } from "react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -12,26 +11,15 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslations } from "next-intl";
 import { getErrorMessage } from "@/lib/api";
+import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
+import {
+    RegisterSchema,
+    LoginSchema,
+    type LoginFormData,
+    type RegisterFormData,
+} from "@/lib/validations/auth";
 
-const RegisterSchema = z.object({
-    email: z.string().email(),
-    password: z
-        .string()
-        .min(8, "Password must be at least 8 characters")
-        .regex(/[A-Z]/, "Must contain uppercase")
-        .regex(/[0-9]/, "Must contain number")
-        .regex(/[^A-Za-z0-9]/, "Must contain special char"),
-    name: z.string().min(2, "Name must be at least 2 characters"),
-    role: z.enum(["patient", "doctor"]),
-});
-
-const LoginSchema = z.object({
-    email: z.string().email(),
-    password: z.string().min(1, "Password is required"),
-});
-
-type LoginFormData = z.infer<typeof LoginSchema>;
-type RegisterFormData = z.infer<typeof RegisterSchema>;
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 export default function AuthPage() {
     return (
@@ -44,13 +32,17 @@ export default function AuthPage() {
 function AuthForm() {
     const [isLogin, setIsLogin] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
+    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const t = useTranslations("auth");
     const tc = useTranslations("common");
-    const { login, register } = useAuth();
+    const { login, loginWithGoogle, complete2FA, register } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
     const nextPath = searchParams.get("next") || "";
+    const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
+    const [twoFactorCode, setTwoFactorCode] = useState("");
+    const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
     const redirectByRole = (role: string) => {
         const target =
@@ -60,6 +52,43 @@ function AuthForm() {
                 ? "/dashboard/mood"
                 : "/dashboard";
         window.location.href = target;
+    };
+
+    const verify2FA = async () => {
+        if (!twoFactorToken || twoFactorCode.trim().length < 6) return;
+        setIsVerifying2FA(true);
+        setError(null);
+        try {
+            const user = await complete2FA(twoFactorToken, twoFactorCode.trim());
+            redirectByRole(user.role);
+        } catch (err: any) {
+            setError(getErrorMessage(err, "Invalid verification code"));
+        } finally {
+            setIsVerifying2FA(false);
+        }
+    };
+
+    const onGoogleSuccess = async (credentialResponse: any) => {
+        const idToken = credentialResponse?.credential;
+        if (!idToken) return;
+        setIsGoogleLoading(true);
+        setError(null);
+        try {
+            const result = await loginWithGoogle(idToken);
+            if ("requires2FA" in result && result.requires2FA) {
+                setTwoFactorToken(result.twoFactorToken);
+                return;
+            }
+            redirectByRole((result as any).role);
+        } catch (err: any) {
+            setError(getErrorMessage(err, "Google sign-in failed"));
+        } finally {
+            setIsGoogleLoading(false);
+        }
+    };
+
+    const onGoogleError = () => {
+        setError("Google sign-in failed. Please try again or use email/password.");
     };
 
     const {
@@ -82,8 +111,12 @@ function AuthForm() {
         setIsLoading(true);
         setError(null);
         try {
-            const user = await login(data.email, data.password);
-            redirectByRole(user.role);
+            const result = await login(data.email, data.password);
+            if ("requires2FA" in result && result.requires2FA) {
+                setTwoFactorToken(result.twoFactorToken);
+                return;
+            }
+            redirectByRole((result as any).role);
         } catch (err: any) {
             setError(getErrorMessage(err, "Login failed"));
         } finally {
@@ -95,7 +128,9 @@ function AuthForm() {
         setIsLoading(true);
         setError(null);
         try {
-            const user = await register(data);
+            // Preserve referral attribution from invite links (?ref=CODE)
+            const refCode = searchParams.get("ref");
+            const user = await register({ ...data, referralCode: refCode || undefined });
             redirectByRole(user.role);
         } catch (err: any) {
             setError(getErrorMessage(err, "Registration failed"));
@@ -124,6 +159,44 @@ function AuthForm() {
                         </div>
                     )}
 
+                    {twoFactorToken && (
+                        <div className="space-y-4 mb-4">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                                <p className="font-bold text-gray-900 text-sm mb-1">Two-factor authentication required</p>
+                                <p className="text-xs text-gray-500">
+                                    Enter the 6-digit code from your authenticator app to finish signing in.
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Verification code</label>
+                                <input
+                                    value={twoFactorCode}
+                                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                    onKeyDown={(e) => e.key === "Enter" && verify2FA()}
+                                    inputMode="numeric"
+                                    placeholder="••••••"
+                                    className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-center tracking-[0.5em] text-lg font-bold"
+                                />
+                            </div>
+                            <button
+                                onClick={verify2FA}
+                                disabled={twoFactorCode.length < 6 || isVerifying2FA}
+                                className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center"
+                            >
+                                {isVerifying2FA ? <Loader2 className="animate-spin" /> : "Verify & Sign In"}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setTwoFactorToken(null);
+                                    setTwoFactorCode("");
+                                }}
+                                className="w-full text-center text-xs font-semibold text-gray-400 hover:text-gray-600"
+                            >
+                                Back to sign in
+                            </button>
+                        </div>
+                    )}
+
                     <AnimatePresence mode="wait">
                         {isLogin ? (
                             <motion.form
@@ -134,6 +207,30 @@ function AuthForm() {
                                 onSubmit={handleLoginSubmit(onLogin)}
                                 className="space-y-4"
                             >
+                                {GOOGLE_CLIENT_ID && (
+                                    <>
+                                        <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+                                            <GoogleLogin
+                                                onSuccess={onGoogleSuccess}
+                                                onError={onGoogleError}
+                                                useOneTap={false}
+                                                theme="outline"
+                                                shape="pill"
+                                                size="large"
+                                                width="100%"
+                                                text={isLogin ? "continue_with" : "signup_with"}
+                                            />
+                                        </GoogleOAuthProvider>
+                                        <div className="flex items-center gap-3 my-1">
+                                            <div className="flex-1 h-px bg-gray-200" />
+                                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">or</span>
+                                            <div className="flex-1 h-px bg-gray-200" />
+                                        </div>
+                                        {isGoogleLoading && (
+                                            <p className="text-xs text-gray-400 text-center">Signing in with Google…</p>
+                                        )}
+                                    </>
+                                )}
                                 <div>
                                     <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
                                     <input id="auth-email" {...loginRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
@@ -173,6 +270,16 @@ function AuthForm() {
                                     {registerErrors.email && <p className="text-red-500 text-xs mt-1">{registerErrors.email.message}</p>}
                                 </div>
                                 <div>
+                                    <label htmlFor="auth-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
+                                    <input
+                                        id="auth-phone"
+                                        {...registerRegister("phone_number")}
+                                        placeholder="+6281234567890"
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {registerErrors.phone_number && <p className="text-red-500 text-xs mt-1">{registerErrors.phone_number.message as string}</p>}
+                                </div>
+                                <div>
                                     <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
                                     <input type="password" {...registerRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
@@ -207,7 +314,7 @@ function AuthForm() {
                         <p className="text-gray-500 text-sm">
                             {isLogin ? t("dontHaveAccount") : t("alreadyHaveAccount")}{" "}
                             <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-medium hover:underline">
-                                {isLogin ? "Sign Up" : t("signIn")}
+                                {isLogin ? t("signUp") : t("signIn")}
                             </button>
                         </p>
                     </div>

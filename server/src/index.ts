@@ -4,13 +4,27 @@ dotenv.config();
 
 import { createApp, prisma } from "./app";
 import { logger } from "./utils/logger";
+import { checkMailerStatus } from "./services/mailer.service";
+import { env } from "./config/env";
+import { initSentry } from "./utils/sentry";
+import { startReminderJob } from "./jobs/reminders";
+import { startCareCheckinJob } from "./jobs/checkins";
 
-const PORT = process.env.PORT || 5000;
+initSentry();
+
+const PORT = env.port;
 
 const app = createApp();
 
 const server = app.listen(PORT, () => {
     logger.info(`Server running on port ${PORT}`);
+    logger.info(`Environment: ${env.isProd ? "production" : env.isTest ? "test" : "development"}`);
+    logger.info({ mailer: checkMailerStatus() }, "Mailer status");
+    if (env.isProd && !env.googleClientId) {
+        logger.warn("GOOGLE_CLIENT_ID is not set — Google sign-in is disabled");
+    }
+    startReminderJob();
+    startCareCheckinJob();
 });
 
 // Graceful shutdown

@@ -56,6 +56,9 @@ export default function Navbar() {
                     <li className="cursor-pointer text-gray-600 hover:text-indigo-600 transition-colors text-sm font-medium">
                         <Link href="/appointments">{t("bookNow")}</Link>
                     </li>
+                    <li className="cursor-pointer text-rose-500 hover:text-rose-600 transition-colors text-sm font-bold">
+                        <Link href="/crisis">{t("crisisHelp")}</Link>
+                    </li>
                     {user && (
                         <>
                             <li className="cursor-pointer text-gray-600 hover:text-indigo-600 transition-colors text-sm font-medium">

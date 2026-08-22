@@ -2,6 +2,7 @@
 
 import { Component, ReactNode } from "react";
 import Link from "next/link";
+import { initClientSentry, captureClientError } from "@/lib/sentry";
 
 interface Props {
     children: ReactNode;
@@ -14,12 +15,18 @@ interface State {
 export default class ErrorBoundary extends Component<Props, State> {
     state: State = { hasError: false };
 
+    constructor(props: Props) {
+        super(props);
+        initClientSentry();
+    }
+
     static getDerivedStateFromError(): State {
         return { hasError: true };
     }
 
     componentDidCatch(error: Error) {
         console.error("[ErrorBoundary]", error);
+        captureClientError(error);
     }
 
     render() {

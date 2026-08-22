@@ -1,20 +1,21 @@
-import { createClient, RedisClientType } from "redis";
+import { createClient } from "redis";
 import { logger } from "../utils/logger";
 
 const EVENT_CHANNEL = "mindease:events";
 
-let publisher: RedisClientType | null = null;
-let connectPromise: Promise<RedisClientType | null> | null = null;
+let publisher: ReturnType<typeof createClient> | null = null;
+let connectPromise: Promise<ReturnType<typeof createClient> | null> | null = null;
 
-const getPublisher = async (): Promise<RedisClientType | null> => {
+const getPublisher = async (): Promise<ReturnType<typeof createClient> | null> => {
     if (publisher?.isOpen) return publisher;
 
     if (connectPromise) return connectPromise;
 
     connectPromise = (async () => {
         const url = process.env.REDIS_URL || "redis://localhost:6379";
+        // RESP2 (no HELLO) for compatibility with older Redis servers.
         const client = createClient({ url });
-        client.on("error", (err) => {
+        client.on("error", (err: any) => {
             logger.warn({ err: err.message }, "Redis error — realtime events disabled");
         });
 

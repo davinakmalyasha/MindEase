@@ -10,12 +10,14 @@
     "notifications": "Notifikasi",
     "profile": "Profil",
     "dashboard": "Dasbor",
-    "search": "Cari"
+    "search": "Cari",
+    "refresh": "Muat Ulang"
   },
   "nav": {
     "home": "Beranda",
     "findDoctors": "Cari Dokter",
     "bookNow": "Pesan Sekarang",
+    "crisisHelp": "Bantuan Krisis",
     "myHistory": "Riwayat Saya",
     "signIn": "Masuk/Daftar"
   },
@@ -43,6 +45,8 @@
     "quickActions": "Aksi Cepat",
     "explore": "Jelajahi",
     "moodTracker": "Pelacak Suasana Hati",
+    "assessments": "Penilaian Kesehatan",
+    "journal": "Jurnal",
     "findSpecialist": "Cari Spesialis",
     "myAppointments": "Janji Temu Saya",
     "messages": "Pesan",
@@ -51,6 +55,7 @@
     "mySchedule": "Jadwal Saya",
     "patientHistory": "Riwayat Pasien",
     "aiBriefings": "Ringkasan AI",
+    "analytics": "Analitik",
     "adminOverview": "Dasbor Admin",
     "totalPatients": "Total Pasien",
     "pendingRequests": "Permintaan Menunggu",
@@ -88,5 +93,124 @@
     "okay": "Biasa",
     "good": "Baik",
     "great": "Hebat"
+  },
+  "features": {
+    "journal": {
+      "title": "Jurnal Saya",
+      "subtitle": "Ruang aman untuk menuliskan pikiran, perasaan, dan refleksi Anda",
+      "writeTitle": "Tulis entri baru",
+      "writePlaceholder": "Bagaimana perasaan Anda saat ini? Apa yang ada di pikiran Anda?...",
+      "saveEntry": "Simpan Entri",
+      "aiReflection": "Refleksi AI",
+      "summarize": "Ringkas",
+      "regenerate": "Buat Ulang",
+      "summaryHint": "Minta AI untuk merefleksikan entri terbaru Anda dan menunjukkan pola dengan lembut.",
+      "empty": "Belum ada entri jurnal. Tulis entri pertama Anda di sebelah kiri."
+    },
+    "assessments": {
+      "title": "Penilaian Mandiri",
+      "subtitle": "Skrining standar (PHQ-9 & GAD-7) untuk memantau kesejahteraan Anda dari waktu ke waktu — dokter Anda melihat skor terbaru",
+      "questionHint": "Dalam dua minggu terakhir, seberapa sering Anda terganggu oleh hal-hal berikut?",
+      "back": "Kembali",
+      "next": "Lanjut",
+      "submit": "Kirim",
+      "takeAgain": "Ulangi",
+      "history": "Riwayat",
+      "historyEmpty": "Belum ada hasil. Selesaikan skrining untuk memulai.",
+      "severeHint": "Skor ini menunjukkan gejala yang signifikan. Pertimbangkan untuk segera membuat janji temu — dokter Anda dapat melihat hasil ini dan bersiap untuk kunjungan Anda.",
+      "savedHint": "Skor terbaru Anda telah disimpan dan akan muncul dalam ringkasan pra-sesi dokter Anda.",
+      "disclaimer": "Alat skrining adalah indikator, bukan diagnosis. Selalu diskusikan hasil dengan profesional yang berkualifikasi."
+    },
+    "analytics": {
+      "title": "Analitik Praktik",
+      "subtitle": "Pesanan, pendapatan, peringkat, dan kesejahteraan pasien Anda sekilas",
+      "totalAppointments": "Total janji temu",
+      "revenue6mo": "Pendapatan (6 bln)",
+      "cancellationRate": "Tingkat pembatalan",
+      "patientMood30d": "Suasana pasien (30 hr)",
+      "last6Months": "6 Bulan Terakhir",
+      "revenue": "Pendapatan (Rp)",
+      "completedSessions": "Sesi selesai",
+      "statusBreakdown": "Rincian Status",
+      "monthlyRating": "Tren Peringkat Bulanan",
+      "noRatings": "Belum ada ulasan dalam 6 bulan terakhir.",
+      "moodFootnote": "Suasana pasien menunjukkan rata-rata skor suasana yang dicatat oleh pasien yang menyelesaikan sesi dengan Anda dalam 30 hari terakhir."
+    },
+    "video": {
+      "back": "Kembali",
+      "badge": "Ruang Konsultasi Aman",
+      "opening": "Membuka ruangan Anda...",
+      "notAvailable": "Ruangan belum tersedia",
+      "notAvailableHint": "Anda akan menerima notifikasi saat lawan bicara bergabung. Sesi dibuka 15 menit sebelum waktu yang dijadwalkan.",
+      "sessionWithDoctor": "Sesi dengan",
+      "yourDoctor": "dokter Anda",
+      "yourPatient": "pasien",
+      "peerJoined": "Lawan bicara Anda telah bergabung ke ruangan!",
+      "peerWillBeNotified": "Lawan bicara Anda akan diberi tahu saat Anda bergabung",
+      "poweredBy": "Didukung oleh Jitsi Meet. Sesi bersifat pribadi antara Anda dan",
+      "joinVideo": "Gabung Panggilan Video",
+      "joinVoice": "Gabung Panggilan Suara",
+      "opensIn": "Ruangan dibuka dalam {{minutes}} menit. Anda dapat bergabung 15 menit sebelum sesi dimulai."
+    },
+    "moodFactors": {
+      "label": "Apa yang memengaruhi hari Anda? (opsional)",
+      "factorImpact": "Dampak faktor (rata-rata suasana)"
+    },
+    "reviewReply": {
+      "replyToReview": "Balas ulasan ini",
+      "placeholder": "Ucapkan terima kasih kepada pasien dan tanggapi masukan mereka secara profesional...",
+      "publish": "Terbitkan Balasan",
+      "reply": "Balas",
+      "editReply": "Edit balasan",
+      "cancel": "Batal",
+      "responseFrom": "Tanggapan dari"
+    },
+    "chat": {
+      "typing": "mengetik...",
+      "viewAttachment": "Lihat lampiran"
+    },
+    "sos": {
+      "title": "SOS — Saya butuh bantuan sekarang",
+      "subtitle": "Beri tahu dokter Anda dan lihat sumber daya krisis secara instan",
+      "confirm": "Ini akan memberi tahu dokter Anda dan menampilkan hotline krisis. Lanjutkan?",
+      "alerted": "Dokter Anda telah diberi tahu. Silakan hubungi hotline krisis jika Anda membutuhkan dukungan segera.",
+      "crisisHotlines": "Hotline krisis",
+      "myDoctor": "Dokter saya"
+    }
+  },
+  "staticPages": {
+    "crisis": {
+      "metaTitle": "Dukungan Krisis & Hotline",
+      "metaDescription": "Jika Anda atau seseorang yang Anda kenal sedang dalam krisis, hubungi sekarang. Nomor darurat, hotline krisis, dan sumber daya bantuan segera untuk pengguna Indonesia dan internasional.",
+      "title": "Anda tidak sendirian",
+      "subtitle": "Jika Anda atau seseorang yang Anda kenal sedang dalam krisis, hubungi sekarang. Bantuan tersedia 24/7.",
+      "immediateSteps": "Yang harus dilakukan sekarang",
+      "hotlinesTitle": "Hotline krisis",
+      "hotlinesNote": "Gratis, rahasia, dan tersedia sepanjang waktu.",
+      "reachOutTitle": "Hubungi untuk dukungan",
+      "reachOutBody": "Jika berbicara lewat telepon terasa sulit, kirim pesan atau ngobrol dengan orang yang Anda percaya. Anda juga dapat membuat janji temu dengan psikolog berlisensi di MindEase — tetapi jika ada bahaya langsung, selalu hubungi darurat terlebih dahulu.",
+      "hotlines": [
+        { "name": "Layanan Darurat (Ambulans & Polisi)", "number": "112", "note": "Hubungi segera jika ada bahaya langsung terhadap nyawa." },
+        { "name": "Kemenkes SEJIWA (Hotline Krisis Nasional)", "number": "119 ext 8", "note": "Kementerian Kesehatan RI — hotline krisis kesehatan jiwa 24/7." },
+        { "name": "Halo Kemenkes", "number": "1500-567", "note": "Layanan kesehatan umum — minta dihubungkan ke dukungan psikologis." },
+        { "name": "Into The Light Indonesia", "number": "+62 812-123-2012", "note": "Chat dukungan sebaya bagi yang mengalami tekanan (WhatsApp)." },
+        { "name": "Bebas Bicara", "number": "+62 811-125-2424", "note": "Layanan pendengar dan rujukan gratis via WhatsApp." },
+        { "name": "988 Suicide & Crisis Lifeline (AS)", "number": "988", "note": "Untuk pengguna di Amerika Serikat — telepon atau SMS, 24/7." },
+        { "name": "Samaritans (UK & ROI)", "number": "116 123", "note": "Saluran bantuan 24/7 gratis bagi siapa saja yang sedang kesulitan." },
+        { "name": "Layanan Darurat (Internasional)", "number": "112", "note": "Nomor darurat standar di sebagian besar negara." }
+      ],
+      "steps": [
+        { "title": "1. Hubungi hotline sekarang", "description": "Jangan menunggu. Hotline krisis gratis, rahasia, dan tersedia 24/7. Teruslah berbicara sampai Anda merasa risiko langsung telah berlalu." },
+        { "title": "2. Jangan sendirian", "description": "Jika memungkinkan, jangan sendirian. Hubungi teman atau keluarga yang dipercaya, atau pergilah ke tempat yang ada orang lain." },
+        { "title": "3. Jauhkan bahaya langsung", "description": "Jika Anda memiliki akses ke sesuatu yang dapat membahayakan Anda, jauhkan diri Anda darinya — atau minta orang yang Anda percaya untuk memindahkannya." }
+      ]
+    },
+    "faq": { "title": "Pertanyaan yang sering", "titleAccent": "diajukan", "subtitle": "Semua yang perlu Anda ketahui tentang pemesanan, konsultasi, fitur AI, dan data Anda." },
+    "help": { "title": "Pusat Bantuan", "subtitle": "Semua yang Anda butuhkan untuk memaksimalkan MindEase. Cari topik, atau gunakan asisten dukungan di pojok kanan bawah untuk jawaban instan." },
+    "about": { "title": "Perawatan kesehatan jiwa yang", "titleAccent": "sesuai dengan hidup Anda", "subtitle": "MindEase hadir untuk menjernihkan dukungan kesehatan jiwa. Kami menggabungkan jaringan psikolog berlisensi dengan alat AI klinis yang menyiapkan Anda dan dokter untuk setiap sesi — agar waktu bersama menjadi berharga." },
+    "contact": { "title": "Kami siap", "titleAccent": "membantu", "subtitle": "Hubungi tim yang tepat di bawah. Untuk hal mendesak, gunakan hotline krisis kami daripada email." },
+    "disclaimer": { "title": "Mohon baca ini", "titleAccent": "dengan saksama", "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan dan fitur AI MindEase" },
+    "terms": { "title": "Ketentuan yang jelas,", "titleAccent": "perawatan yang adil.", "subtitle": "Terakhir diperbarui: Agustus 2026 · Baca bersama Kebijakan Privasi kami" },
+    "privacy": { "title": "Privasi Anda", "titleAccent": "sangat berharga.", "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan MindEase" }
   }
 }

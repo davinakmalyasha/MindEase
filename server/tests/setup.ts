@@ -11,28 +11,42 @@ const TABLES = [
     "AuditLog",
     "RefreshToken",
     "PreSessionData",
+    "ReviewReport",
     "Review",
     "Message",
     "Notification",
     "MoodEntry",
+    "JournalEntry",
+    "Assessment",
     "ConsultationSlot",
+    "AvailabilityPattern",
+    "FollowUp",
+    "WaitlistEntry",
+    "PackagePurchase",
+    "Package",
+    "PushSubscription",
+    "Referral",
     "Appointment",
     "Doctor",
     "User",
 ];
 
-beforeEach(async () => {
-    await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 0");
-    for (const table of TABLES) {
-        await prisma.$executeRawUnsafe(`TRUNCATE TABLE \`${table}\``);
-    }
-    await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 1");
-});
+// Runs on a single connection (interactive transaction). DELETE is used
+// instead of TRUNCATE because TRUNCATE implicitly commits — which would
+// terminate the transaction mid-way — and because FK checks are disabled
+// per-session, so all statements must share one connection.
+const wipeDb = async () => {
+    await prisma.$transaction(
+        async (tx) => {
+            await tx.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 0");
+            for (const table of TABLES) {
+                await tx.$executeRawUnsafe(`DELETE FROM \`${table}\``);
+            }
+            await tx.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 1");
+        },
+        { maxWait: 15000, timeout: 60000 }
+    );
+};
 
-afterEach(async () => {
-    await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 0");
-    for (const table of TABLES) {
-        await prisma.$executeRawUnsafe(`TRUNCATE TABLE \`${table}\``);
-    }
-    await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 1");
-});
+beforeEach(wipeDb);
+afterEach(wipeDb);

@@ -2,7 +2,9 @@
   "name": "client",
   "version": "0.1.0",
   "private": true,
-  "i18n": { "requestConfig": "./i18n/request.ts" },
+  "i18n": {
+    "requestConfig": "./i18n/request.ts"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -13,6 +15,7 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@react-oauth/google": "^0.13.4",
+    "@sentry/browser": "^10.70.0",
     "@tanstack/react-query": "^5.101.4",
     "axios": "^1.13.5",
     "clsx": "^2.1.1",

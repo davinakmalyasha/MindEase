@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /messages
+Disallow: /notifications
+Disallow: /verify-email
+
+Sitemap: https://mindease.app/sitemap.xml

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { AccountService } from "../services/account.service";
+import { prisma } from "../lib/prisma";
 
 export class AccountController {
     static async changePassword(req: Request, res: Response) {
@@ -45,6 +46,67 @@ export class AccountController {
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to delete account.";
             res.status(400).json({ status: "error", message });
+        }
+    }
+
+    static async exportData(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: {
+                    email: true,
+                    name: true,
+                    avatar: true,
+                    role: true,
+                    phone_number: true,
+                    provider: true,
+                    createdAt: true,
+                },
+            });
+
+            const [appointments, moods, preSession, reviews, messages] = await Promise.all([
+                prisma.appointment.findMany({
+                    where: { userId },
+                    select: { appointmentDate: true, startTime: true, endTime: true, consultationType: true, status: true, notes: true, meetingLink: true, createdAt: true },
+                    orderBy: { createdAt: "desc" },
+                }),
+                prisma.moodEntry.findMany({
+                    where: { userId },
+                    select: { mood: true, notes: true, createdAt: true },
+                    orderBy: { createdAt: "asc" },
+                }),
+                prisma.preSessionData.findMany({
+                    where: { appointment: { userId } },
+                    select: { questionsJson: true, answersJson: true, briefingText: true, updatedAt: true },
+                }),
+                prisma.review.findMany({
+                    where: { userId },
+                    select: { rating: true, comment: true, doctorId: true, createdAt: true },
+                }),
+                prisma.message.findMany({
+                    where: { senderId: userId },
+                    select: { content: true, receiverId: true, createdAt: true },
+                    orderBy: { createdAt: "asc" },
+                }),
+            ]);
+
+            const exportData = {
+                generatedAt: new Date().toISOString(),
+                user,
+                appointments,
+                moods,
+                preSession,
+                reviews,
+                messagesSent: messages,
+            };
+
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Content-Disposition", `attachment; filename="mindease-data-${userId}.json"`);
+            res.json(exportData);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to export data.";
+            res.status(500).json({ status: "error", message });
         }
     }
 

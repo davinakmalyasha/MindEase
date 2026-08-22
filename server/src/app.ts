@@ -1,4 +1,4 @@
-﻿/// <reference path="./types/index.d.ts" />
+/// <reference path="./types/index.d.ts" />
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -10,8 +10,9 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import path from "path";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
 import { logger } from "./utils/logger";
+import { env } from "./config/env";
+import { prisma } from "./lib/prisma";
 import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
 import doctorRoutes from "./routes/doctor.routes";
@@ -23,14 +24,22 @@ import notificationRoutes from "./routes/notification.routes";
 import aiRoutes from "./routes/ai.routes";
 import wellnessRoutes from "./routes/wellness.routes";
 import messageRoutes from "./routes/message.routes";
+import supportRoutes from "./routes/support.routes";
+import followUpRoutes from "./routes/followUp.routes";
+import pushRoutes from "./routes/push.routes";
 import { csrfProtect, csrfTokenHandler } from "./middleware/csrf.middleware";
 import { openApiDocument } from "./docs/openapi";
+import { captureError } from "./utils/sentry";
 import swaggerUi from "swagger-ui-express";
 
-export const prisma = new PrismaClient();
+export { prisma };
 
 export const createApp = () => {
     const app = express();
+
+    // Behind Railway/Vercel proxies req.ip must be the client IP, otherwise
+    // every rate limiter would share one platform-wide bucket.
+    app.set("trust proxy", process.env.NODE_ENV === "production" ? 1 : false);
 
     // Request-ID middleware
     app.use((req, res, next) => {
@@ -47,7 +56,7 @@ export const createApp = () => {
     );
     app.use(
         cors({
-            origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+            origin: env.corsOrigins,
             credentials: true,
         })
     );
@@ -112,6 +121,9 @@ export const createApp = () => {
     app.use("/api/ai", aiRoutes);
     app.use("/api/wellness", wellnessRoutes);
     app.use("/api/messages", messageRoutes);
+    app.use("/api/support", supportRoutes);
+    app.use("/api", followUpRoutes);
+    app.use("/api/push", pushRoutes);
 
     // 404 handler
     app.use((req, res) => {
@@ -121,6 +133,7 @@ export const createApp = () => {
     // Global Error Handler
     app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
         logger.error({ err: err.stack, path: req.path }, "Unhandled error");
+        captureError(err, { path: req.path, method: req.method, requestId: req.headers["x-request-id"] });
         res.status(err.status || 500).json({ status: "error", message: err.message || "Internal Server Error" });
     });
 

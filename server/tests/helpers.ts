@@ -45,10 +45,15 @@ export const createUser = async (role: string, email?: string): Promise<TestUser
     };
 };
 
-export const createDoctor = async (email?: string) => {
+export const createDoctor = async (email?: string, opts?: { verified?: boolean }) => {
     const user = await createUser("doctor", email);
     const doctor = await prisma.doctor.findUnique({ where: { userId: user.id } });
     if (!doctor) throw new Error("Doctor profile not created");
+    // Booking requires an approved doctor — approve by default so test flows
+    // can book; pass { verified: false } to test the pending state.
+    if (opts?.verified !== false) {
+        await prisma.doctor.update({ where: { id: doctor.id }, data: { verificationStatus: "approved" } });
+    }
     return { ...user, doctorId: doctor.id };
 };
 

@@ -13,12 +13,17 @@ RUN npx tsc --outDir dist
 
 FROM node:22-alpine AS runner
 WORKDIR /app
+# Cron windows, room-open windows and "today" horizons are authored in WIB —
+# pin the container clock to Asia/Jakarta (tzdata needed for named zones).
+RUN apk add --no-cache tzdata
 ENV NODE_ENV=production
+ENV TZ=Asia/Jakarta
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
-RUN mkdir -p public/uploads
+COPY --from=builder /app/scripts/start.sh ./scripts/start.sh
+RUN mkdir -p public/uploads && chmod +x scripts/start.sh
 
 EXPOSE 5000
-CMD ["node", "dist/index.js"]
+CMD ["sh", "scripts/start.sh"]

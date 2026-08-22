@@ -47,8 +47,9 @@ export default function AppointmentPage() {
     useEffect(() => {
         const fetchDoctors = async () => {
             try {
-                const response = await api.get("/doctors");
-                setDoctors(response.data.data);
+                const response = await api.get("/doctors?page=1&limit=50");
+                const data = response.data.data;
+                setDoctors(Array.isArray(data) ? data : data?.rows || []);
             } catch (error) {
                 console.error("Error fetching doctors:", error);
             } finally {
@@ -57,6 +58,16 @@ export default function AppointmentPage() {
         };
         fetchDoctors();
     }, []);
+
+    // Deep link: /appointments?doctor=<id> opens the booking modal directly
+    // (e.g. arriving from a doctor profile's "Book Consultation" button)
+    useEffect(() => {
+        const doctorId = new URLSearchParams(window.location.search).get("doctor");
+        if (!doctorId || isLoading) return;
+        const match = (doctors as any[]).find((d) => String(d.id) === String(doctorId));
+        if (match && !selectedDoctor) setSelectedDoctor(match);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [doctors, isLoading]);
 
     const specialties = useMemo(() =>
         ["All", ...new Set(doctors.map((d: any) => d.specialty))],
@@ -251,9 +262,9 @@ export default function AppointmentPage() {
                                                 avatar: doc.user.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${doc.user.name || doc.id}`,
                                                 image: doc.user.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${doc.user.name || doc.id}`,
                                                 rating: doc.rating,
-                                                reviewCount: doc.reviews?.length || 0,
+                                                reviewCount: doc._count?.reviews || doc.reviews?.length || 0,
                                                 isAvailable: doc.availability === "Available",
-                                                isVerified: true,
+                                                isVerified: doc.verificationStatus === "approved",
                                                 price: doc.price,
                                                 availability: doc.availability,
                                                 experience: doc.experience,

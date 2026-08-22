@@ -6,11 +6,14 @@ import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import DoctorProfile from "@/components/doctors/DoctorProfile";
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 interface ApiReview {
     id: number;
     rating: number;
     comment: string;
+    reply?: string | null;
+    repliedAt?: string | null;
     createdAt: string;
     user: { id: number; name: string; avatar?: string };
 }
@@ -22,10 +25,13 @@ const mapReview = (r: ApiReview) => ({
     rating: r.rating,
     date: new Date(r.createdAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }),
     comment: r.comment,
+    reply: r.reply,
+    repliedAt: r.repliedAt,
 });
 
 const mapDoctor = (d: any) => ({
     id: d.id,
+    userId: d.user?.id,
     name: d.user?.name || "Doctor",
     specialty: d.specialty,
     avatar: d.user?.avatar || "",
@@ -34,13 +40,15 @@ const mapDoctor = (d: any) => ({
     reviewCount: d.reviews?.length || 0,
     experience: d.experience || 0,
     isAvailable: d.availability === "Available",
-    isVerified: true,
+    isVerified: d.verificationStatus === "approved",
     bio: d.bio || "",
     price: d.price || 0,
     availability: d.availability,
+    consultationSlots: d.consultationSlots || [],
 });
 
 export default function DoctorDetailPage({ params }: { params: Promise<{ id: string }> }) {
+    const { user } = useAuth();
     const [doctor, setDoctor] = useState<any>(null);
     const [reviews, setReviews] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -91,7 +99,35 @@ export default function DoctorDetailPage({ params }: { params: Promise<{ id: str
     return (
         <main className="min-h-screen bg-white">
             <Navbar />
-            <DoctorProfile doctor={doctor} reviews={reviews} />
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                    __html: JSON.stringify({
+                        "@context": "https://schema.org",
+                        "@type": "MedicalBusiness",
+                        name: doctor.name,
+                        image: doctor.avatar,
+                        description: `${doctor.specialty} — ${doctor.experience} years of experience.`,
+                        specialty: doctor.specialty,
+                        priceRange: `IDR ${doctor.price?.toLocaleString("id-ID")}`,
+                        ...(doctor.rating > 0
+                            ? {
+                                  aggregateRating: {
+                                      "@type": "AggregateRating",
+                                      ratingValue: doctor.rating,
+                                      reviewCount: doctor.reviewCount,
+                                  },
+                              }
+                            : {}),
+                        medicalSpecialty: doctor.specialty,
+                    }),
+                }}
+            />
+            <DoctorProfile
+                doctor={doctor}
+                reviews={reviews}
+                canReply={user?.role === "doctor" && user.id === doctor.userId}
+            />
             <Footer />
         </main>
     );

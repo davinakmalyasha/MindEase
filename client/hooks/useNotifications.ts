@@ -15,27 +15,38 @@ export interface Notification {
 export function useNotifications(pollMs = 30000) {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [page, setPage] = useState(1);
 
-    const fetchNotifications = useCallback(async () => {
+    const fetchNotifications = useCallback(async (targetPage = 1) => {
         try {
             const [notifRes, countRes] = await Promise.all([
-                api.get("/notifications"),
+                api.get(`/notifications?page=${targetPage}&limit=20`),
                 api.get("/notifications/unread-count"),
             ]);
-            setNotifications(notifRes.data.data || []);
+            const data = notifRes.data.data;
+            const rows = Array.isArray(data) ? data : data?.rows || [];
+            setTotalPages(Array.isArray(data) ? 1 : data?.totalPages || 1);
+            setNotifications((prev) => (targetPage === 1 ? rows : [...prev, ...rows]));
             setUnreadCount(countRes.data.data?.count || 0);
+            setPage(targetPage);
         } catch {
             // User might not be logged in
         }
     }, []);
 
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        fetchNotifications();
+        const timer = setTimeout(() => {
+            fetchNotifications(1);
+        }, 0);
         if (pollMs > 0) {
-            const interval = setInterval(fetchNotifications, pollMs);
-            return () => clearInterval(interval);
+            const interval = setInterval(() => fetchNotifications(1), pollMs);
+            return () => {
+                clearTimeout(timer);
+                clearInterval(interval);
+            };
         }
+        return () => clearTimeout(timer);
     }, [fetchNotifications, pollMs]);
 
     const markAsRead = useCallback(async (id: number) => {
@@ -54,5 +65,16 @@ export function useNotifications(pollMs = 30000) {
         } catch { /* ignore */ }
     }, []);
 
-    return { notifications, unreadCount, markAsRead, markAllAsRead, refresh: fetchNotifications };
+    return {
+        notifications,
+        unreadCount,
+        totalPages,
+        page,
+        loadMore: () => {
+            if (page < totalPages) fetchNotifications(page + 1);
+        },
+        markAsRead,
+        markAllAsRead,
+        refresh: () => fetchNotifications(1),
+    };
 }

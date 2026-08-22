@@ -7,12 +7,11 @@
   --foreground: #171717;
 }
 
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Class strategy (next-themes + tailwind darkMode:"class") owns theming —
+   the OS media query previously fought the manual toggle. */
+.dark {
+  --background: #0b1120;
+  --foreground: #e2e8f0;
 }
 
 @media (min-width: 768px) {
@@ -43,10 +42,73 @@ body {
   background: #e2e8f0;
   border-radius: 9999px;
 }
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #334155;
+}
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #cbd5e1;
 }
 
 .font-outfit {
   font-family: "Plus Jakarta Sans", "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dark-mode retrofit layer. Most feature pages hardcode light utility */
+/* classes (bg-white / text-gray-*); instead of touching every page we */
+/* remap the common ones under `.dark`. Explicit `dark:` variants keep */
+/* precedence because they are also class-based and equally specific   */
+/* but declared later by Tailwind's utilities layer ordering.          */
+/* ------------------------------------------------------------------ */
+.dark .bg-white {
+  background-color: #111827;
+}
+.dark .bg-white\/80,
+.dark .bg-white\/90 {
+  background-color: rgba(17, 24, 39, 0.9);
+}
+.dark .bg-gray-50 {
+  background-color: #0b1120;
+}
+.dark .bg-gray-100 {
+  background-color: #1e293b;
+}
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-100:hover {
+  background-color: #1e293b;
+}
+.dark .hover\:bg-indigo-50:hover {
+  background-color: rgba(49, 46, 129, 0.35);
+}
+.dark .hover\:bg-emerald-50:hover,
+.dark .hover\:bg-rose-50:hover,
+.dark .hover\:bg-violet-50:hover,
+.dark .hover\:bg-amber-50:hover {
+  background-color: #1e293b;
+}
+.dark .text-gray-900 {
+  color: #f1f5f9;
+}
+.dark .text-gray-800 {
+  color: #e2e8f0;
+}
+.dark .text-gray-700 {
+  color: #cbd5e1;
+}
+.dark .text-gray-600,
+.dark .text-gray-500 {
+  color: #94a3b8;
+}
+.dark .text-gray-400 {
+  color: #64748b;
+}
+.dark .border-gray-50,
+.dark .border-gray-100,
+.dark .border-gray-200 {
+  border-color: #1e293b;
+}
+.dark input,
+.dark textarea,
+.dark select {
+  color-scheme: dark;
 }

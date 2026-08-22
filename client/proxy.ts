@@ -1,7 +1,13 @@
 import { NextResponse, NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "supersecret");
+// The dev fallback mirrors server/src/config/env.ts and must never be used in
+// production: Vercel projects must set JWT_SECRET (same value as the API).
+const secret = new TextEncoder().encode(
+    process.env.NODE_ENV === "production"
+        ? (process.env.JWT_SECRET ?? "")
+        : process.env.JWT_SECRET || "dev_only_insecure_jwt_secret_change_me"
+);
 
 const PUBLIC_AFTER_LOGIN: Record<string, string[]> = {
     "/dashboard/doctor": ["doctor"],
@@ -11,7 +17,7 @@ const PUBLIC_AFTER_LOGIN: Record<string, string[]> = {
     "/dashboard/pre-session": ["patient"],
 };
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
     const { pathname } = req.nextUrl;
     const token = req.cookies.get("accessToken")?.value;
 

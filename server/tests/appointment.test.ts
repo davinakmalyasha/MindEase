@@ -5,7 +5,10 @@ import { prisma } from "../src/app";
 const futureDate = (days = 3) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
-    return d.toISOString().split("T")[0];
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
 };
 
 const createOpenSlot = async (doctorId: number, days = 3, start = "10:00", end = "11:00") => {
