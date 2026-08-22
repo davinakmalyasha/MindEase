@@ -1,6 +1,6 @@
 "use client";
 
-import { AppointmentWithDoctor } from "@/lib/data";
+import { AppointmentWithDoctor } from "@/lib/types/doctor";
 import { motion } from "framer-motion";
 import { Star, Calendar, Clock, MessageCircle, ExternalLink, XCircle } from "lucide-react";
 import Image from "next/image";
@@ -83,9 +83,9 @@ export default function AppointmentCard({ appointment, onCancel, onViewDetails }
 
                 {/* Actions */}
                 <div className="flex items-center gap-2 w-full lg:w-auto pt-4 lg:pt-0 border-t lg:border-t-0 border-gray-50">
-                    {appointment.status === 'confirmed' && (
+                    {appointment.status === 'confirmed' && appointment.doctor.user?.phone_number && (
                         <a
-                            href={`https://wa.me/${(appointment.doctor.user?.phone_number || "628123456789").replace(/\D/g, '')}`}
+                            href={`https://wa.me/${appointment.doctor.user.phone_number.replace(/\D/g, '')}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-3 rounded-2xl text-sm font-bold hover:bg-emerald-100 transition-all active:scale-95"

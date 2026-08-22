@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { useTranslations } from "next-intl";
 import { Doctor } from "@/lib/types/doctor";
 import ReviewCard from "@/components/doctors/ReviewCard";
+import Spinner from "@/components/ui/Spinner";
+import api, { getErrorMessage } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/context/AuthContext";
 import {
     Star,
     BadgeCheck,
@@ -14,20 +19,207 @@ import {
     ArrowLeft,
     ShieldCheck,
     DollarSign,
-    HeartPulse
+    HeartPulse,
+    MessageSquareReply,
+    CheckCircle2,
+    Bell,
+    Package,
+    Trash2,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 interface DoctorProfileProps {
-    doctor: Doctor;
+    doctor: Doctor & { userId?: number; consultationSlots?: any[] };
     reviews: any[];
+    canReply?: boolean;
 }
 
-export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
+function ReviewReplyForm({ reviewId, onDone }: { reviewId: number; onDone: () => void }) {
+    const t = useTranslations("features.reviewReply");
+    const [reply, setReply] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+    const { toast } = useToast();
+
+    const submit = async () => {
+        if (!reply.trim()) return;
+        setSaving(true);
+        setMessage(null);
+        try {
+            await api.post(`/reviews/${reviewId}/reply`, { reply: reply.trim() });
+            toast("Reply published", "success");
+            onDone();
+        } catch (err: any) {
+            setMessage({ type: "error", text: getErrorMessage(err, "Failed to publish reply") });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="mt-4 p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+            <p className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1.5">
+                <MessageSquareReply className="w-3.5 h-3.5" /> {t("replyToReview")}
+            </p>
+            <textarea
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                rows={2}
+                placeholder={t("placeholder")}
+                className="w-full px-3 py-2.5 bg-white border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
+            />
+            {message && (
+                <p className={cn("text-xs font-bold mt-2", message.type === "success" ? "text-emerald-600" : "text-rose-500")}>
+                    {message.type === "success" ? <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> : null}
+                    {message.text}
+                </p>
+            )}
+            <button
+                onClick={submit}
+                disabled={!reply.trim() || saving}
+                className="mt-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center gap-1.5"
+            >
+                {saving ? <Spinner size="sm" className="text-white" /> : <MessageSquareReply className="w-3.5 h-3.5" />}
+                {t("publish")}
+            </button>
+        </div>
+    );
+}
+
+export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfileProps) {
+    const tr = useTranslations("features.reviewReply");
+    const { toast } = useToast();
+    const { user } = useAuth();
+    const [waitlistState, setWaitlistState] = useState<"idle" | "checking" | "on" | "off">("idle");
+    const [waitlistBusy, setWaitlistBusy] = useState(false);
     const [showAllReviews, setShowAllReviews] = useState(false);
-    const visibleReviews = showAllReviews ? reviews : reviews.slice(0, 4);
+    const [replyingTo, setReplyingTo] = useState<number | null>(null);
+    const [reviewsState, setReviewsState] = useState(reviews);
+    const visibleReviews = showAllReviews ? reviewsState : reviewsState.slice(0, 4);
+
+    const refreshReviews = async () => {
+        try {
+            const res = await api.get(`/reviews/doctor/${doctor.id}`);
+            const data = res.data?.data || [];
+            setReviewsState(
+                data.map((r: any) => ({
+                    id: r.id,
+                    name: r.user?.name || "Patient",
+                    avatar: r.user?.avatar,
+                    rating: r.rating,
+                    date: new Date(r.createdAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }),
+                    comment: r.comment,
+                    reply: r.reply,
+                    repliedAt: r.repliedAt,
+                }))
+            );
+        } catch {
+            window.location.reload();
+        }
+    };
+
+    const reportReview = async (reviewId: number) => {
+        const reason = prompt("Describe why this review should be reviewed by our team (min. 5 characters):");
+        if (!reason || reason.trim().length < 5) return;
+        try {
+            await api.post(`/reviews/${reviewId}/report`, { reason: reason.trim() });
+            toast("Review reported — our team will review it", "success");
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to report review"), "error");
+        }
+    };
+
+    // Waitlist: only for patients, only when this doctor has no open slots
+    useEffect(() => {
+        if (user?.role !== "patient") return;
+        const hasOpenSlots = (doctor.consultationSlots || []).some((s: any) => !s.isBooked && new Date(s.date) >= new Date());
+        if (hasOpenSlots) return;
+        api.get(`/doctors/${doctor.id}/waitlist/status`)
+            .then((res) => setWaitlistState(res.data?.data?.onWaitlist ? "on" : "off"))
+            .catch(() => setWaitlistState("off"));
+    }, [user, doctor.id, doctor.consultationSlots]);
+
+    const toggleWaitlist = async () => {
+        if (!user) {
+            toast("Please sign in to join the waitlist", "error");
+            return;
+        }
+        setWaitlistBusy(true);
+        try {
+            if (waitlistState === "on") {
+                await api.delete(`/doctors/${doctor.id}/waitlist`);
+                setWaitlistState("off");
+                toast("Removed from waitlist", "success");
+            } else {
+                await api.post(`/doctors/${doctor.id}/waitlist`);
+                setWaitlistState("on");
+                toast("You'll be notified when a slot opens", "success");
+            }
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Waitlist update failed"), "error");
+        } finally {
+            setWaitlistBusy(false);
+        }
+    };
+
+    // Packages
+    const [packages, setPackages] = useState<any[]>([]);
+    const [packageForm, setPackageForm] = useState({ name: "", description: "", sessionCount: "4", totalPrice: "" });
+    const [packageBusy, setPackageBusy] = useState(false);
+
+    useEffect(() => {
+        api.get(`/doctors/${doctor.id}/packages`)
+            .then((res) => setPackages(res.data?.data || []))
+            .catch(() => {});
+    }, [doctor.id]);
+
+    const createPackage = async () => {
+        setPackageBusy(true);
+        try {
+            await api.post("/doctors/packages", {
+                name: packageForm.name,
+                description: packageForm.description,
+                sessionCount: Number(packageForm.sessionCount),
+                totalPrice: Number(packageForm.totalPrice),
+            });
+            toast("Package created", "success");
+            setPackageForm({ name: "", description: "", sessionCount: "4", totalPrice: "" });
+            api.get(`/doctors/${doctor.id}/packages`).then((res) => setPackages(res.data?.data || []));
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to create package"), "error");
+        } finally {
+            setPackageBusy(false);
+        }
+    };
+
+    const deletePackage = async (pkgId: number) => {
+        try {
+            await api.delete(`/doctors/packages/${pkgId}`);
+            toast("Package removed", "success");
+            setPackages((prev) => prev.filter((p) => p.id !== pkgId));
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to remove package"), "error");
+        }
+    };
+
+    const purchasePackage = async (pkg: any) => {
+        if (!user) {
+            toast("Please sign in to purchase a package", "error");
+            return;
+        }
+        if (!confirm(`Purchase "${pkg.name}" (${pkg.sessionCount} sessions, Rp ${pkg.totalPrice.toLocaleString("id-ID")})?`)) return;
+        setPackageBusy(true);
+        try {
+            await api.post(`/packages/${pkg.id}/purchase`);
+            toast("Package purchased — use a session when booking!", "success");
+        } catch (err: any) {
+            toast(getErrorMessage(err, "Failed to purchase package"), "error");
+        } finally {
+            setPackageBusy(false);
+        }
+    };
     const treatments = [
         "Anxiety Disorder",
         "Depression",
@@ -65,12 +257,18 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                             transition={{ delay: 0.2 }}
                             className="relative w-40 h-40 rounded-full overflow-hidden border-4 border-indigo-50 shadow-2xl shadow-indigo-100 flex-shrink-0"
                         >
-                            <Image
-                                src={doctor.avatar}
-                                alt={doctor.name}
-                                fill
-                                className="object-cover"
-                            />
+                            {doctor.avatar ? (
+                                <Image
+                                    src={doctor.avatar}
+                                    alt={doctor.name}
+                                    fill
+                                    className="object-cover"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-indigo-50 font-black text-indigo-500 text-5xl">
+                                    {(doctor.name || "D").charAt(0).toUpperCase()}
+                                </div>
+                            )}
                         </motion.div>
                         <div className="pt-2">
                             <motion.div
@@ -94,7 +292,7 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                                         ? "bg-emerald-50 text-emerald-700 border-emerald-100"
                                         : "bg-gray-50 text-gray-400 border-gray-100"
                                 )}>
-                                    {doctor.isAvailable ? "Available" : "Full Booked"}
+                                    {doctor.isAvailable ? "Available" : "Fully Booked"}
                                 </span>
                             </motion.div>
                             <motion.h1
@@ -183,6 +381,96 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                         </div>
                     </motion.section>
 
+                    {/* Packages Section */}
+                    <section className="mb-12">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <Package className="w-7 h-7 text-indigo-500" /> Therapy Packages
+                        </h2>
+                        {canReply && (
+                            <div className="mb-6 p-5 bg-gray-50 rounded-3xl border border-gray-100 space-y-3">
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Create a package</p>
+                                <div className="grid md:grid-cols-4 gap-3">
+                                    <input
+                                        value={packageForm.name}
+                                        onChange={(e) => setPackageForm({ ...packageForm, name: e.target.value })}
+                                        placeholder="Name (e.g. 4-session anxiety plan)"
+                                        className="px-4 py-2.5 bg-white border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 md:col-span-2"
+                                    />
+                                    <input
+                                        value={packageForm.totalPrice}
+                                        onChange={(e) => setPackageForm({ ...packageForm, totalPrice: e.target.value })}
+                                        placeholder="Total price (Rp)"
+                                        type="number"
+                                        className="px-4 py-2.5 bg-white border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                    />
+                                    <input
+                                        value={packageForm.sessionCount}
+                                        onChange={(e) => setPackageForm({ ...packageForm, sessionCount: e.target.value })}
+                                        placeholder="Sessions"
+                                        type="number"
+                                        min={2}
+                                        max={20}
+                                        className="px-4 py-2.5 bg-white border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                    />
+                                </div>
+                                <input
+                                    value={packageForm.description}
+                                    onChange={(e) => setPackageForm({ ...packageForm, description: e.target.value })}
+                                    placeholder="Description (optional)"
+                                    className="w-full px-4 py-2.5 bg-white border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                />
+                                <button
+                                    onClick={createPackage}
+                                    disabled={!packageForm.name || !packageForm.totalPrice || packageBusy}
+                                    className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+                                >
+                                    {packageBusy ? "Saving..." : "Create Package"}
+                                </button>
+                            </div>
+                        )}
+                        {packages.length === 0 ? (
+                            <div className="bg-gray-50 rounded-3xl py-10 text-center">
+                                <Package className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 font-medium">No packages yet.</p>
+                            </div>
+                        ) : (
+                            <div className="grid md:grid-cols-2 gap-4">
+                                {packages.map((pkg) => (
+                                    <div key={pkg.id} className="p-6 bg-white border border-gray-100 rounded-3xl flex flex-col">
+                                        <div className="flex items-start justify-between gap-3 mb-3">
+                                            <h3 className="font-bold text-gray-900">{pkg.name}</h3>
+                                            {canReply && (
+                                                <button
+                                                    onClick={() => deletePackage(pkg.id)}
+                                                    className="text-rose-400 hover:text-rose-600 transition-colors"
+                                                    title="Remove package"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {pkg.description && <p className="text-sm text-gray-500 leading-relaxed flex-1">{pkg.description}</p>}
+                                        <div className="mt-4 flex items-center justify-between">
+                                            <div>
+                                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{pkg.sessionCount} sessions</p>
+                                                <p className="text-xl font-black text-gray-900">Rp {pkg.totalPrice.toLocaleString("id-ID")}</p>
+                                            </div>
+                                            {!canReply && (
+                                                <button
+                                                    onClick={() => purchasePackage(pkg)}
+                                                    disabled={packageBusy}
+                                                    className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+                                                >
+                                                    Purchase Package
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+
                     {/* Reviews Section */}
                     <section className="mb-20">
                         <div className="flex items-center justify-between mb-8">
@@ -202,7 +490,34 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                         {visibleReviews.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {visibleReviews.map((review) => (
-                                    <ReviewCard key={review.id} review={review} />
+                                    <div key={review.id}>
+                                        <ReviewCard review={review} doctorName={doctor.name} />
+                                        {canReply && (
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    onClick={() => setReplyingTo(replyingTo === review.id ? null : review.id)}
+                                                    className="mt-2 ml-4 text-xs font-bold text-indigo-600 hover:underline"
+                                                >
+                                                    {replyingTo === review.id ? tr("cancel") : review.reply ? tr("editReply") : tr("reply")}
+                                                </button>
+                                                <button
+                                                    onClick={() => reportReview(review.id)}
+                                                    className="mt-2 text-xs font-bold text-amber-600 hover:underline"
+                                                >
+                                                    Report
+                                                </button>
+                                            </div>
+                                        )}
+                                        {canReply && replyingTo === review.id && (
+                                            <ReviewReplyForm
+                                                reviewId={review.id}
+                                                onDone={() => {
+                                                    setReplyingTo(null);
+                                                    refreshReviews();
+                                                }}
+                                            />
+                                        )}
+                                    </div>
                                 ))}
                             </div>
                         ) : (
@@ -241,17 +556,33 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                                 <span className="text-sm font-bold text-gray-700">{doctor.availability || "Mon - Fri, 09:00 - 17:00"}</span>
                             </div>
                             <p className="text-xs text-center text-gray-400 font-medium">
-                                *Jadwal dapat berubah sewaktu-waktu sesuai kebijakan klinik.
+                                *Schedule availability may change at any time.
                             </p>
                         </div>
 
                         <Link
-                            href="/appointments"
+                            href={`/appointments?doctor=${doctor.id}`}
                             className="w-full h-16 flex items-center justify-center gap-3 bg-gray-900 text-white rounded-2xl font-bold text-lg hover:bg-indigo-600 transition-all shadow-xl shadow-gray-200 active:scale-95 text-center"
                         >
                             <Clock className="w-5 h-5" />
                             Book Consultation
                         </Link>
+
+                        {user?.role === "patient" && waitlistState !== "idle" && waitlistState !== "checking" && (
+                            <button
+                                onClick={toggleWaitlist}
+                                disabled={waitlistBusy}
+                                className={cn(
+                                    "w-full mt-3 h-12 flex items-center justify-center gap-2 rounded-2xl font-bold text-sm border-2 transition-all disabled:opacity-50",
+                                    waitlistState === "on"
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                                        : "text-gray-600 border-gray-200 hover:border-emerald-300 hover:text-emerald-600"
+                                )}
+                            >
+                                {waitlistBusy ? <Spinner size="sm" /> : waitlistState === "on" ? <CheckCircle2 className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                                {waitlistState === "on" ? "On waitlist — we'll notify you" : "Notify me when slots open"}
+                            </button>
+                        )}
                     </div>
                 </motion.div>
             </div>
@@ -264,7 +595,7 @@ export default function DoctorProfile({ doctor, reviews }: DoctorProfileProps) {
                 className="fixed bottom-0 left-0 w-full p-4 bg-white/80 backdrop-blur-md border-t border-gray-100 lg:hidden z-50"
             >
                 <Link
-                    href="/appointments"
+                    href={`/appointments?doctor=${doctor.id}`}
                     className="w-full h-14 flex items-center justify-center bg-gray-900 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-all"
                 >
                     Book Now • Rp {doctor.price.toLocaleString("id-ID")}

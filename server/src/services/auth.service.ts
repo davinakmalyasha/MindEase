@@ -1,14 +1,15 @@
-import { PrismaClient, User } from "@prisma/client";
+import { User } from "@prisma/client";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { OAuth2Client } from "google-auth-library";
+import { env } from "../config/env";
+import { prisma } from "../lib/prisma";
 
-const prisma = new PrismaClient();
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client(env.googleClientId);
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
-const REFRESH_SECRET = process.env.REFRESH_SECRET || "superrefreshsecret";
+const JWT_SECRET = env.jwtSecret;
+const REFRESH_SECRET = env.refreshSecret;
 const REFRESH_TOKEN_DAYS = 7;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -54,6 +55,8 @@ export class AuthService {
 
         const hashedPassword = await argon2.hash(userData.password);
 
+        const referralCode = `ME-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+
         const user = await prisma.user.create({
             data: {
                 email: userData.email,
@@ -63,8 +66,27 @@ export class AuthService {
                 phone_number: userData.phone_number,
                 provider: "local",
                 isVerified: false,
+                referralCode,
             },
         });
+
+        // Track referrals: a new user registered with a friend's code
+        if (userData.referralCode) {
+            const referrer = await prisma.user.findFirst({
+                where: { referralCode: userData.referralCode.trim().toUpperCase(), id: { not: user.id } },
+            });
+            if (referrer) {
+                await prisma.referral
+                    .create({
+                        data: {
+                            referrerId: referrer.id,
+                            referredId: user.id,
+                            code: userData.referralCode.trim().toUpperCase(),
+                        },
+                    })
+                    .catch(() => {});
+            }
+        }
 
         if (user.role === "doctor") {
             await prisma.doctor.create({
@@ -72,6 +94,7 @@ export class AuthService {
                     userId: user.id,
                     specialty: "General Psychologist",
                     bio: "Experienced mental health professional. Complete your profile to get started.",
+                    verificationStatus: "pending",
                 },
             });
         }
@@ -123,18 +146,23 @@ export class AuthService {
 
     // Google Auth Logic: Verify token, find/create user
     static async googleLogin(token: string) {
-        if (!process.env.GOOGLE_CLIENT_ID) {
+        if (!env.googleClientId) {
             throw new Error("Google sign-in is not configured on the server");
         }
 
         const ticket = await googleClient.verifyIdToken({
             idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID,
+            audience: env.googleClientId,
         });
         const payload = ticket.getPayload();
         if (!payload || !payload.email) throw new Error("Invalid Google Token");
+        // Never trust unverified emails — linking an account by email without
+        // verification enables pre-account takeover.
+        if (!payload.email_verified) throw new Error("Google account email is not verified");
 
         let user = await prisma.user.findUnique({ where: { email: payload.email } });
+
+        if (user?.isBanned) throw new Error("Account suspended. Contact support.");
 
         if (!user) {
             // Create new user if not exists (Google-verified emails are auto-verified)
@@ -146,16 +174,16 @@ export class AuthService {
                     googleId: payload.sub,
                     provider: "google",
                     isVerified: true,
+                    referralCode: `ME-${crypto.randomBytes(4).toString("hex").toUpperCase()}`,
                 },
             });
         } else if (!user.googleId) {
+            // Identity merge per PRD: safe because Google verified email ownership
             user = await prisma.user.update({
                 where: { id: user.id },
                 data: { googleId: payload.sub, avatar: payload.picture || user.avatar },
             });
         }
-
-        if (user.isBanned) throw new Error("Account suspended. Contact support.");
 
         const tokens = generateTokens(user);
         await this.storeRefreshToken(user.id, tokens.refreshToken);
@@ -201,6 +229,12 @@ export class AuthService {
             const storedToken = await prisma.refreshToken.findUnique({ where: { token } });
 
             if (!storedToken) {
+                // A cryptographically valid but unknown token means it was
+                // already rotated (replayed) or revoked — assume theft and
+                // revoke every active session for the account.
+                await prisma.refreshToken
+                    .deleteMany({ where: { userId: decoded.userId } })
+                    .catch(() => {});
                 throw new Error("Invalid Refresh Token");
             }
             if (storedToken.expiresAt < new Date()) {

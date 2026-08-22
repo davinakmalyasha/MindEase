@@ -19,6 +19,7 @@ import {
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Avatar from "@/components/ui/Avatar";
+import SOSButton from "@/components/ui/SOSButton";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
@@ -77,6 +78,7 @@ export default function Dashboard() {
                         </h1>
                         <p className="text-gray-500 font-medium">Managing your mental wellness from one place.</p>
                     </div>
+                    {user.role === "patient" && <SOSButton />}
                 </motion.div>
             </div>
 

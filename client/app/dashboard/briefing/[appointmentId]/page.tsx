@@ -2,12 +2,23 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle } from "lucide-react";
+import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle, ClipboardCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import MoodChart from "@/components/mood/MoodChart";
+import AIDisclaimer from "@/components/ui/AIDisclaimer";
 import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
+import { cn } from "@/lib/utils";
+import { severityLabel } from "@/lib/data/assessments";
+
+const SEVERITY_STYLES: Record<string, string> = {
+    minimal: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    mild: "bg-lime-50 text-lime-700 border-lime-200",
+    moderate: "bg-amber-50 text-amber-700 border-amber-200",
+    "moderately-severe": "bg-orange-50 text-orange-700 border-orange-200",
+    severe: "bg-rose-50 text-rose-700 border-rose-200",
+};
 
 export default function BriefingPage({ params }: { params: Promise<{ appointmentId: string }> }) {
     const router = useRouter();
@@ -15,6 +26,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
     const [appointmentId, setAppointmentId] = useState("");
     const [briefing, setBriefing] = useState<string | null>(null);
     const [moodHistory, setMoodHistory] = useState<any[]>([]);
+    const [assessments, setAssessments] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
     const [appointment, setAppointment] = useState<any>(null);
@@ -23,6 +35,12 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
         params.then(({ appointmentId }) => setAppointmentId(appointmentId));
     }, [params]);
 
+    const applyData = (data: any) => {
+        setBriefing(data?.briefing || null);
+        if (Array.isArray(data?.moodHistory)) setMoodHistory(data.moodHistory);
+        if (Array.isArray(data?.assessments)) setAssessments(data.assessments);
+    };
+
     const generate = useCallback(async (force = false) => {
         if (!appointmentId) return;
         setIsGenerating(true);
@@ -30,10 +48,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
             const res = force
                 ? await api.post("/ai/briefing", { appointmentId: Number(appointmentId) })
                 : await api.get(`/ai/briefing/${appointmentId}`);
-            setBriefing(res.data?.data?.briefing || null);
-            if (Array.isArray(res.data?.data?.moodHistory)) {
-                setMoodHistory(res.data.data.moodHistory);
-            }
+            applyData(res.data?.data);
         } catch (error) {
             toast(getErrorMessage(error, "Failed to generate briefing"), "error");
         } finally {
@@ -47,10 +62,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
         // Try cached first, then generate
         api.get(`/ai/briefing/${appointmentId}`)
             .then((res) => {
-                setBriefing(res.data?.data?.briefing || null);
-                if (Array.isArray(res.data?.data?.moodHistory)) {
-                    setMoodHistory(res.data.data.moodHistory);
-                }
+                applyData(res.data?.data);
                 setIsLoading(false);
             })
             .catch(() => generate(true));
@@ -142,6 +154,9 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                             <p className="text-[10px] text-gray-400 italic mt-4">
                                 * Briefings are generated from the patient&apos;s last 14 days of mood entries and their pre-session answers.
                             </p>
+                            <div className="mt-6">
+                                <AIDisclaimer compact />
+                            </div>
                         </div>
                     </div>
 
@@ -151,6 +166,34 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                             <MoodChart entries={moodHistory} />
                         ) : (
                             <p className="text-sm text-gray-400 text-center py-10">No mood data available for this patient.</p>
+                        )}
+                    </div>
+
+                    <div className="bg-white rounded-3xl border border-gray-100 p-6 mt-6">
+                        <h2 className="text-lg font-extrabold text-gray-900 mb-5 flex items-center gap-2">
+                            <ClipboardCheck className="w-5 h-5 text-teal-500" /> Screening Scores
+                        </h2>
+                        {assessments.length === 0 ? (
+                            <p className="text-sm text-gray-400 text-center py-8">No PHQ-9 / GAD-7 results on record.</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {assessments.map((a: any) => (
+                                    <div key={a.type} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+                                        <div>
+                                            <p className="text-sm font-black text-gray-900 uppercase">{a.type === "phq9" ? "PHQ-9" : "GAD-7"}</p>
+                                            <p className="text-[11px] text-gray-400 font-medium">
+                                                {new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xl font-black text-gray-900">{a.score}</span>
+                                            <span className={cn("px-3 py-1 rounded-full text-[11px] font-bold border capitalize", SEVERITY_STYLES[a.severity])}>
+                                                {severityLabel(a.type, a.severity)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>

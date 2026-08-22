@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { UserService } from "../services/user.service";
+import { saveFile, deleteFile } from "../lib/storage";
 
 export class UserController {
     static async getProfile(req: Request, res: Response) {
@@ -18,12 +19,26 @@ export class UserController {
     static async updateProfile(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
+            let avatarUrl: string | undefined;
+            let oldAvatar: string | null | undefined;
+
+            if (req.file) {
+                avatarUrl = await saveFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+                const current = await UserService.getProfile(userId);
+                oldAvatar = current?.avatar;
+            }
+
             const profileData = {
                 ...req.body,
-                avatar: req.file ? `/uploads/${req.file.filename}` : req.body.avatar,
             };
 
-            const updatedProfile = await UserService.updateProfile(userId, profileData);
+            const updatedProfile = await UserService.updateProfile(userId, profileData, avatarUrl ?? req.body.avatar);
+
+            // Clean up the replaced avatar (best-effort)
+            if (avatarUrl && oldAvatar && oldAvatar !== avatarUrl) {
+                await deleteFile(oldAvatar);
+            }
+
             res.json({ status: "success", data: { user: updatedProfile } });
         } catch (error: any) {
             console.error("[Update Profile Error]", error);

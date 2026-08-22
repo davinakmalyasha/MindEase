@@ -3,47 +3,56 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/api";
+import { RegisterSchema, type RegisterFormData } from "@/lib/validations/auth";
+import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
 
-const RegisterSchema = z.object({
-    name: z.string().min(2, "Name must be at least 2 characters"),
-    email: z.string().email("Invalid email address"),
-    password: z
-        .string()
-        .min(8, "Password must be at least 8 characters")
-        .regex(/[A-Z]/, "Must contain uppercase")
-        .regex(/[0-9]/, "Must contain number")
-        .regex(/[^A-Za-z0-9]/, "Must contain special char"),
-    phone_number: z.string().optional(),
-    role: z.enum(["patient", "doctor"]),
-});
-
-type FormData = z.infer<typeof RegisterSchema>;
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 export default function RegisterPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { register } = useAuth();
+    const { register, loginWithGoogle } = useAuth();
+    const refCode = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
 
-    const { register: field, handleSubmit, setValue, watch, formState: { errors } } = useForm<FormData>({
+    const { register: field, handleSubmit, setValue, watch, formState: { errors } } = useForm<RegisterFormData>({
         resolver: zodResolver(RegisterSchema),
         defaultValues: { role: "patient" },
     });
     const selectedRole = watch("role");
 
-    const onSubmit = async (data: FormData) => {
+    const onSubmit = async (data: RegisterFormData) => {
         setIsLoading(true);
         setError(null);
         try {
-            const user = await register(data);
+            const user = await register({ ...data, referralCode: refCode || undefined });
             window.location.href = user.role === "patient" ? "/dashboard/mood" : "/dashboard";
         } catch (err: any) {
             setError(getErrorMessage(err, "Registration failed"));
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const onGoogleSuccess = async (credentialResponse: any) => {
+        const idToken = credentialResponse?.credential;
+        if (!idToken) return;
+        setIsLoading(true);
+        setError(null);
+        try {
+            const result = await loginWithGoogle(idToken);
+            if ("requires2FA" in result && result.requires2FA) {
+                // 2FA must be completed on the login page
+                window.location.href = "/login";
+                return;
+            }
+            window.location.href = (result as any).role === "patient" ? "/dashboard/mood" : "/dashboard";
+        } catch (err: any) {
+            setError(getErrorMessage(err, "Google sign-in failed"));
         } finally {
             setIsLoading(false);
         }
@@ -62,6 +71,28 @@ export default function RegisterPage() {
                 <p className="text-gray-500 mb-8">Join MindEase to start your wellness journey</p>
 
                 {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>}
+
+                {GOOGLE_CLIENT_ID && (
+                    <>
+                        <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+                            <GoogleLogin
+                                onSuccess={onGoogleSuccess}
+                                onError={() => setError("Google sign-in failed. Please try again or use email/password.")}
+                                useOneTap={false}
+                                theme="outline"
+                                shape="pill"
+                                size="large"
+                                width="100%"
+                                text="signup_with"
+                            />
+                        </GoogleOAuthProvider>
+                        <div className="flex items-center gap-3 my-4">
+                            <div className="flex-1 h-px bg-gray-200" />
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">or</span>
+                            <div className="flex-1 h-px bg-gray-200" />
+                        </div>
+                    </>
+                )}
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                     <div>

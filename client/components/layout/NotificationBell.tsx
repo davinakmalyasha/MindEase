@@ -17,6 +17,9 @@ export default function NotificationBell() {
     useEffect(() => {
         onMessage((msg) => {
             if (msg.type === "notification:new") refresh();
+            if (msg.type === "appointment:join") {
+                window.dispatchEvent(new CustomEvent("realtime:appointment-join", { detail: msg.payload }));
+            }
         });
     }, [onMessage, refresh]);
 

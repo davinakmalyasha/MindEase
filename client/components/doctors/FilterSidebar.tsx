@@ -5,6 +5,20 @@ import { useCallback, useTransition } from "react";
 import { SPECIALTIES, Specialty } from "@/lib/types/doctor";
 import { Search, X } from "lucide-react";
 
+const PRICE_PRESETS = [
+    { value: "", label: "Any price" },
+    { value: "under100", label: "Under Rp 100k" },
+    { value: "mid", label: "Rp 100k – 300k" },
+    { value: "over300", label: "Over Rp 300k" },
+] as const;
+
+const SORT_OPTIONS = [
+    { value: "rating", label: "Top Rated" },
+    { value: "price_asc", label: "Lowest Price" },
+    { value: "price_desc", label: "Highest Price" },
+    { value: "experience", label: "Most Experienced" },
+] as const;
+
 export default function FilterSidebar() {
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -15,6 +29,8 @@ export default function FilterSidebar() {
     const specialty = (searchParams.get("specialty") as Specialty) ?? "All";
     const minExperience = Number(searchParams.get("exp")) || 0;
     const availableOnly = searchParams.get("available") === "true";
+    const pricePreset = searchParams.get("price") ?? "";
+    const sort = searchParams.get("sort") ?? "rating";
 
     const updateParams = useCallback(
         (updates: Record<string, string>) => {
@@ -43,7 +59,8 @@ export default function FilterSidebar() {
         });
     }, [router, pathname]);
 
-    const hasActiveFilters = search || specialty !== "All" || minExperience > 0 || availableOnly;
+    const hasActiveFilters =
+        !!search || specialty !== "All" || minExperience > 0 || availableOnly || !!pricePreset || sort !== "rating";
 
     return (
         <aside className={`w-full lg:w-72 shrink-0 space-y-6 ${isPending ? "opacity-70" : ""} transition-opacity`}>
@@ -86,6 +103,32 @@ export default function FilterSidebar() {
                         </button>
                     ))}
                 </div>
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Price Range</label>
+                <select
+                    value={pricePreset}
+                    onChange={(e) => updateParams({ price: e.target.value })}
+                    className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                    {PRICE_PRESETS.map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Sort by</label>
+                <select
+                    value={sort}
+                    onChange={(e) => updateParams({ sort: e.target.value })}
+                    className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                    {SORT_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                </select>
             </div>
 
             <div>

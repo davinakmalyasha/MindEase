@@ -10,6 +10,8 @@ export const SPECIALTIES = [
 
 export type Specialty = (typeof SPECIALTIES)[number];
 
+export const ITEMS_PER_PAGE = 8;
+
 export interface Doctor {
     id: number;
     name: string;

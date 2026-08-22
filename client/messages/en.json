@@ -10,12 +10,14 @@
     "notifications": "Notifications",
     "profile": "Profile",
     "dashboard": "Dashboard",
-    "search": "Search"
+    "search": "Search",
+    "refresh": "Refresh"
   },
   "nav": {
     "home": "Home",
     "findDoctors": "Find Doctors",
     "bookNow": "Book Now",
+    "crisisHelp": "Crisis Help",
     "myHistory": "My History",
     "signIn": "SignIn/SignUp"
   },
@@ -43,6 +45,8 @@
     "quickActions": "Quick Actions",
     "explore": "Explore",
     "moodTracker": "Mood Tracker",
+    "assessments": "Assessments",
+    "journal": "Journal",
     "findSpecialist": "Find a Specialist",
     "myAppointments": "My Appointments",
     "messages": "Messages",
@@ -51,6 +55,7 @@
     "mySchedule": "My Schedule",
     "patientHistory": "Patient History",
     "aiBriefings": "AI Briefings",
+    "analytics": "Analytics",
     "adminOverview": "Admin Overview",
     "totalPatients": "Total Patients",
     "pendingRequests": "Pending Requests",
@@ -88,5 +93,124 @@
     "okay": "Okay",
     "good": "Good",
     "great": "Great"
+  },
+  "features": {
+    "journal": {
+      "title": "My Journal",
+      "subtitle": "A safe space to write your thoughts, feelings, and reflections",
+      "writeTitle": "Write a new entry",
+      "writePlaceholder": "How are you feeling right now? What's on your mind?...",
+      "saveEntry": "Save Entry",
+      "aiReflection": "AI Reflection",
+      "summarize": "Summarize",
+      "regenerate": "Regenerate",
+      "summaryHint": "Ask AI to reflect on your recent entries and gently point out patterns.",
+      "empty": "No journal entries yet. Write your first one on the left."
+    },
+    "assessments": {
+      "title": "Self-Assessments",
+      "subtitle": "Standardized screenings (PHQ-9 & GAD-7) to track your wellbeing over time — your doctor sees the latest scores",
+      "questionHint": "Over the last two weeks, how often have you been bothered by the following?",
+      "back": "Back",
+      "next": "Next",
+      "submit": "Submit",
+      "takeAgain": "Take Again",
+      "history": "History",
+      "historyEmpty": "No results yet. Complete the screening to get started.",
+      "severeHint": "This score suggests significant symptoms. Please consider booking a session soon — your doctor can see this result and prepare for your visit.",
+      "savedHint": "Your latest score has been saved and will appear in your doctor's pre-session briefing.",
+      "disclaimer": "Screening tools are indicators, not diagnoses. Always discuss results with a qualified professional."
+    },
+    "analytics": {
+      "title": "Practice Analytics",
+      "subtitle": "Your bookings, revenue, ratings and patient wellbeing at a glance",
+      "totalAppointments": "Total appointments",
+      "revenue6mo": "Revenue (6 mo)",
+      "cancellationRate": "Cancellation rate",
+      "patientMood30d": "Patient mood (30d)",
+      "last6Months": "Last 6 Months",
+      "revenue": "Revenue (Rp)",
+      "completedSessions": "Completed sessions",
+      "statusBreakdown": "Status Breakdown",
+      "monthlyRating": "Monthly Rating Trend",
+      "noRatings": "No reviews in the last 6 months yet.",
+      "moodFootnote": "Patient mood shows the average mood score logged by patients who completed a session with you in the last 30 days."
+    },
+    "video": {
+      "back": "Back",
+      "badge": "Secure Consultation Room",
+      "opening": "Opening your room...",
+      "notAvailable": "Room not available yet",
+      "notAvailableHint": "You'll receive a notification when your counterpart joins. Sessions open 15 minutes before the scheduled time.",
+      "sessionWithDoctor": "Session with",
+      "yourDoctor": "your doctor",
+      "yourPatient": "patient",
+      "peerJoined": "Your counterpart has joined the room!",
+      "peerWillBeNotified": "Your counterpart will be notified when you join",
+      "poweredBy": "Powered by Jitsi Meet. Sessions are private between you and your",
+      "joinVideo": "Join Video Call",
+      "joinVoice": "Join Voice Call",
+      "opensIn": "The room opens in {{minutes}} minutes. You can join from 15 minutes before your session."
+    },
+    "moodFactors": {
+      "label": "What affected your day? (optional)",
+      "factorImpact": "Factor impact (avg mood)"
+    },
+    "reviewReply": {
+      "replyToReview": "Reply to this review",
+      "placeholder": "Thank the patient and address their feedback professionally...",
+      "publish": "Publish Reply",
+      "reply": "Reply",
+      "editReply": "Edit reply",
+      "cancel": "Cancel",
+      "responseFrom": "Response from"
+    },
+    "chat": {
+      "typing": "typing...",
+      "viewAttachment": "View attachment"
+    },
+    "sos": {
+      "title": "SOS — I need help now",
+      "subtitle": "Alert your doctor and see crisis resources instantly",
+      "confirm": "This will alert your assigned doctor and show you crisis hotlines. Continue?",
+      "alerted": "Your doctor has been alerted. Please reach out to a crisis hotline if you need immediate support.",
+      "crisisHotlines": "Crisis hotlines",
+      "myDoctor": "My doctor"
+    }
+  },
+  "staticPages": {
+    "crisis": {
+      "metaTitle": "Crisis Support & Hotlines",
+      "metaDescription": "If you or someone you know is in crisis, reach out now. Emergency numbers, crisis hotlines, and immediate help resources for Indonesia and international users.",
+      "title": "You are not alone",
+      "subtitle": "If you or someone you know is in crisis, reach out now. Help is available 24/7.",
+      "immediateSteps": "What to do right now",
+      "hotlinesTitle": "Crisis hotlines",
+      "hotlinesNote": "Free, confidential, and available around the clock.",
+      "reachOutTitle": "Reach out for support",
+      "reachOutBody": "If talking on the phone feels hard, text or chat with someone you trust. You can also book a session with a licensed psychologist on MindEase — but if there is any immediate danger, always call first.",
+      "hotlines": [
+        { "name": "Emergency Services (Ambulance & Police)", "number": "112", "note": "Call immediately if there is immediate danger to life." },
+        { "name": "Kemenkes SEJIWA (National Crisis Line)", "number": "119 ext 8", "note": "Kementerian Kesehatan RI — 24/7 mental health crisis line." },
+        { "name": "Halo Kemenkes", "number": "1500-567", "note": "General health line — ask to be connected to psychological support." },
+        { "name": "Into The Light Indonesia", "number": "+62 812-123-2012", "note": "Peer support chat for those in distress (WhatsApp)." },
+        { "name": "Bebas Bicara", "number": "+62 811-125-2424", "note": "Free listening ear and referral service via WhatsApp." },
+        { "name": "988 Suicide & Crisis Lifeline (US)", "number": "988", "note": "For users in the United States — call or text, 24/7." },
+        { "name": "Samaritans (UK & ROI)", "number": "116 123", "note": "Free 24/7 helpline for anyone struggling to cope." },
+        { "name": "Emergency Services (International)", "number": "112", "note": "Standard emergency number in most countries." }
+      ],
+      "steps": [
+        { "title": "1. Call a hotline right now", "description": "Do not wait. Crisis lines are free, confidential, and staffed 24/7. Keep talking until you feel the immediate risk has passed." },
+        { "title": "2. Stay with someone", "description": "Do not be alone if you can help it. Reach a trusted friend or family member, or go somewhere with people around you." },
+        { "title": "3. Remove immediate danger", "description": "If you have access to anything that could harm you, put distance between yourself and it — or have someone you trust remove it." }
+      ]
+    },
+    "faq": { "title": "Frequently asked", "titleAccent": "questions", "subtitle": "Everything you need to know about booking, consultations, AI features, and your data." },
+    "help": { "title": "Help Center", "subtitle": "Everything you need to get the most out of MindEase. Search a topic, or use the support assistant in the bottom-right corner for instant answers." },
+    "about": { "title": "Mental health care that", "titleAccent": "fits your life", "subtitle": "MindEase exists to demystify mental health support. We combine a network of licensed psychologists with clinical AI tools that prepare you and your doctor for every session — so time together counts." },
+    "contact": { "title": "We're here to", "titleAccent": "help", "subtitle": "Reach the right team below. For anything urgent, please use our crisis hotlines instead of email." },
+    "disclaimer": { "title": "Please read this", "titleAccent": "carefully", "subtitle": "Last updated: August 2026 · Applies to all MindEase services and AI features" },
+    "terms": { "title": "Clear terms,", "titleAccent": "fair care.", "subtitle": "Last updated: August 2026 · Read alongside our Privacy Policy" },
+    "privacy": { "title": "Your privacy is", "titleAccent": "sacred.", "subtitle": "Last updated: August 2026 · Applies to all MindEase services" }
   }
 }

@@ -1,5 +1,5 @@
 export default function sitemap() {
-    const base = "https://mindease.app";
+    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://mindease.app";
     const staticRoutes = [
         "",
         "/login",
@@ -7,6 +7,13 @@ export default function sitemap() {
         "/doctors",
         "/appointments",
         "/forgot-password",
+        "/crisis",
+        "/privacy",
+        "/terms",
+        "/about",
+        "/faq",
+        "/contact",
+        "/help",
     ];
     return staticRoutes.map((route) => ({
         url: `${base}${route}`,

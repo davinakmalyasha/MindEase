@@ -29,3 +29,10 @@ export const GenerateBriefingSchema = z.object({
         appointmentId: z.string().optional(),
     }),
 });
+
+export const MatchDoctorsSchema = z.object({
+    body: z.object({
+        query: z.string().min(3, "Describe what you're looking for (min. 3 characters)").max(300),
+    }),
+});
+

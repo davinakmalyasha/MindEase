@@ -88,6 +88,9 @@ async function main() {
                 price: 150000 + i * 75000,
                 rating: Math.round((4.2 + (i % 8) * 0.1) * 10) / 10,
                 availability: i % 3 === 0 ? "Busy" : "Available",
+                verificationStatus: "approved",
+                licenseNumber: `STR-DEMO-${100000 + i}`,
+                licenseIssuer: "Demo Psychology Board",
             },
         });
 

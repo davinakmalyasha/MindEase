@@ -12,6 +12,7 @@ export const RegisterSchema = z.object({
         name: z.string().min(2, "Name must be at least 2 characters"),
         phone_number: z.string().min(8, "Phone number must be at least 8 characters").optional(),
         role: z.enum(["patient", "doctor"]).optional().default("patient"),
+        referralCode: z.string().min(4).max(20).optional(),
     }),
 });
 

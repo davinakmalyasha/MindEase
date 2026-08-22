@@ -2,6 +2,7 @@
 
 import { Star } from "lucide-react";
 import { motion } from "framer-motion";
+import { useTranslations } from "next-intl";
 import Image from "next/image";
 
 interface Review {
@@ -11,9 +12,12 @@ interface Review {
     rating: number;
     date: string;
     comment: string;
+    reply?: string | null;
+    repliedAt?: string | null;
 }
 
-export default function ReviewCard({ review }: { review: Review }) {
+export default function ReviewCard({ review, doctorName }: { review: Review; doctorName?: string }) {
+    const t = useTranslations("features.reviewReply");
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -24,12 +28,18 @@ export default function ReviewCard({ review }: { review: Review }) {
             <div className="flex justify-between items-start mb-4">
                 <div className="flex gap-3 items-center">
                     <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-100">
-                        <Image
-                            src={review.avatar}
-                            alt={review.name}
-                            fill
-                            className="object-cover"
-                        />
+                        {review.avatar ? (
+                            <Image
+                                src={review.avatar}
+                                alt={review.name}
+                                fill
+                                className="object-cover"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center font-black text-indigo-500 text-sm">
+                                {(review.name || "?").charAt(0).toUpperCase()}
+                            </div>
+                        )}
                     </div>
                     <div>
                         <h4 className="font-bold text-gray-900 text-sm">{review.name}</h4>
@@ -44,6 +54,20 @@ export default function ReviewCard({ review }: { review: Review }) {
             <p className="text-gray-600 text-sm leading-relaxed italic">
                 &ldquo;{review.comment}&rdquo;
             </p>
+
+            {review.reply && (
+                <div className="mt-4 p-4 bg-indigo-50/60 border border-indigo-100 rounded-2xl">
+                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">
+                        {t("responseFrom")} {doctorName || "Doctor"}
+                        {review.repliedAt && (
+                            <span className="normal-case font-medium">
+                                {" "}· {new Date(review.repliedAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}
+                            </span>
+                        )}
+                    </p>
+                    <p className="text-gray-700 text-sm leading-relaxed">{review.reply}</p>
+                </div>
+            )}
         </motion.div>
     );
 }

@@ -1,8 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { AIService } from "./ai.service";
 import { WellnessService } from "./wellness.service";
 
-const prisma = new PrismaClient();
+
 
 const parseJson = <T>(raw: string | null, fallback: T): T => {
     if (!raw) return fallback;
@@ -17,7 +17,10 @@ export class PreSessionService {
     private static async getAppointment(appointmentId: number) {
         return await prisma.appointment.findUnique({
             where: { id: appointmentId },
-            include: { doctor: { select: { specialty: true, userId: true } } },
+            include: {
+                doctor: { select: { specialty: true, userId: true } },
+                user: { select: { name: true } },
+            },
         });
     }
 
@@ -109,22 +112,26 @@ export class PreSessionService {
         const data = await prisma.preSessionData.findUnique({ where: { appointmentId } });
         if (data?.briefingText) {
             const moodHistory = await WellnessService.getMoodHistory(appointment.userId, 14);
+            const assessments = await WellnessService.getLatestAssessments(appointment.userId);
             return {
                 briefing: data.briefingText,
                 cached: true,
                 moodHistory: moodHistory.map((m) => ({ mood: m.mood, createdAt: m.createdAt, notes: m.notes })),
                 answers: parseJson<{ question: string; answer: string }[]>(data.answersJson ?? null, []),
+                assessments,
             };
         }
 
         const answers = parseJson<{ question: string; answer: string }[]>(data?.answersJson ?? null, []);
         const moodHistory = await WellnessService.getMoodHistory(appointment.userId, 14);
+        const assessments = await WellnessService.getLatestAssessments(appointment.userId);
 
         const briefing = await AIService.generateDoctorBriefing(
-            "Patient",
+            appointment.user?.name || "Patient",
             appointment.doctor.specialty,
             moodHistory,
-            answers
+            answers,
+            assessments
         );
 
         await prisma.preSessionData.upsert({
@@ -138,6 +145,7 @@ export class PreSessionService {
             cached: false,
             moodHistory: moodHistory.map((m) => ({ mood: m.mood, createdAt: m.createdAt, notes: m.notes })),
             answers,
+            assessments,
         };
     }
 }

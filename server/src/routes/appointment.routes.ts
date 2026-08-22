@@ -11,6 +11,9 @@ router.use(authenticate);
 
 router.post("/book", validate(BookAppointmentSchema), AppointmentController.book);
 router.get("/my", AppointmentController.getMy);
+router.get("/:id/rebook-options", AppointmentController.rebookOptions);
+router.get("/:id/ics", AppointmentController.getIcs);
+router.post("/:id/join", AppointmentController.joinRoom);
 router.put("/:id/status", validate(UpdateStatusSchema), AppointmentController.updateStatus);
 router.put("/:id/reschedule", validate(RescheduleSchema), AppointmentController.reschedule);
 

@@ -5,7 +5,7 @@ import { useCallback, useTransition, Suspense } from "react";
 import { Doctor } from "@/lib/types/doctor";
 import DoctorCard from "./DoctorCard";
 import DoctorCardSkeleton from "./DoctorCardSkeleton";
-import { ITEMS_PER_PAGE } from "@/lib/data/doctors";
+import { ITEMS_PER_PAGE } from "@/lib/types/doctor";
 import { SearchX, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface DoctorGridProps {

@@ -18,8 +18,10 @@ export interface AuthUser {
 interface AuthContextValue {
     user: AuthUser | null;
     isLoading: boolean;
-    login: (email: string, password: string) => Promise<AuthUser>;
-    register: (data: { name: string; email: string; password: string; phone_number?: string; role?: string }) => Promise<AuthUser>;
+    login: (email: string, password: string) => Promise<AuthUser | { requires2FA: true; twoFactorToken: string }>;
+    loginWithGoogle: (idToken: string) => Promise<AuthUser | { requires2FA: true; twoFactorToken: string }>;
+    complete2FA: (token: string, code: string) => Promise<AuthUser>;
+    register: (data: { name: string; email: string; password: string; phone_number?: string; role?: string; referralCode?: string }) => Promise<AuthUser>;
     logout: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     setUser: (user: AuthUser | null) => void;
@@ -61,13 +63,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = useCallback(async (email: string, password: string) => {
         const res = await api.post("/auth/login", { email, password });
+        const data = res.data.data;
+        if (data.requires2FA) {
+            return { requires2FA: true as const, twoFactorToken: data.twoFactorToken as string };
+        }
+        const loggedIn = data.user as AuthUser;
+        setUser(loggedIn);
+        localStorage.setItem("user", JSON.stringify(loggedIn));
+        return loggedIn;
+    }, []);
+
+    const loginWithGoogle = useCallback(async (idToken: string) => {
+        const res = await api.post("/auth/google", { token: idToken });
+        const data = res.data.data;
+        if (data.requires2FA) {
+            return { requires2FA: true as const, twoFactorToken: data.twoFactorToken as string };
+        }
+        const loggedIn = data.user as AuthUser;
+        setUser(loggedIn);
+        localStorage.setItem("user", JSON.stringify(loggedIn));
+        return loggedIn;
+    }, []);
+
+    const complete2FA = useCallback(async (token: string, code: string) => {
+        const res = await api.post("/account/2fa/verify", { token, code });
         const loggedIn = res.data.data.user as AuthUser;
         setUser(loggedIn);
         localStorage.setItem("user", JSON.stringify(loggedIn));
         return loggedIn;
     }, []);
 
-    const register = useCallback(async (data: { name: string; email: string; password: string; phone_number?: string; role?: string }) => {
+    const register = useCallback(async (data: { name: string; email: string; password: string; phone_number?: string; role?: string; referralCode?: string }) => {
         const res = await api.post("/auth/register", data);
         const registered = res.data.data.user as AuthUser;
         setUser(registered);
@@ -87,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, login, register, logout, refreshProfile, setUser }}>
+        <AuthContext.Provider value={{ user, isLoading, login, loginWithGoogle, complete2FA, register, logout, refreshProfile, setUser }}>
             {children}
         </AuthContext.Provider>
     );

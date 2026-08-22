@@ -33,8 +33,12 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx tsc --noEmit
-      - name: Prepare test DB
-        run: npx prisma db push --skip-generate
+      - name: Prepare test DB via migrations
+        run: npx prisma migrate deploy --skip-generate
+        env:
+          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
+      - name: Check for schema drift (schema must match committed migrations)
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel ./prisma/schema.prisma --exit-code
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
       - name: Run tests
@@ -73,6 +77,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: server-realtime
       - run: go build ./...
       - run: go test ./...
 

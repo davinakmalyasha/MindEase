@@ -43,4 +43,32 @@ export class ReviewController {
             res.status(500).json({ status: "error", message });
         }
     }
+
+    static async replyToReview(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const reviewId = Number(req.params.id);
+            const { reply } = req.body;
+
+            const result = await ReviewService.replyToReview(reviewId, userId, reply);
+            res.json({ status: "success", data: result });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to reply to review.";
+            res.status(error instanceof Error && message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
+        }
+    }
+
+    static async reportReview(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const reviewId = Number(req.params.id);
+            const { reason } = req.body;
+
+            const result = await ReviewService.reportReview(reviewId, userId, reason);
+            res.status(201).json({ status: "success", data: result });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to report review.";
+            res.status(error instanceof Error && message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
+        }
+    }
 }

@@ -54,6 +54,18 @@ export function useRealtime() {
                         if (msg.type === "message:new") {
                             window.dispatchEvent(new CustomEvent("realtime:message", { detail: msg.payload }));
                         }
+                        if (msg.type === "message:deleted" || msg.type === "message:reacted") {
+                            window.dispatchEvent(new CustomEvent("realtime:message-update", { detail: msg.payload }));
+                        }
+                        if (msg.type === "message:read") {
+                            window.dispatchEvent(new CustomEvent("realtime:read", { detail: msg.payload }));
+                        }
+                        if (msg.type === "typing:start" || msg.type === "typing:stop") {
+                            window.dispatchEvent(new CustomEvent("realtime:typing", { detail: msg.payload }));
+                        }
+                        if (msg.type === "sos:alert") {
+                            window.dispatchEvent(new CustomEvent("realtime:sos-alert", { detail: msg.payload }));
+                        }
                         onMessageRef.current(msg);
                     } catch {
                         // ignore malformed frames

@@ -43,6 +43,7 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       REDIS_URL: redis://redis:6379
       NODE_ENV: production
+      TZ: Asia/Jakarta
       FRONTEND_URL: http://localhost:3000
     depends_on:
       mysql:
@@ -67,6 +68,8 @@ services:
       PORT: 8080
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:3000
     depends_on:
       redis:
         condition: service_healthy

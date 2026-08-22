@@ -13,6 +13,9 @@ import {
     Info,
     ChevronLeft,
     ChevronRight,
+    Repeat,
+    RefreshCw,
+    CalendarOff,
 } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -29,12 +32,24 @@ interface SlotData {
     isBooked: boolean;
 }
 
+interface PatternData {
+    id: number;
+    weekday: number;
+    startTime: string;
+    endTime: string;
+    activeFrom: string;
+}
+
+const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
 export default function DoctorSchedule() {
     const { user } = useAuth();
     const { toast } = useToast();
     const [slots, setSlots] = useState<SlotData[]>([]);
+    const [patterns, setPatterns] = useState<PatternData[]>([]);
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isPatternSubmitting, setIsPatternSubmitting] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
 
     const [form, setForm] = useState({
@@ -42,6 +57,17 @@ export default function DoctorSchedule() {
         start_time: "",
         end_time: "",
     });
+
+    const [patternForm, setPatternForm] = useState({
+        weekday: "1",
+        start_time: "",
+        end_time: "",
+        weeks: "8",
+    });
+
+    const [awayUntil, setAwayUntil] = useState("");
+    const [awayBusy, setAwayBusy] = useState(false);
+    const [regenerating, setRegenerating] = useState<number | null>(null);
 
     const fetchSlots = async () => {
         try {
@@ -52,8 +78,12 @@ export default function DoctorSchedule() {
                 setLoading(false);
                 return;
             }
-            const res = await api.get(`/doctors/slots/${doctorId}`);
+            const [res, patRes] = await Promise.all([
+                api.get(`/doctors/slots/${doctorId}`),
+                api.get("/doctors/patterns"),
+            ]);
             setSlots(Array.isArray(res.data?.data) ? res.data.data : []);
+            setPatterns(Array.isArray(patRes.data?.data) ? patRes.data.data : []);
         } catch (error) {
             toast(getErrorMessage(error, "Failed to fetch slots"), "error");
         } finally {
@@ -91,6 +121,62 @@ export default function DoctorSchedule() {
             setSlots((prev) => prev.filter((s) => s.id !== slotId));
         } catch (error: any) {
             toast(getErrorMessage(error, "Failed to delete slot"), "error");
+        }
+    };
+
+    const handlePatternSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsPatternSubmitting(true);
+        try {
+            const res = await api.post("/doctors/patterns", {
+                weekday: Number(patternForm.weekday),
+                start_time: patternForm.start_time,
+                end_time: patternForm.end_time,
+                weeks: Number(patternForm.weeks),
+            });
+            toast(`Pattern created — ${res.data?.data?.generatedSlots?.length || 0} slots generated`, "success");
+            fetchSlots();
+            setPatternForm({ weekday: "1", start_time: "", end_time: "", weeks: "8" });
+        } catch (error: any) {
+            toast(getErrorMessage(error, "Failed to create pattern"), "error");
+        } finally {
+            setIsPatternSubmitting(false);
+        }
+    };
+
+    const handlePatternDelete = async (patternId: number) => {
+        try {
+            await api.delete(`/doctors/patterns/${patternId}`);
+            toast("Pattern removed", "success");
+            setPatterns((prev) => prev.filter((p) => p.id !== patternId));
+        } catch (error: any) {
+            toast(getErrorMessage(error, "Failed to delete pattern"), "error");
+        }
+    };
+
+    const handleRegenerate = async (patternId: number) => {
+        setRegenerating(patternId);
+        try {
+            const res = await api.post(`/doctors/patterns/${patternId}/regenerate`);
+            toast(`Regenerated — ${res.data?.data?.generatedSlots?.length || 0} slots added`, "success");
+            fetchSlots();
+        } catch (error: any) {
+            toast(getErrorMessage(error, "Failed to regenerate pattern"), "error");
+        } finally {
+            setRegenerating(null);
+        }
+    };
+
+    const handleAway = async () => {
+        setAwayBusy(true);
+        try {
+            await api.post("/doctors/away", { awayUntil: awayUntil || null });
+            toast(awayUntil ? "Away mode enabled — patients won't see slots until this date" : "Away mode disabled", "success");
+            setAwayUntil("");
+        } catch (error: any) {
+            toast(getErrorMessage(error, "Failed to update away mode"), "error");
+        } finally {
+            setAwayBusy(false);
         }
     };
 
@@ -202,6 +288,132 @@ export default function DoctorSchedule() {
                             <p className="text-[11px] text-blue-600 font-medium leading-relaxed">
                                 Ensure slots don&apos;t overlap. Patients will book these based on their preference.
                             </p>
+                        </div>
+                    </div>
+
+                    {/* Weekly pattern */}
+                    <div className="bg-white rounded-3xl border border-gray-100 shadow-xl shadow-indigo-500/5 p-6 mt-6 lg:sticky lg:top-[340px]">
+                        <h2 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+                            <Repeat className="w-5 h-5 text-indigo-500" />
+                            Weekly Pattern
+                        </h2>
+                        <p className="text-[11px] text-gray-400 mb-5 leading-relaxed">
+                            Set a recurring weekly slot — MindEase generates open slots for the next weeks automatically.
+                        </p>
+
+                        <form onSubmit={handlePatternSubmit} className="space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Day</label>
+                                <select
+                                    value={patternForm.weekday}
+                                    onChange={(e) => setPatternForm({ ...patternForm, weekday: e.target.value })}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-gray-900 text-sm"
+                                >
+                                    {WEEKDAY_LABELS.map((label, i) => (
+                                        <option key={i} value={i}>{label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Start</label>
+                                    <input
+                                        type="time"
+                                        value={patternForm.start_time}
+                                        onChange={(e) => setPatternForm({ ...patternForm, start_time: e.target.value })}
+                                        required
+                                        className="w-full px-3 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-gray-900 text-sm"
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">End</label>
+                                    <input
+                                        type="time"
+                                        value={patternForm.end_time}
+                                        onChange={(e) => setPatternForm({ ...patternForm, end_time: e.target.value })}
+                                        required
+                                        className="w-full px-3 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-gray-900 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Weeks ahead</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={12}
+                                    value={patternForm.weeks}
+                                    onChange={(e) => setPatternForm({ ...patternForm, weeks: e.target.value })}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-gray-900 text-sm"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={isPatternSubmitting}
+                                className="w-full py-3 bg-indigo-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-600 transition-all active:scale-95 shadow-lg shadow-indigo-200 disabled:opacity-70 text-sm"
+                            >
+                                {isPatternSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className="w-4 h-4" />}
+                                Create Pattern
+                            </button>
+                        </form>
+
+                        {patterns.length > 0 && (
+                            <div className="mt-5 pt-5 border-t border-gray-100 space-y-2">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Active patterns</p>
+                                {patterns.map((p) => (
+                                    <div key={p.id} className="flex items-center justify-between px-3 py-2.5 bg-indigo-50/60 border border-indigo-100 rounded-xl">
+                                        <div className="text-xs font-bold text-gray-700">
+                                            {WEEKDAY_LABELS[p.weekday]}
+                                            <span className="font-medium text-gray-400"> · {p.startTime}–{p.endTime}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => handleRegenerate(p.id)}
+                                                disabled={regenerating === p.id}
+                                                className="w-7 h-7 rounded-lg bg-white border border-indigo-100 flex items-center justify-center text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all disabled:opacity-40"
+                                                title="Regenerate upcoming weeks"
+                                            >
+                                                <RefreshCw className={cn("w-3.5 h-3.5", regenerating === p.id && "animate-spin")} />
+                                            </button>
+                                            <button
+                                                onClick={() => handlePatternDelete(p.id)}
+                                                className="w-7 h-7 rounded-lg bg-white border border-rose-100 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                                                title="Delete pattern"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Away mode */}
+                        <div className="mt-5 pt-5 border-t border-gray-100 space-y-3">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Away mode</p>
+                            <p className="text-[11px] text-gray-400 leading-relaxed">
+                                Pause bookings until a date. Patients won&apos;t see your slots during this period.
+                            </p>
+                            <div className="flex gap-2">
+                                <input
+                                    type="date"
+                                    value={awayUntil}
+                                    onChange={(e) => setAwayUntil(e.target.value)}
+                                    min={new Date().toISOString().split("T")[0]}
+                                    className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                                />
+                                <button
+                                    onClick={handleAway}
+                                    disabled={awayBusy || (!awayUntil && false)}
+                                    className="px-4 py-2.5 rounded-xl bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                    {awayBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CalendarOff className="w-3.5 h-3.5" />}
+                                    {awayUntil ? "Enable" : "Disable"}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

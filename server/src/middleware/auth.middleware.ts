@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import { env } from "../config/env";
+import { logger } from "../utils/logger";
+import { prisma } from "../lib/prisma";
 
-const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+
+const JWT_SECRET = env.jwtSecret;
 
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
     const token = req.cookies.accessToken || req.headers.authorization?.split(" ")[1];
@@ -21,6 +23,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
                 id: true,
                 role: true,
                 email: true,
+                name: true,
                 isBanned: true,
                 doctorProfile: { select: { id: true } },
             },
@@ -38,11 +41,12 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
             id: user.id,
             role: user.role,
             email: user.email,
+            name: user.name ?? null,
             doctorProfileId: user.doctorProfile?.id ?? null,
         };
         next();
     } catch (error: any) {
-        console.error("[Auth Middleware] Token verification failed:", error.message);
+        logger.warn({ err: error.message }, "Token verification failed");
         return res.status(401).json({ status: "error", message: "Invalid Token" });
     }
 };
