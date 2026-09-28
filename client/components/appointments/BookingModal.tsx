@@ -1,27 +1,34 @@
 ﻿"use client";
 
-import { useState, useEffect } from "react";
-import { Doctor } from "@/lib/types/doctor";
-import { getErrorMessage } from "@/lib/api";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import NextImage from "next/image";
+import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { isSameDay } from "date-fns";
+import { Doctor } from "@/lib/types/doctor";
+import api, { getErrorMessage } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
+import Dialog from "@/components/ui/Dialog";
 import DatePicker from "./DatePicker";
 import TimeSlots, { RealSlot } from "./TimeSlots";
 import PatientForm from "./PatientForm";
 import BookingSummary from "./BookingSummary";
-import { cn } from "@/lib/utils";
-import Link from "next/link";
-import { useToast } from "@/components/ui/Toast";
-import { isSameDay } from "date-fns";
 import { useBookAppointment } from "@/hooks/queries/useAppointmentsQuery";
-import api from "@/lib/api";
 import { useDoctorSlots } from "@/hooks/queries/useDoctorsQuery";
 
 interface BookingModalProps {
     doctor: Doctor;
     onClose: () => void;
 }
+
+const STEPS = [
+    { id: 1, name: "Date" },
+    { id: 2, name: "Time" },
+    { id: 3, name: "Details" },
+    { id: 4, name: "Confirm" },
+];
 
 export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     const [step, setStep] = useState(1);
@@ -31,7 +38,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     const [patientInfo, setPatientInfo] = useState({
         name: "",
         notes: "",
-        type: "video" as "video" | "voice" | "chat"
+        type: "video" as "video" | "voice" | "chat",
     });
     const [isBooking, setIsBooking] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
@@ -41,29 +48,69 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     const bookMutation = useBookAppointment();
 
     useEffect(() => {
-        api.get("/packages/my")
+        let cancelled = false;
+        api
+            .get("/packages/my")
             .then((res) => {
+                if (cancelled) return;
                 const purchases = (res.data?.data || []).filter(
-                    (p: any) => p.status === "active" && p.sessionsLeft > 0 && p.package?.doctor?.id === doctor.id
+                    (p: any) =>
+                        p.status === "active" &&
+                        p.sessionsLeft > 0 &&
+                        p.package?.doctor?.id === doctor.id
                 );
                 setMyPackages(purchases);
             })
-            .catch(() => {});
+            .catch(() => {
+                /* Package lookup is best-effort; booking still works without it. */
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [doctor.id]);
 
-    // Booking mutation wrapper with local UI state
-    const handleBooking = async () => {
+    const { data: rawSlots = [], isFetching: slotsLoading } = useDoctorSlots(doctor.id);
+
+    const slots: RealSlot[] = useMemo(
+        () =>
+            Array.isArray(rawSlots)
+                ? rawSlots.map((s: any) => ({
+                      id: s.id,
+                      startTime: s.startTime,
+                      endTime: s.endTime,
+                      isBooked: !!s.isBooked,
+                      date: s.date ? new Date(s.date) : null,
+                  }))
+                : [],
+        [rawSlots]
+    );
+
+    const daySlots = useMemo(
+        () =>
+            selectedDate
+                ? slots.filter((s) => s.date && isSameDay(s.date, selectedDate))
+                : slots,
+        [slots, selectedDate]
+    );
+
+    const handleBooking = useCallback(async () => {
+        if (!selectedSlot) {
+            toast("That time is no longer available. Please pick another slot.", "error");
+            return;
+        }
         setIsBooking(true);
         try {
             await bookMutation.mutateAsync({
                 doctorId: doctor.id,
                 appointmentDate: selectedDate,
                 startTime: selectedTime,
-                endTime: selectedSlot?.endTime || "23:59",
+                endTime: selectedSlot.endTime,
                 consultationType: patientInfo.type,
                 notes: patientInfo.notes,
-                slotId: selectedSlot?.id,
-                idempotencyKey: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                slotId: selectedSlot.id,
+                idempotencyKey:
+                    crypto.randomUUID?.() ??
+                    `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
                 packagePurchaseId: usePackage ? myPackages[0]?.id : undefined,
             });
             setIsSuccess(true);
@@ -72,218 +119,232 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
         } finally {
             setIsBooking(false);
         }
-    };
-
-    // Load the doctor's real published slots (cached via TanStack Query)
-    const { data: rawSlots = [], isFetching: slotsLoading } = useDoctorSlots(doctor.id);
-    const [slots, setSlots] = useState<RealSlot[]>([]);
-
-    useEffect(() => {
-        const doctorSlots = Array.isArray(rawSlots)
-            ? rawSlots.map((s: any) => ({
-                  id: s.id,
-                  startTime: s.startTime,
-                  endTime: s.endTime,
-                  isBooked: !!s.isBooked,
-                  date: s.date ? new Date(s.date) : null,
-              }))
-            : [];
-        setSlots(doctorSlots);
-    }, [rawSlots]);
-
-    const daySlots = selectedDate
-        ? slots.filter((s) => s.date && isSameDay(s.date, selectedDate))
-        : slots;
-
-    const steps = [
-        { id: 1, name: "Date" },
-        { id: 2, name: "Time" },
-        { id: 3, name: "Details" },
-        { id: 4, name: "Confirm" }
-    ];
-
-    const nextStep = () => {
-        if (step < 4) setStep(step + 1);
-        else handleBooking();
-    };
-
-    const prevStep = () => {
-        if (step > 1) setStep(step - 1);
-    };
+    }, [
+        bookMutation,
+        doctor.id,
+        myPackages,
+        patientInfo,
+        selectedDate,
+        selectedSlot,
+        selectedTime,
+        toast,
+        usePackage,
+    ]);
 
     const onSelectTime = (time: string) => {
         setSelectedTime(time);
-        const match = daySlots.find((s) => s.startTime === time);
-        setSelectedSlot(match || null);
+        setSelectedSlot(daySlots.find((s) => s.startTime === time) ?? null);
     };
 
     const isNextDisabled = () => {
         if (step === 1 && !selectedDate) return true;
-        if (step === 2 && !selectedTime) return true;
-        if (step === 3 && !patientInfo.name) return true;
+        // A time that no longer maps to a real slot must not advance — the
+        // server has no way to book a slot we cannot identify.
+        if (step === 2 && (!selectedTime || !selectedSlot)) return true;
+        if (step === 3 && !patientInfo.name.trim()) return true;
         return false;
     };
 
     if (isSuccess) {
         return (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
-                    onClick={onClose}
-                />
-                <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className="relative bg-white w-full max-w-lg rounded-[3rem] shadow-2xl p-10 text-center space-y-6"
+            <Dialog
+                open
+                onClose={onClose}
+                title="Booking confirmed"
+                className="max-w-md text-center"
+            >
+                <div
+                    aria-hidden="true"
+                    className="mx-auto mb-4 flex h-20 w-20 animate-bounce items-center justify-center rounded-full bg-emerald-100 text-emerald-600"
                 >
-                    <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-                        <Check className="w-10 h-10" />
-                    </div>
-                    <h2 className="text-3xl font-bold text-gray-900">Booking Confirmed!</h2>
-                    <p className="text-gray-500 max-w-xs mx-auto">
-                        Your appointment with <span className="text-indigo-600 font-bold">{doctor.name}</span> has been successfully scheduled.
-                    </p>
-
-                    <div className="pt-6 space-y-3">
-                        <Link
-                            href="/dashboard/appointments"
-                            className="block w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all active:scale-95 shadow-lg shadow-indigo-100"
-                        >
-                            View Appointments
-                        </Link>
-                        <button
-                            onClick={onClose}
-                            className="block w-full py-4 bg-gray-50 text-gray-600 rounded-2xl font-bold hover:bg-gray-100 transition-all"
-                        >
-                            Return Home
-                        </button>
-                    </div>
-                </motion.div>
-            </div>
+                    <Check className="h-10 w-10" />
+                </div>
+                <p className="mx-auto max-w-xs text-gray-600 dark:text-gray-300">
+                    Your appointment with{" "}
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                        {doctor.name}
+                    </span>{" "}
+                    has been successfully scheduled.
+                </p>
+                <div className="mt-6 space-y-3">
+                    <Link
+                        href="/dashboard/appointments"
+                        onClick={onClose}
+                        className="block w-full rounded-2xl bg-indigo-600 py-4 font-bold text-white shadow-lg shadow-indigo-100 transition-all hover:bg-indigo-700 active:scale-95"
+                    >
+                        View appointments
+                    </Link>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="block w-full rounded-2xl bg-gray-50 py-4 font-bold text-gray-600 transition-all hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300"
+                    >
+                        Done
+                    </button>
+                </div>
+            </Dialog>
         );
     }
 
+    const isLastStep = step === STEPS.length;
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={onClose}
-                className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
-            />
-            <motion.div
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        <Dialog
+            open
+            onClose={onClose}
+            title={
+                <span className="flex items-center gap-4">
+                    <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-indigo-100 bg-indigo-50">
+                        <NextImage
+                            src={doctor.avatar}
+                            alt=""
+                            fill
+                            sizes="48px"
+                            className="object-cover"
+                        />
+                    </span>
+                    <span className="min-w-0">
+                        <span className="block truncate text-xl font-bold text-gray-900 dark:text-gray-50">
+                            {doctor.name}
+                        </span>
+                        <span className="block text-xs font-bold uppercase tracking-widest text-indigo-600">
+                            {doctor.specialty}
+                        </span>
+                    </span>
+                </span>
+            }
+            className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden p-0"
+        >
+            <ol
+                aria-label="Booking progress"
+                className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-6 pb-6 pt-2 md:px-8 dark:border-gray-700"
             >
-                {/* Header Section */}
-                <div className="p-6 md:p-8 border-b border-gray-50 shrink-0">
-                    <div className="flex justify-between items-start mb-6">
-                        <div className="flex gap-4 items-center">
-                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-indigo-50 border border-indigo-100 flex-shrink-0 relative">
-                                <NextImage src={doctor.avatar} alt={doctor.name} fill className="object-cover" />
-                            </div>
-                            <div>
-                                <h2 className="text-xl font-bold text-gray-900 leading-tight">{doctor.name}</h2>
-                                <p className="text-indigo-600 text-xs font-bold uppercase tracking-widest">{doctor.specialty}</p>
-                            </div>
-                        </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                        >
-                            <X className="w-6 h-6 text-gray-400 hover:text-gray-600" />
-                        </button>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="flex items-center justify-between gap-2 max-w-sm mx-auto">
-                        {steps.map((s, i) => (
-                            <div key={s.id} className="flex-1 flex flex-col items-center gap-2">
-                                <div className={cn(
+                {STEPS.map((s) => {
+                    const done = step > s.id;
+                    const current = step === s.id;
+                    return (
+                        <li key={s.id} className="flex flex-1 flex-col items-center gap-2">
+                            <span
+                                aria-hidden="true"
+                                className={cn(
                                     "h-1.5 w-full rounded-full transition-all duration-500",
-                                    step >= s.id ? "bg-indigo-600" : "bg-gray-100"
-                                )} />
-                                <span className={cn(
+                                    step >= s.id
+                                        ? "bg-indigo-600"
+                                        : "bg-gray-100 dark:bg-gray-700"
+                                )}
+                            />
+                            <span
+                                className={cn(
                                     "text-[10px] font-bold uppercase tracking-widest transition-colors",
-                                    step === s.id ? "text-indigo-600" : "text-gray-400"
-                                )}>
-                                    {s.name}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Body Content */}
-                <div className="p-8 md:p-10 overflow-y-auto custom-scrollbar flex-1">
-                    <AnimatePresence mode="wait">
-                        <motion.div
-                            key={step}
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -20 }}
-                            transition={{ duration: 0.3 }}
-                        >
-                            {step === 1 && <DatePicker selectedDate={selectedDate} onChange={setSelectedDate} />}
-                            {step === 2 && <TimeSlots selectedTime={selectedTime} onChange={onSelectTime} slots={daySlots} loading={slotsLoading} />}
-                            {step === 3 && <PatientForm patientInfo={patientInfo} onChange={setPatientInfo} />}
-                            {step === 3 && myPackages.length > 0 && (
-                                <label className="flex items-center justify-between gap-3 mt-3 p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl cursor-pointer">
-                                    <div>
-                                        <p className="text-sm font-bold text-gray-900">Use a package session</p>
-                                        <p className="text-xs text-gray-500">
-                                            {myPackages[0].package.name} · {myPackages[0].sessionsLeft} session{myPackages[0].sessionsLeft === 1 ? "" : "s"} left
-                                        </p>
-                                    </div>
-                                    <input
-                                        type="checkbox"
-                                        checked={usePackage}
-                                        onChange={(e) => setUsePackage(e.target.checked)}
-                                        className="w-5 h-5 accent-emerald-500"
-                                    />
-                                </label>
-                            )}
-                            {step === 4 && <BookingSummary doctor={doctor} date={selectedDate!} time={selectedTime!} patientInfo={patientInfo} />}
-                        </motion.div>
-                    </AnimatePresence>
-                </div>
-
-                {/* Footer Controls */}
-                <div className="p-6 md:p-8 bg-gray-50/50 border-t border-gray-100 shrink-0">
-                    <div className="flex items-center justify-between gap-6">
-                        {step > 1 ? (
-                            <button
-                                onClick={prevStep}
-                                className="flex items-center gap-2 text-gray-500 font-bold hover:text-indigo-600 transition-colors"
+                                    current
+                                        ? "text-indigo-600"
+                                        : "text-gray-400 dark:text-gray-500"
+                                )}
                             >
-                                <ChevronLeft className="w-5 h-5" />
-                                Back
-                            </button>
-                        ) : <div />}
+                                {s.name}
+                                {done && <span className="sr-only"> (completed)</span>}
+                            </span>
+                            {current && (
+                                <span className="sr-only">
+                                    Step {s.id} of {STEPS.length} in progress
+                                </span>
+                            )}
+                        </li>
+                    );
+                })}
+            </ol>
 
-                        <button
-                            onClick={nextStep}
-                            disabled={isNextDisabled() || isBooking}
-                            className={cn(
-                                "flex-1 md:flex-none md:min-w-[200px] py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-xl disabled:opacity-50 disabled:cursor-not-allowed",
-                                step === 4 ? "bg-indigo-600 text-white shadow-indigo-100" : "bg-gray-900 text-white shadow-gray-200"
-                            )}
-                        >
-                            {isBooking ? "Confirming..." : (
-                                <>
-                                    {step === 4 ? "Confirm & Schedule" : "Continue"}
-                                    {step < 4 && <ChevronRight className="w-5 h-5" />}
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </div>
-            </motion.div>
-        </div>
+            <div className="custom-scrollbar flex-1 overflow-y-auto p-6 md:p-8">
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={step}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ duration: 0.2 }}
+                    >
+                        {step === 1 && (
+                            <DatePicker selectedDate={selectedDate} onChange={setSelectedDate} />
+                        )}
+                        {step === 2 && (
+                            <TimeSlots
+                                selectedTime={selectedTime}
+                                onChange={onSelectTime}
+                                slots={daySlots}
+                                loading={slotsLoading}
+                            />
+                        )}
+                        {step === 3 && (
+                            <PatientForm patientInfo={patientInfo} onChange={setPatientInfo} />
+                        )}
+                        {step === 3 && myPackages.length > 0 && (
+                            <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                                <span>
+                                    <span className="block text-sm font-bold text-gray-900 dark:text-gray-50">
+                                        Use a package session
+                                    </span>
+                                    <span className="block text-xs text-gray-600 dark:text-gray-300">
+                                        {myPackages[0].package.name} · {myPackages[0].sessionsLeft}{" "}
+                                        session{myPackages[0].sessionsLeft === 1 ? "" : "s"} left
+                                    </span>
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    checked={usePackage}
+                                    onChange={(e) => setUsePackage(e.target.checked)}
+                                    className="h-5 w-5 accent-emerald-500"
+                                />
+                            </label>
+                        )}
+                        {step === 4 && selectedDate && selectedTime && (
+                            <BookingSummary
+                                doctor={doctor}
+                                date={selectedDate}
+                                time={selectedTime}
+                                patientInfo={patientInfo}
+                            />
+                        )}
+                    </motion.div>
+                </AnimatePresence>
+            </div>
+
+            <div className="flex shrink-0 items-center justify-between gap-6 border-t border-gray-100 bg-gray-50/50 px-6 py-5 md:px-8 dark:border-gray-700 dark:bg-gray-800/50">
+                {step > 1 ? (
+                    <button
+                        type="button"
+                        onClick={() => setStep((s) => s - 1)}
+                        className="flex items-center gap-2 font-bold text-gray-500 transition-colors hover:text-indigo-600"
+                    >
+                        <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                        Back
+                    </button>
+                ) : (
+                    <span />
+                )}
+
+                <button
+                    type="button"
+                    onClick={() => (isLastStep ? handleBooking() : setStep((s) => s + 1))}
+                    disabled={isNextDisabled() || isBooking}
+                    className={cn(
+                        "flex-1 rounded-2xl py-4 font-bold transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 md:flex-none md:min-w-[200px]",
+                        isLastStep
+                            ? "bg-indigo-600 text-white shadow-lg shadow-indigo-100"
+                            : "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                    )}
+                >
+                    {isBooking ? (
+                        "Confirming…"
+                    ) : isLastStep ? (
+                        "Confirm & schedule"
+                    ) : (
+                        <span className="flex items-center justify-center gap-2">
+                            Continue
+                            <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                        </span>
+                    )}
+                </button>
+            </div>
+        </Dialog>
     );
 }
