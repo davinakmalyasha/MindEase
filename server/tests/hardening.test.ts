@@ -4,6 +4,8 @@ import {
     createUser,
     createDoctor,
     setupClient,
+    accessTokenFrom,
+    grantPaidPackage,
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
@@ -180,9 +182,8 @@ describe("Therapy package reservation integrity", () => {
         expect(create.status).toBe(201);
         const pkgId = create.body.data.id;
 
-        const purchase = await patient.agent.post(`/api/packages/${pkgId}/purchase`).set("X-CSRF-Token", patient.csrf);
-        expect(purchase.status).toBe(201);
-        const purchaseId = purchase.body.data.id;
+        const purchase = await grantPaidPackage(patient.id, pkgId);
+        const purchaseId = purchase.id;
 
         const key = `pkg-${Date.now()}`;
         const first = await book(patient.agent, patient.csrf, {
@@ -258,7 +259,9 @@ describe("2FA backup codes", () => {
             .set("X-CSRF-Token", loginCsrf)
             .send({ token: login.body.data.twoFactorToken, code: backupCodes[0] });
         expect(verify.status).toBe(200);
-        expect(verify.body.data.accessToken).toBeTruthy();
+        // Delivered as an HttpOnly cookie only, never in the response body.
+        expect(accessTokenFrom(verify)).toBeTruthy();
+        expect(verify.body.data.accessToken).toBeUndefined();
 
         // The same code cannot be reused
         const secondLogin = await loginAgent
@@ -350,11 +353,16 @@ describe("Waitlist maintenance", () => {
         expect(result.requeued).toBeGreaterThanOrEqual(1);
         expect(result.expiredWaiting).toBeGreaterThanOrEqual(1);
 
-        const requeued = await prisma.waitlistEntry.findFirst({
-            where: { doctorId: doctor.doctorId, patientId: stalePatient.id, status: "waiting" },
-        });
-        expect(requeued).toBeTruthy();
-        expect(await prisma.waitlistEntry.findUnique({ where: { id: stale.id } })).toBeNull();
+        // The stale notification is transitioned back to `waiting` in place. The
+        // previous implementation deleted and recreated the row, so this asserts
+        // the observable state rather than the identity of the row.
+        const requeued = await prisma.waitlistEntry.findUnique({ where: { id: stale.id } });
+        expect(requeued?.status).toBe("waiting");
+        expect(requeued?.notifiedAt).toBeNull();
+
+        expect(
+            await prisma.waitlistEntry.findFirst({ where: { patientId: stalePatient.id, status: "waiting" } })
+        ).toBeTruthy();
         expect(
             await prisma.waitlistEntry.findFirst({ where: { patientId: ancientPatient.id } })
         ).toBeNull();
