@@ -1,5 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { AIService } from "./ai.service";
+import { detectAssessmentRisk, raiseRiskAlert, NO_RISK } from "./clinicalSafety.service";
+import { dayKey, resolveTimezone, shiftDayKey, startOfZonedDay, todayKey } from "../lib/date";
 
 export const MOOD_FACTORS = ["sleep", "exercise", "social", "work", "stress"] as const;
 export type MoodFactor = (typeof MOOD_FACTORS)[number];
@@ -47,28 +49,28 @@ export class WellnessService {
             factors: validFactors.length ? JSON.stringify(validFactors) : null,
         };
 
-        // One entry per calendar day: re-logging updates today's entry instead
-        // of stacking duplicates (keeps streaks and averages meaningful).
-        const dayStart = new Date();
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
+        // One entry per calendar day in the *user's* zone, keyed by a stored
+        // `moodDate` day key rather than a range scan on `createdAt`.
+        //
+        // The previous implementation did a find-then-create against a
+        // server-local day range, which is race-prone (two concurrent requests
+        // both see "no entry" and both insert) and off-by-seven-hours on a UTC
+        // host. A unique constraint on (userId, moodDate) makes the invariant
+        // a database guarantee, so an upsert is idempotent under concurrency.
+        const timezone = await this.getUserTimezone(userId);
+        const moodDate = todayKey(timezone);
 
-        const existing = await prisma.moodEntry.findFirst({
-            where: { userId, createdAt: { gte: dayStart, lt: dayEnd } },
-            orderBy: { createdAt: "desc" },
-            select: { id: true },
+        return await prisma.moodEntry.upsert({
+            where: { userId_moodDate: { userId, moodDate } },
+            create: { userId, moodDate, ...data },
+            update: data,
         });
-        if (existing) {
-            return await prisma.moodEntry.update({ where: { id: existing.id }, data });
-        }
-
-        return await prisma.moodEntry.create({ data: { userId, ...data } });
     }
 
     static async getMoodHistory(userId: number, days = 14) {
-        const since = new Date();
-        since.setDate(since.getDate() - days);
+        const timezone = await this.getUserTimezone(userId);
+        const today = todayKey(timezone);
+        const since = startOfZonedDay(shiftDayKey(today, -days, timezone), timezone);
 
         const entries = await prisma.moodEntry.findMany({
             where: {
@@ -76,49 +78,85 @@ export class WellnessService {
                 createdAt: { gte: since },
             },
             orderBy: { createdAt: "desc" },
+            // Bounded so a wide window cannot return an unbounded result set.
+            take: Math.max(days, 1) * 2,
         });
 
         return entries.map((e) => ({ ...e, factors: parseFactors(e.factors) }));
     }
 
-    static async getMoodStats(userId: number) {
+    /** `User.timezone` is optional and was previously never read at all. */
+    private static async getUserTimezone(userId: number): Promise<string> {
+        const user = await prisma.user
+            .findUnique({ where: { id: userId }, select: { timezone: true } })
+            .catch(() => null);
+        return resolveTimezone(user?.timezone);
+    }
+
+    static async getMoodStats(userId: number, windowDays = 30) {
+        const timezone = await this.getUserTimezone(userId);
+        const today = todayKey(timezone);
+
+        // A genuine 30-*day* window. This previously read `take: 30` entries,
+        // which spans 30 days only when the user logs exactly once a day — with
+        // any gap the "30-day average" silently covered a much longer period.
+        const from = startOfZonedDay(shiftDayKey(today, -(windowDays - 1), timezone), timezone);
+
         const entries = await prisma.moodEntry.findMany({
-            where: { userId },
-            orderBy: { createdAt: "desc" },
-            take: 30,
+            where: { userId, createdAt: { gte: from } },
+            orderBy: { createdAt: "asc" },
+            select: { mood: true, factors: true, createdAt: true },
         });
 
         if (entries.length === 0) {
-            return { average: 0, total: 0, streak: 0, trend: "neutral" as const, factorCorrelation: {} };
+            return {
+                average: 0,
+                total: 0,
+                streak: 0,
+                trend: "stable" as const,
+                factorCorrelation: {},
+                windowDays,
+            };
         }
 
         const average = entries.reduce((sum, e) => sum + e.mood, 0) / entries.length;
 
-        // Calculate streak (consecutive days with entries) — timezone-safe local dates
+        // Streak of consecutive logged days in the user's own zone.
+        //
+        // The old loop required an entry for *today* before counting, so a user
+        // who logged at 23:50 yesterday and had not yet logged today saw their
+        // streak drop to 0. Today is given a grace period: the streak is intact
+        // if the most recent entry is today *or* yesterday.
+        const loggedDays = new Set(entries.map((e) => dayKey(e.createdAt, timezone)));
+        const yesterday = shiftDayKey(today, -1, timezone);
         let streak = 0;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const localDateKey = (d: Date) =>
-            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-        const entryDates = new Set(entries.map((e) => localDateKey(new Date(e.createdAt))));
-
-        for (let i = 0; i < 30; i++) {
-            const checkDate = new Date(today);
-            checkDate.setDate(today.getDate() - i);
-            if (entryDates.has(localDateKey(checkDate))) {
+        let cursor = loggedDays.has(today) ? today : yesterday;
+        if (!loggedDays.has(cursor)) {
+            streak = 0;
+        } else {
+            while (loggedDays.has(cursor) && streak < 400) {
                 streak++;
-            } else {
-                break;
+                cursor = shiftDayKey(cursor, -1, timezone);
             }
         }
 
-        // Trend: compare first half vs second half
-        const mid = Math.floor(entries.length / 2);
-        const recentAvg = entries.slice(0, mid).reduce((s, e) => s + e.mood, 0) / (mid || 1);
-        const olderAvg = entries.slice(mid).reduce((s, e) => s + e.mood, 0) / ((entries.length - mid) || 1);
-        const trend = recentAvg > olderAvg + 0.3 ? "improving" : recentAvg < olderAvg - 0.3 ? "declining" : "stable";
+        // Trend compares the older half of the window against the newer half.
+        //
+        // The previous arithmetic divided the newest `floor(n/2)` entries by
+        // that same `floor(n/2)`, so with a single entry `mid` was 0, the recent
+        // average became 0 and a perfectly good day scored 4/5 was reported as
+        // "declining". Requires at least 4 points to say anything at all.
+        const TREND_THRESHOLD = 0.3;
+        let trend: "improving" | "declining" | "stable" = "stable";
+        if (entries.length >= 4) {
+            const mid = Math.floor(entries.length / 2);
+            const older = entries.slice(0, mid);
+            const recent = entries.slice(mid);
+            const olderAvg = older.reduce((s, e) => s + e.mood, 0) / older.length;
+            const recentAvg = recent.reduce((s, e) => s + e.mood, 0) / recent.length;
+            if (recentAvg > olderAvg + TREND_THRESHOLD) trend = "improving";
+            else if (recentAvg < olderAvg - TREND_THRESHOLD) trend = "declining";
+        }
 
         // Factor correlation: average mood per factor tag
         const factorCorrelation: Record<string, number> = {};
@@ -134,8 +172,9 @@ export class WellnessService {
             average: Math.round(average * 10) / 10,
             total: entries.length,
             streak,
-            trend: trend as "improving" | "declining" | "stable",
+            trend,
             factorCorrelation,
+            windowDays,
         };
     }
 
@@ -202,7 +241,7 @@ export class WellnessService {
         const score = answers.reduce((s, a) => s + a, 0);
         const severity = severityFor(type as AssessmentType, score);
 
-        return await prisma.assessment.create({
+        const assessment = await prisma.assessment.create({
             data: {
                 userId,
                 type,
@@ -211,6 +250,30 @@ export class WellnessService {
                 severity,
             },
         });
+
+        // A non-zero answer to PHQ-9 item 9 is a disclosure of thoughts of
+        // self-harm. It is surfaced to the patient immediately with crisis
+        // resources and escalated to the assigned clinician, rather than being
+        // folded silently into the total score.
+        const risk = detectAssessmentRisk(type, answers);
+        if (!risk) {
+            return { assessment, risk: { riskFlag: false, ...NO_RISK } };
+        }
+
+        const user = await prisma.user
+            .findUnique({ where: { id: userId }, select: { name: true } })
+            .catch(() => null);
+
+        const signal = await raiseRiskAlert({
+            userId,
+            userName: user?.name,
+            level: risk.level,
+            reason: risk.reason,
+            sourceType: type,
+            sourceId: assessment.id,
+        });
+
+        return { assessment, risk: signal };
     }
 
     static async getAssessments(userId: number, type?: string, limit = 10) {
