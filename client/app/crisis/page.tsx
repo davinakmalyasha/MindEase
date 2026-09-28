@@ -12,10 +12,26 @@ export async function generateMetadata() {
 
 export default async function CrisisPage() {
     const t = await getTranslations("staticPages.crisis");
-    const hotlines = t.raw("hotlines") as { name: string; number: string; note: string }[];
+    const hotlines = t.raw("hotlines") as { name: string; number: string; note: string; whatsapp?: boolean }[];
     const steps = t.raw("steps") as { title: string; description: string }[];
 
     const stepIcons = [PhoneCall, HeartHandshake, ShieldAlert];
+
+    /**
+     * Voice lines must use `tel:`. The page previously built a WhatsApp deep
+     * link from every number, which turned the national emergency line into
+     * `wa.me/112119` — a link that goes nowhere. A `tel:` link also works with
+     * no data plan, which matters for the users most likely to need it.
+     */
+    const dialHref = (h: { number: string; whatsapp?: boolean }) => {
+        if (h.whatsapp) {
+            const digits = h.number.replace(/\D/g, "");
+            // WhatsApp needs a country code with no leading zero.
+            const international = digits.replace(/^0+/, "");
+            return `https://wa.me/${international}`;
+        }
+        return `tel:${h.number.replace(/[^\d+]/g, "")}`;
+    };
 
     return (
         <main className="min-h-screen bg-white pt-28 pb-16 px-4 md:px-8 max-w-4xl mx-auto">
@@ -35,9 +51,9 @@ export default async function CrisisPage() {
                     {steps.map((step, i) => {
                         const Icon = stepIcons[i] || MessageCircle;
                         return (
-                            <div key={i} className="p-6 bg-rose-50/40 border border-rose-100/60 rounded-3xl">
+                            <div key={step.title} className="p-6 bg-rose-50/40 border border-rose-100/60 rounded-3xl">
                                 <div className="w-11 h-11 rounded-2xl bg-rose-500 text-white flex items-center justify-center mb-4">
-                                    <Icon className="w-5 h-5" />
+                                    <Icon className="w-5 h-5" aria-hidden="true" />
                                 </div>
                                 <h3 className="font-bold text-gray-900 mb-2">{step.title}</h3>
                                 <p className="text-sm text-gray-600 leading-relaxed">{step.description}</p>
@@ -51,25 +67,34 @@ export default async function CrisisPage() {
                 <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-2">
                     <PhoneCall className="w-6 h-6 text-emerald-500" /> {t("hotlinesTitle")}
                 </h2>
-                <p className="text-sm text-gray-400 mb-6">{t("hotlinesNote")}</p>
-                <div className="space-y-3">
-                    {hotlines.map((h, i) => (
-                        <div key={i} className="flex flex-wrap items-center justify-between gap-3 p-5 bg-gray-50 rounded-2xl border border-gray-100">
-                            <div>
+                <p className="text-sm text-gray-500 mb-6">{t("hotlinesNote")}</p>
+                <ul className="space-y-3">
+                    {hotlines.map((h) => (
+                        <li
+                            key={h.name}
+                            className="flex flex-wrap items-center justify-between gap-3 p-5 bg-gray-50 rounded-2xl border border-gray-100"
+                        >
+                            <div className="min-w-0">
                                 <p className="font-bold text-gray-900">{h.name}</p>
-                                <p className="text-xs text-gray-400 mt-0.5">{h.note}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{h.note}</p>
                             </div>
                             <a
-                                href={`https://wa.me/${h.number.replace(/\D/g, "")}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-black hover:bg-emerald-600 transition-all flex items-center gap-1.5"
+                                href={dialHref(h)}
+                                {...(h.whatsapp
+                                    ? { target: "_blank", rel: "noopener noreferrer" }
+                                    : {})}
+                                className="shrink-0 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-black hover:bg-emerald-700 transition-all flex items-center gap-1.5"
                             >
-                                <PhoneCall className="w-4 h-4" /> {h.number}
+                                {h.whatsapp ? (
+                                    <MessageCircle className="w-4 h-4" aria-hidden="true" />
+                                ) : (
+                                    <PhoneCall className="w-4 h-4" aria-hidden="true" />
+                                )}
+                                {h.number}
                             </a>
-                        </div>
+                        </li>
                     ))}
-                </div>
+                </ul>
             </section>
 
             <section className="p-8 bg-indigo-50/50 border border-indigo-100 rounded-3xl text-center">
