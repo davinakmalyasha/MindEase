@@ -1,9 +1,24 @@
 ﻿node_modules
-.next
+dist
 .git
+
+# Every environment variant, not just `.env`.
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Database snapshots
+*.rdb
+*.aof
+*.sql
+
+# Logs
 *.log
+*.out
 
-
-server-realtime/realtime
+# Docker and docs
+Dockerfile
+.dockerignore
+*.md

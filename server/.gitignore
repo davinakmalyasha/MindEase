@@ -1,3 +1,22 @@
 node_modules
-.env
+dist
 /generated/prisma
+
+# Every environment variant, not just `.env`.
+.env
+.env.*
+!.env.example
+
+# Database snapshots and backups
+*.rdb
+*.aof
+backups/
+*.sql
+!prisma/migrations/**/*.sql
+
+# Logs and test artifacts
+*.log
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo

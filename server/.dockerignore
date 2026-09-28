@@ -1,9 +1,36 @@
 node_modules
-.next
-.git
+dist
+coverage
+test-results
+playwright-report
+blob-report
+.playwright
+*.tsbuildinfo
+
+# Every environment variant, not just `.env`: `.env.production` in a build
+# context is a leaked credential in an image layer.
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Database snapshots and backups
+*.rdb
+*.aof
+backups/
+*.sql
+!prisma/migrations/**/*.sql
+
+# User uploads
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Logs
 *.log
-client/node_modules
-server/node_modules
-server-realtime/realtime
+
+# Docker and docs are not needed to build or run the service
+Dockerfile
+.dockerignore
+*.md
+docs/
