@@ -40,19 +40,20 @@ export class UserService {
             name,
             phone_number,
             bio,
-            specialization,
+            specialty,
+            experience,
             price,
-            consultation_fee,
-            bank_name,
-            bank_account,
-            bank_holder,
-            weekly_report_enabled,
-            experience_years,
-            license_number,
-            license_issuer,
+            languages,
+            education,
+            weeklyReportEnabled,
+            licenseNumber,
+            licenseIssuer,
+            bankName,
+            bankAccount,
+            bankHolder,
+            availability,
+            timezone,
         } = data;
-
-        const finalPrice = price || consultation_fee;
 
         // E.164 phone validation — the WhatsApp flows deep-link this field
         if (phone_number !== undefined && phone_number !== null && String(phone_number).trim() !== "") {
@@ -66,8 +67,11 @@ export class UserService {
             data: {
                 ...(name !== undefined && { name }),
                 ...(phone_number !== undefined && { phone_number }),
+                // The avatar may only change through the multipart upload, never
+                // from a URL supplied in the body.
                 ...(avatarPath !== undefined && { avatar: avatarPath }),
-                ...(weekly_report_enabled !== undefined && { weeklyReportEnabled: weekly_report_enabled === true }),
+                ...(timezone !== undefined && { timezone }),
+                ...(weeklyReportEnabled !== undefined && { weeklyReportEnabled }),
             },
             select: {
                 id: true,
@@ -79,35 +83,38 @@ export class UserService {
                 provider: true,
                 createdAt: true,
                 weeklyReportEnabled: true,
+                timezone: true,
                 doctorProfile: true,
             },
         });
 
         if (user.role === "doctor") {
             const licenseUpdate = {
-                ...(experience_years !== undefined && { experience: Math.max(0, parseInt(experience_years) || 0) }),
-                ...(license_number !== undefined && { licenseNumber: String(license_number).trim() || null }),
-                ...(license_issuer !== undefined && { licenseIssuer: String(license_issuer).trim() || null }),
+                ...(experience !== undefined && { experience }),
+                ...(licenseNumber !== undefined && { licenseNumber: String(licenseNumber).trim() || null }),
+                ...(licenseIssuer !== undefined && { licenseIssuer: String(licenseIssuer).trim() || null }),
+                ...(bio !== undefined && { bio: String(bio) }),
+                ...(specialty !== undefined && { specialty: String(specialty) }),
+                ...(languages !== undefined && { languages: String(languages) || null }),
+                ...(education !== undefined && { education: String(education) || null }),
+                ...(price !== undefined && { price }),
+                ...(bankName !== undefined && { bankName: String(bankName) || null }),
+                ...(bankAccount !== undefined && { bankAccount: String(bankAccount) || null }),
+                ...(bankHolder !== undefined && { bankHolder: String(bankHolder) || null }),
+                ...(availability !== undefined && { availability: String(availability) }),
             };
+
             await prisma.doctor.upsert({
                 where: { userId: user.id },
-                update: {
-                    ...(bio !== undefined && { bio }),
-                    ...(specialization !== undefined && { specialty: specialization }),
-                    ...(finalPrice !== undefined && { price: parseInt(finalPrice) || 0 }),
-                    ...(bank_name !== undefined && { bankName: bank_name }),
-                    ...(bank_account !== undefined && { bankAccount: bank_account }),
-                    ...(bank_holder !== undefined && { bankHolder: bank_holder }),
-                    ...licenseUpdate,
-                },
+                update: licenseUpdate,
                 create: {
                     userId: user.id,
                     bio: bio || "",
-                    specialty: specialization || "General Psychologist",
-                    price: parseInt(finalPrice) || 0,
-                    bankName: bank_name,
-                    bankAccount: bank_account,
-                    bankHolder: bank_holder,
+                    specialty: specialty || "General Psychologist",
+                    price: price ?? 0,
+                    bankName: bankName ?? null,
+                    bankAccount: bankAccount ?? null,
+                    bankHolder: bankHolder ?? null,
                 },
             });
             invalidateDoctorCache();
