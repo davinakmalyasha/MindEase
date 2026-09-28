@@ -1,32 +1,43 @@
 import { User } from "@prisma/client";
 import argon2 from "argon2";
-import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { OAuth2Client } from "google-auth-library";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { AuditService } from "./audit.service";
+import { signAccessToken, signRefreshToken, verifyToken, hashToken, type AuthMethod } from "../lib/tokens";
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
-const JWT_SECRET = env.jwtSecret;
-const REFRESH_SECRET = env.refreshSecret;
 const REFRESH_TOKEN_DAYS = 7;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
-// Token Generators (include role claim for middleware use)
-const generateTokens = (user: { id: number; role: string; totpEnabled?: boolean; totpVerified?: boolean }) => {
-    const accessToken = jwt.sign(
-        { userId: user.id, role: user.role, totpVerified: user.totpVerified ?? !user.totpEnabled },
-        JWT_SECRET,
-        { expiresIn: "15m" }
-    );
-    const refreshToken = jwt.sign(
-        { userId: user.id, jti: crypto.randomUUID() },
-        REFRESH_SECRET,
-        { expiresIn: `${REFRESH_TOKEN_DAYS}d` }
-    );
-    return { accessToken, refreshToken };
+/**
+ * Verified against on the miss path so a request for a non-existent account
+ * costs the same wall time as one for a real account, removing the timing
+ * oracle that distinguishes "no such user" from "wrong password".
+ */
+const DUMMY_PASSWORD_HASH =
+    "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHR2YWx1ZQ$0000000000000000000000000000000000000000000";
+
+type TokenBearingUser = { id: number; role: string; totpEnabled?: boolean };
+
+/**
+ * Mints a token pair. `totpVerified` is only true when the session has actually
+ * satisfied a second factor (or the account has none) — `authenticate` refuses
+ * any access token claiming otherwise for a 2FA-enabled account.
+ */
+export const generateTokens = (
+    user: TokenBearingUser,
+    options: { amr?: AuthMethod[] } = {}
+) => {
+    const amr = options.amr ?? ["pwd"];
+    const totpVerified = !user.totpEnabled || amr.includes("otp");
+    return {
+        accessToken: signAccessToken({ id: user.id, role: user.role, totpVerified }),
+        refreshToken: signRefreshToken(user.id, amr),
+    };
 };
 
 const toSafeUser = (user: User) => {
@@ -34,15 +45,28 @@ const toSafeUser = (user: User) => {
         password,
         resetOtpHash,
         resetOtpExpiresAt,
+        verifyOtpHash,
+        verifyOtpExpiresAt,
         totpSecret,
+        backupCodes,
         failedAttempts,
         lockedUntil,
+        lastTotpStep,
         ...safe
     } = user;
     return safe;
 };
 
+/** A single message for every authentication failure, to avoid enumeration. */
+const GENERIC_AUTH_ERROR = "Invalid credentials";
+
 export class AuthService {
+    /** Mints a token pair. Exposed so the two-factor flow can issue one only
+     * after the second factor has actually been satisfied. */
+    static generateTokens(user: TokenBearingUser, options: { amr?: AuthMethod[] } = {}) {
+        return generateTokens(user, options);
+    }
+
     // Register Logic: Hash password, create user
     static async register(data: any) {
         const userData = data.body || data;
@@ -109,28 +133,27 @@ export class AuthService {
     static async login(data: any) {
         const loginData = data.body || data;
         const user = await prisma.user.findUnique({ where: { email: loginData.email } });
-        if (!user || !user.password) throw new Error("Invalid credentials");
+
+        // Always spend the same verification cost, whether or not the account
+        // exists, so response timing cannot be used to enumerate users.
+        const validPassword = await argon2.verify(user?.password || DUMMY_PASSWORD_HASH, loginData.password);
+
+        if (!user || !user.password) throw new Error(GENERIC_AUTH_ERROR);
+        if (!validPassword) {
+            if (!user.isBanned) await this.recordFailedAttempt(user);
+            throw new Error(GENERIC_AUTH_ERROR);
+        }
+
+        // A suspended account is only revealed once the caller has proved they
+        // own it, so this cannot be used to probe for banned accounts.
         if (user.isBanned) throw new Error("Account suspended. Contact support.");
 
-        // Lockout check
+        // Lockout check happens after the password check so a locked account
+        // is not distinguishable from a wrong password.
         if (user.lockedUntil && user.lockedUntil > new Date()) {
             throw new Error("Account temporarily locked due to too many failed attempts. Try again later.");
         }
 
-        const validPassword = await argon2.verify(user.password, loginData.password);
-        if (!validPassword) {
-            const attempts = user.failedAttempts + 1;
-            await prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    failedAttempts: attempts,
-                    lockedUntil: attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MS) : null,
-                },
-            });
-            throw new Error("Invalid credentials");
-        }
-
-        // Reset counter on success
         if (user.failedAttempts > 0 || user.lockedUntil) {
             await prisma.user.update({
                 where: { id: user.id },
@@ -138,11 +161,38 @@ export class AuthService {
             });
         }
 
+        await AuditService.log({
+            action: "auth.login",
+            actorId: user.id,
+            meta: { provider: "local" },
+        }).catch(() => {});
+
+        // Accounts with 2FA enabled do NOT receive a refresh token here — a
+        // session is only persisted once the second factor succeeds, so there
+        // is no way to obtain a usable session by skipping 2FA.
+        if (user.totpEnabled) {
+            return { user: toSafeUser(user), requiresTwoFactor: true as const };
+        }
+
         const tokens = generateTokens(user);
         await this.storeRefreshToken(user.id, tokens.refreshToken);
 
-        return { user: toSafeUser(user), ...tokens };
+        return { user: toSafeUser(user), requiresTwoFactor: false as const, ...tokens };
     }
+
+    private static async recordFailedAttempt(user: { id: number; failedAttempts: number }) {
+        const attempts = user.failedAttempts + 1;
+        await prisma.user
+            .update({
+                where: { id: user.id },
+                data: {
+                    failedAttempts: attempts,
+                    lockedUntil: attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MS) : null,
+                },
+            })
+            .catch(() => {});
+    }
+
 
     // Google Auth Logic: Verify token, find/create user
     static async googleLogin(token: string) {
@@ -185,13 +235,27 @@ export class AuthService {
             });
         }
 
-        const tokens = generateTokens(user);
+        await AuditService.log({
+            action: "auth.login",
+            actorId: user.id,
+            meta: { provider: "google" },
+        }).catch(() => {});
+
+        // Same gate as password login: no session is persisted until the
+        // second factor has been satisfied.
+        if (user.totpEnabled) {
+            return { user: toSafeUser(user), requiresTwoFactor: true as const };
+        }
+
+        const tokens = generateTokens(user, { amr: ["google"] });
         await this.storeRefreshToken(user.id, tokens.refreshToken);
 
-        return { user: toSafeUser(user), ...tokens };
+        return { user: toSafeUser(user), requiresTwoFactor: false as const, ...tokens };
     }
 
-    // Store Refresh Token in DB (Rotation), pruning expired + oldest tokens
+    // Store Refresh Token in DB (Rotation), pruning expired + oldest tokens.
+    // Only the SHA-256 digest is persisted, so a database read cannot be
+    // replayed as a live session.
     static async storeRefreshToken(userId: number, token: string) {
         await prisma.refreshToken.deleteMany({
             where: { userId, expiresAt: { lt: new Date() } },
@@ -212,46 +276,85 @@ export class AuthService {
 
         return await prisma.refreshToken.create({
             data: {
-                token,
+                tokenHash: hashToken(token),
                 userId,
                 expiresAt: new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000),
             },
         });
     }
 
+    /**
+     * Invalidates every active session for a user. Called on password change,
+     * password reset and 2FA enable/disable so a stolen refresh cookie cannot
+     * outlive the credential it was obtained with.
+     */
+    static async revokeAllSessions(userId: number, reason: string) {
+        const deleted = await prisma.refreshToken.deleteMany({ where: { userId } });
+        if (deleted.count > 0) {
+            await AuditService.log({
+                action: "auth.sessions_revoked",
+                actorId: userId,
+                meta: { reason, revoked: deleted.count },
+            }).catch(() => {});
+        }
+        return deleted.count;
+    }
+
     static async logout(refreshToken: string) {
-        await prisma.refreshToken.delete({ where: { token: refreshToken } }).catch(() => null);
+        await prisma.refreshToken
+            .delete({ where: { tokenHash: hashToken(refreshToken) } })
+            .catch(() => null);
     }
 
     static async refresh(token: string) {
+        let decoded: { userId: number; amr?: AuthMethod[] };
         try {
-            const decoded = jwt.verify(token, REFRESH_SECRET) as { userId: number };
-            const storedToken = await prisma.refreshToken.findUnique({ where: { token } });
-
-            if (!storedToken) {
-                // A cryptographically valid but unknown token means it was
-                // already rotated (replayed) or revoked — assume theft and
-                // revoke every active session for the account.
-                await prisma.refreshToken
-                    .deleteMany({ where: { userId: decoded.userId } })
-                    .catch(() => {});
-                throw new Error("Invalid Refresh Token");
-            }
-            if (storedToken.expiresAt < new Date()) {
-                throw new Error("Refresh Token Expired");
-            }
-
-            // Rotate: Delete old, create new
-            await prisma.refreshToken.delete({ where: { id: storedToken.id } });
-
-            const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-            if (!user || user.isBanned) throw new Error("User not found");
-
-            const newTokens = generateTokens(user);
-            await this.storeRefreshToken(decoded.userId, newTokens.refreshToken);
-            return newTokens;
-        } catch (error: any) {
-            throw new Error(error.message || "Invalid Refresh Token");
+            decoded = verifyToken<{ userId: number; amr?: AuthMethod[] }>(token, "refresh");
+        } catch {
+            throw new Error("Invalid Refresh Token");
         }
+
+        const storedToken = await prisma.refreshToken.findUnique({
+            where: { tokenHash: hashToken(token) },
+        });
+
+        if (!storedToken) {
+            // A cryptographically valid but unknown token means it was already
+            // rotated (replayed) or revoked. Treat it as theft: revoke every
+            // active session for the account and leave an audit trail.
+            const revoked = await prisma.refreshToken
+                .deleteMany({ where: { userId: decoded.userId } })
+                .catch(() => ({ count: 0 }));
+            await AuditService.log({
+                action: "auth.refresh_reuse_detected",
+                actorId: decoded.userId,
+                meta: { reason: "unknown_token", revoked: revoked.count },
+            }).catch(() => {});
+            throw new Error("Invalid Refresh Token");
+        }
+
+        if (storedToken.expiresAt < new Date()) {
+            await prisma.refreshToken.delete({ where: { id: storedToken.id } }).catch(() => null);
+            throw new Error("Refresh Token Expired");
+        }
+
+        // Rotate: delete old, create new
+        await prisma.refreshToken.delete({ where: { id: storedToken.id } });
+
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+        if (!user || user.isBanned) throw new Error("User not found");
+
+        // A refresh never *newly* satisfies a second factor — it only carries
+        // forward the assurance the original session already had. A token
+        // minted before 2FA was enabled therefore cannot be upgraded into a
+        // verified session by rotating.
+        const amr: AuthMethod[] = decoded.amr ?? ["pwd"];
+        if (user.totpEnabled && !amr.includes("otp")) {
+            throw new Error("Two-factor verification required");
+        }
+
+        const newTokens = generateTokens(user, { amr });
+        await this.storeRefreshToken(decoded.userId, newTokens.refreshToken);
+        return newTokens;
     }
 }
