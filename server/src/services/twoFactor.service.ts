@@ -3,11 +3,8 @@ import speakeasy from "speakeasy";
 import qrcode from "qrcode";
 import argon2 from "argon2";
 import crypto from "crypto";
-import jwt from "jsonwebtoken";
 import { env } from "../config/env";
-
-
-const JWT_SECRET = env.jwtSecret;
+import { signTwoFactorPendingToken, verifyToken, currentTotpStep } from "../lib/tokens";
 
 const APP_NAME = "MindEase";
 
@@ -31,7 +28,8 @@ export class TwoFactorService {
 
         await prisma.user.update({
             where: { id: user.id },
-            data: { totpSecret: secret.base32 },
+            // A new secret invalidates any code accepted for the previous one.
+            data: { totpSecret: secret.base32, lastTotpStep: null },
         });
 
         const otpauthUrl = secret.otpauth_url || "";
@@ -47,6 +45,11 @@ export class TwoFactorService {
             throw new Error("Invalid code");
         }
         await prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } });
+
+        // Enabling a second factor must not leave older sessions usable: a
+        // refresh token obtained before this point would otherwise persist.
+        const { AuthService } = await import("./auth.service");
+        await AuthService.revokeAllSessions(userId, "2fa_enabled");
 
         // Single-use recovery codes, shown once and stored hashed
         const backupCodes = await this.generateBackupCodes(userId);
@@ -105,8 +108,14 @@ export class TwoFactorService {
         }
         await prisma.user.update({
             where: { id: userId },
-            data: { totpEnabled: false, totpSecret: null, backupCodes: null },
+            data: { totpEnabled: false, totpSecret: null, backupCodes: null, lastTotpStep: null },
         });
+
+        // Sessions established while 2FA was on carried an `otp` assurance
+        // claim. Drop them so nothing survives the downgrade.
+        const { AuthService } = await import("./auth.service");
+        await AuthService.revokeAllSessions(userId, "2fa_disabled");
+
         return { success: true };
     }
 
@@ -119,14 +128,39 @@ export class TwoFactorService {
         });
     }
 
-    // Short-lived ticket used to complete a 2FA-protected login
+    /**
+     * Consumes a TOTP step, rejecting a code that has already been accepted.
+     * The +/- 1 step tolerance window means the same six digits stay valid for
+     * roughly 90 seconds, so without this a captured code could be replayed
+     * repeatedly to mint additional sessions.
+     */
+    static async consumeTotpStep(userId: number, secret: string, code: string): Promise<boolean> {
+        if (!this.verifyCode(secret, code)) return false;
+
+        const step = currentTotpStep();
+        const accepted = await prisma.user.updateMany({
+            where: {
+                id: userId,
+                OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: step } }],
+            },
+            data: { lastTotpStep: step },
+        });
+
+        return accepted.count === 1;
+    }
+
+    /**
+     * Short-lived ticket used only to complete a 2FA-protected login. It is
+     * signed with a purpose-scoped secret, so it cannot be presented as an
+     * access token to any authenticated route.
+     */
     static issuePendingToken(userId: number) {
-        return jwt.sign({ userId, totpPending: true }, JWT_SECRET, { expiresIn: "5m" });
+        return signTwoFactorPendingToken(userId);
     }
 
     static verifyPendingToken(token: string): number {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: number; totpPending?: boolean };
-        if (!decoded.totpPending) throw new Error("Invalid token");
+        const decoded = verifyToken<{ userId: number }>(token, "2fa-pending");
+        if (typeof decoded.userId !== "number") throw new Error("Invalid token");
         return decoded.userId;
     }
 }

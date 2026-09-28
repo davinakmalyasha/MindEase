@@ -1,29 +1,32 @@
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
-import jwt from "jsonwebtoken";
-import crypto from "crypto";
 import { AuthService } from "../services/auth.service";
 import { TwoFactorService } from "../services/twoFactor.service";
 import { env } from "../config/env";
-
-
-const JWT_SECRET = env.jwtSecret;
-const REFRESH_SECRET = env.refreshSecret;
+import { publicMessageFor } from "../utils/appError";
 
 const COOKIE_OPTIONS = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: env.isProd,
     sameSite: "lax" as const,
     maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
-const generateAccessFor = (user: any) =>
-    jwt.sign({ userId: user.id, role: user.role, totpVerified: true }, JWT_SECRET, { expiresIn: "15m" });
-const generateRefreshFor = (user: any) =>
-    jwt.sign({ userId: user.id, jti: crypto.randomUUID() }, REFRESH_SECRET, { expiresIn: "7d" });
-
+/** Recovery-code hashes must never leave the server. */
 const sanitize = (user: any) => {
-    const { password, resetOtpHash, resetOtpExpiresAt, totpSecret, failedAttempts, lockedUntil, ...safe } = user;
+    const {
+        password,
+        resetOtpHash,
+        resetOtpExpiresAt,
+        verifyOtpHash,
+        verifyOtpExpiresAt,
+        totpSecret,
+        backupCodes,
+        failedAttempts,
+        lockedUntil,
+        lastTotpStep,
+        ...safe
+    } = user;
     return safe;
 };
 
@@ -34,23 +37,40 @@ export class TwoFactorController {
             const userId = TwoFactorService.verifyPendingToken(token);
 
             const user = await prisma.user.findUnique({ where: { id: userId } });
-            if (!user || !user.totpSecret) throw new Error("Invalid session");
-            // Accept either a live TOTP code or an unused single-use backup code
-            if (!TwoFactorService.verifyCode(user.totpSecret, code)) {
+            if (!user || !user.totpSecret || !user.totpEnabled) {
+                throw new Error("Invalid or expired verification session");
+            }
+            if (user.isBanned) {
+                throw new Error("Account suspended. Contact support.");
+            }
+
+            // Accept either a live, not-yet-used TOTP code or an unused
+            // single-use backup code.
+            const acceptedTotp = await TwoFactorService.consumeTotpStep(
+                user.id,
+                user.totpSecret,
+                String(code)
+            );
+            if (!acceptedTotp) {
                 const usedBackup = await TwoFactorService.consumeBackupCode(user.id, String(code));
                 if (!usedBackup) throw new Error("Invalid verification code");
             }
 
-            const accessToken = generateAccessFor(user);
-            const refreshToken = generateRefreshFor(user);
+            // `amr: ["otp"]` records that this session cleared a second factor,
+            // so rotation can carry that assurance forward.
+            const { accessToken, refreshToken } = AuthService.generateTokens(user, {
+                amr: ["pwd", "otp"],
+            });
             await AuthService.storeRefreshToken(user.id, refreshToken);
 
             res.cookie("refreshToken", refreshToken, COOKIE_OPTIONS);
             res.cookie("accessToken", accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
 
-            res.json({ status: "success", data: { user: sanitize(user), accessToken } });
+            // The access token is delivered only as an HttpOnly cookie — never
+            // in the response body, which would defeat the cookie's purpose.
+            res.json({ status: "success", data: { user: sanitize(user) } });
         } catch (error: any) {
-            res.status(401).json({ status: "error", message: error.message });
+            res.status(401).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -60,7 +80,7 @@ export class TwoFactorController {
             const result = await TwoFactorService.generateSecret(user);
             res.json({ status: "success", data: result });
         } catch (error: any) {
-            res.status(400).json({ status: "error", message: error.message });
+            res.status(400).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -71,7 +91,7 @@ export class TwoFactorController {
             const result = await TwoFactorService.enable(user.id, code);
             res.json({ status: "success", data: result });
         } catch (error: any) {
-            res.status(400).json({ status: "error", message: error.message });
+            res.status(400).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -82,7 +102,7 @@ export class TwoFactorController {
             const result = await TwoFactorService.disable(user.id, code, password);
             res.json({ status: "success", data: result });
         } catch (error: any) {
-            res.status(400).json({ status: "error", message: error.message });
+            res.status(400).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 }
