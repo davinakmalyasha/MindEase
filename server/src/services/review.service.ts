@@ -128,9 +128,15 @@ export class ReviewService {
         await prisma.doctor.update({
             where: { id: doctorId },
             data: {
-                rating: aggregation._count.rating
-                    ? Math.round((aggregation._avg.rating || 0) * 10) / 10
-                    : 5.0,
+                // A clinician with no visible reviews has no rating. Writing
+                // 5.0 here — as this previously did — presented a brand-new or
+                // fully-moderated-away doctor to patients as a perfect 5.0,
+                // which is a fabricated clinical claim.
+                rating:
+                    aggregation._count.rating > 0
+                        ? Math.round((aggregation._avg.rating || 0) * 10) / 10
+                        : 0,
+                totalReviews: aggregation._count.rating,
             },
         });
         invalidateDoctorCache(doctorId);

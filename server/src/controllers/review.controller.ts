@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { ReviewService } from "../services/review.service";
+import { publicMessageFor } from "../utils/appError";
 
 export class ReviewController {
     static async createReview(req: Request, res: Response) {
@@ -17,7 +18,7 @@ export class ReviewController {
 
             res.status(201).json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create review.";
+            const message = publicMessageFor(error)?.message ?? "Failed to create review.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -28,7 +29,7 @@ export class ReviewController {
             const reviews = await ReviewService.getReviewsByDoctor(doctorId);
             res.json({ status: "success", data: reviews });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch reviews.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch reviews.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -39,7 +40,7 @@ export class ReviewController {
             const summary = await ReviewService.getDoctorRatingSummary(doctorId);
             res.json({ status: "success", data: summary });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch rating summary.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch rating summary.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -53,7 +54,7 @@ export class ReviewController {
             const result = await ReviewService.replyToReview(reviewId, userId, reply);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to reply to review.";
+            const message = publicMessageFor(error)?.message ?? "Failed to reply to review.";
             res.status(error instanceof Error && message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
         }
     }
@@ -67,7 +68,7 @@ export class ReviewController {
             const result = await ReviewService.reportReview(reviewId, userId, reason);
             res.status(201).json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to report review.";
+            const message = publicMessageFor(error)?.message ?? "Failed to report review.";
             res.status(error instanceof Error && message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
         }
     }
