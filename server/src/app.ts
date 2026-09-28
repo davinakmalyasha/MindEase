@@ -6,13 +6,14 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import morgan from "morgan";
+import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
 import path from "path";
 import crypto from "crypto";
 import { logger } from "./utils/logger";
 import { env } from "./config/env";
 import { prisma } from "./lib/prisma";
+import { publicMessageFor } from "./utils/appError";
 import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
 import doctorRoutes from "./routes/doctor.routes";
@@ -42,8 +43,18 @@ export const createApp = () => {
     app.set("trust proxy", process.env.NODE_ENV === "production" ? 1 : false);
 
     // Request-ID middleware
+    //
+    // The id is attached to the *request* as well as the response, and the
+    // inbound value is only honoured when it looks like an id. Previously the
+    // id was generated onto the response but the error handler read the inbound
+    // header — which is normally absent — so the id in a log line and the id the
+    // client saw could never be joined, and an attacker could inject arbitrary
+    // text into the log stream via the header.
     app.use((req, res, next) => {
-        const requestId = req.headers["x-request-id"] || crypto.randomUUID();
+        const inbound = req.headers["x-request-id"];
+        const requestId =
+            typeof inbound === "string" && /^[\w-]{1,64}$/.test(inbound) ? inbound : crypto.randomUUID();
+        (req as express.Request & { requestId?: string }).requestId = requestId;
         res.setHeader("X-Request-Id", requestId);
         next();
     });
@@ -62,9 +73,25 @@ export const createApp = () => {
     );
     app.use(express.json({ limit: "1mb" }));
     app.use(cookieParser());
+    // Structured access logging, so a request can be joined to its log lines
+    // and its Sentry event by `requestId`. The previous `morgan("dev")` wrote a
+    // colourised human string — including the full query string, which for
+    // `/api/admin/users?search=<email>` is PII — nested opaquely inside a JSON
+    // log record.
     app.use(
-        morgan("dev", {
-            stream: { write: (msg: string) => logger.info(msg.trim()) },
+        pinoHttp({
+            logger,
+            genReqId: (req) =>
+                (req as express.Request & { requestId?: string }).requestId ?? crypto.randomUUID(),
+            autoLogging: {
+                // Health checks would otherwise dominate the log volume.
+                ignore: (req) => req.url?.startsWith("/api/health") ?? false,
+            },
+            customLogLevel: (_req, res, err) => {
+                if (err || res.statusCode >= 500) return "error";
+                if (res.statusCode >= 400) return "warn";
+                return "info";
+            },
         })
     );
 
@@ -127,14 +154,35 @@ export const createApp = () => {
 
     // 404 handler
     app.use((req, res) => {
-        res.status(404).json({ status: "error", message: `Route not found: ${req.method} ${req.originalUrl}` });
+        // The path is not reflected: it is attacker-controlled free text, and
+        // echoing it back is a log-injection vector into our own log store.
+        res.status(404).json({ status: "error", message: "Route not found" });
     });
 
     // Global Error Handler
     app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-        logger.error({ err: err.stack, path: req.path }, "Unhandled error");
-        captureError(err, { path: req.path, method: req.method, requestId: req.headers["x-request-id"] });
-        res.status(err.status || 500).json({ status: "error", message: err.message || "Internal Server Error" });
+        const requestId = (req as express.Request & { requestId?: string }).requestId;
+        logger.error({ err: err?.stack || String(err), path: req.path, requestId }, "Unhandled error");
+        captureError(err, { path: req.path, method: req.method, requestId });
+
+        // Only errors explicitly deemed safe to disclose reach the client with
+        // their own message. Everything else — Prisma invocation text, driver
+        // errors, stack-bearing errors — is reported as a generic failure, so a
+        // malformed request cannot be used to fingerprint the schema.
+        const disclosed = publicMessageFor(err);
+        if (disclosed) {
+            return res.status(disclosed.status).json({
+                status: "error",
+                message: disclosed.message,
+                ...(disclosed.details ? { ...disclosed.details } : {}),
+            });
+        }
+
+        res.status(500).json({
+            status: "error",
+            message: "Something went wrong. Please try again.",
+            ...(requestId ? { requestId } : {}),
+        });
     });
 
     return app;
