@@ -1,13 +1,30 @@
 import { Request, Response } from "express";
 import { AuthService } from "../services/auth.service";
 import { TwoFactorService } from "../services/twoFactor.service";
+import { env } from "../config/env";
+import { publicMessageFor } from "../utils/appError";
 
-// Cookie Options
-const COOKIE_OPTIONS = {
+const REFRESH_COOKIE_OPTIONS = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: env.isProd,
     sameSite: "lax" as const,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
+const ACCESS_COOKIE_OPTIONS = {
+    ...REFRESH_COOKIE_OPTIONS,
+    maxAge: 15 * 60 * 1000,
+};
+
+const setSessionCookies = (res: Response, accessToken: string, refreshToken: string) => {
+    res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTIONS);
+    res.cookie("accessToken", accessToken, ACCESS_COOKIE_OPTIONS);
+};
+
+const clearSessionCookies = (res: Response) => {
+    // Options must match the ones used to set the cookie or the browser keeps it.
+    res.clearCookie("refreshToken", REFRESH_COOKIE_OPTIONS);
+    res.clearCookie("accessToken", ACCESS_COOKIE_OPTIONS);
 };
 
 export class AuthController {
@@ -15,12 +32,13 @@ export class AuthController {
         try {
             const result = await AuthService.register(req.body);
 
-            res.cookie("refreshToken", result.refreshToken, COOKIE_OPTIONS);
-            res.cookie("accessToken", result.accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
+            setSessionCookies(res, result.accessToken, result.refreshToken);
 
-            res.status(201).json({ status: "success", data: { user: result.user, accessToken: result.accessToken } });
+            // The access token is delivered only as an HttpOnly cookie. Returning
+            // it in the body as well would make it readable by any script.
+            res.status(201).json({ status: "success", data: { user: result.user } });
         } catch (error: any) {
-            res.status(400).json({ status: "error", message: error.message });
+            res.status(400).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -28,21 +46,24 @@ export class AuthController {
         try {
             const result = await AuthService.login(req.body);
 
-            // 2FA gate: issue a short-lived ticket instead of session cookies
-            if (result.user.totpEnabled) {
-                const twoFactorToken = TwoFactorService.issuePendingToken(result.user.id);
+            // 2FA gate: no session cookie is issued until the second factor
+            // succeeds, and no refresh token is ever persisted for this attempt.
+            if (result.requiresTwoFactor) {
                 return res.json({
                     status: "success",
-                    data: { requires2FA: true, twoFactorToken, user: result.user },
+                    data: {
+                        requires2FA: true,
+                        twoFactorToken: TwoFactorService.issuePendingToken(result.user.id),
+                        user: result.user,
+                    },
                 });
             }
 
-            res.cookie("refreshToken", result.refreshToken, COOKIE_OPTIONS);
-            res.cookie("accessToken", result.accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
+            setSessionCookies(res, result.accessToken!, result.refreshToken!);
 
-            res.json({ status: "success", data: { user: result.user, accessToken: result.accessToken } });
+            res.json({ status: "success", data: { user: result.user } });
         } catch (error: any) {
-            res.status(401).json({ status: "error", message: error.message });
+            res.status(401).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -51,20 +72,22 @@ export class AuthController {
             const result = await AuthService.googleLogin(req.body.token);
 
             // 2FA gate: users with TOTP enabled must complete a second factor
-            if (result.user.totpEnabled) {
-                const twoFactorToken = TwoFactorService.issuePendingToken(result.user.id);
+            if (result.requiresTwoFactor) {
                 return res.json({
                     status: "success",
-                    data: { requires2FA: true, twoFactorToken, user: result.user },
+                    data: {
+                        requires2FA: true,
+                        twoFactorToken: TwoFactorService.issuePendingToken(result.user.id),
+                        user: result.user,
+                    },
                 });
             }
 
-            res.cookie("refreshToken", result.refreshToken, COOKIE_OPTIONS);
-            res.cookie("accessToken", result.accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
+            setSessionCookies(res, result.accessToken!, result.refreshToken!);
 
-            res.json({ status: "success", data: { user: result.user, accessToken: result.accessToken } });
+            res.json({ status: "success", data: { user: result.user } });
         } catch (error: any) {
-            res.status(400).json({ status: "error", message: error.message });
+            res.status(400).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -75,11 +98,11 @@ export class AuthController {
 
             const tokens = await AuthService.refresh(refreshToken);
 
-            res.cookie("refreshToken", tokens.refreshToken, COOKIE_OPTIONS);
-            res.cookie("accessToken", tokens.accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 });
+            setSessionCookies(res, tokens.accessToken, tokens.refreshToken);
 
-            res.json({ status: "success", accessToken: tokens.accessToken });
+            res.json({ status: "success" });
         } catch (error: any) {
+            clearSessionCookies(res);
             res.status(403).json({ status: "error", message: "Invalid refresh token" });
         }
     }
@@ -88,8 +111,7 @@ export class AuthController {
         const refreshToken = req.cookies.refreshToken;
         if (refreshToken) await AuthService.logout(refreshToken);
 
-        res.clearCookie("refreshToken");
-        res.clearCookie("accessToken");
+        clearSessionCookies(res);
         res.json({ status: "success", message: "Logged out" });
     }
 }
