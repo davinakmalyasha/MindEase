@@ -1,21 +1,67 @@
+# Dependencies
 node_modules/
-.env
+
+# Build output
 .next/
 dist/
 build/
-.DS_Store
+out/
+*.tsbuildinfo
+
+# Local environment and secrets
+# Every variant, not just `.env` — a `.env.production` or `.env.local`
+# committed to a public repository leaks live credentials just as effectively.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+service-account*.json
+
+# Logs, coverage and test artifacts
 *.log
-.vscode/
-.idea/
-server/node_modules/
-client/node_modules/
-client/.next/
-package.json
-package-lock.json
-server/dist/
-dump.rdb
-client/test-results/
+npm-debug.log*
+yarn-error.log*
+coverage/
+.nyc_output/
+test-results/
 playwright-report/
+blob-report/
+.playwright/
+
+# Database and cache snapshots
+# `dump.rdb` is a Redis snapshot: it can contain cached session and PII data.
+dump.rdb
+*.rdb
+*.aof
+
+# Database backups
+# A full mysqldump contains every row in cleartext, including clinical notes.
+backups/
+*.sql
+!server/prisma/migrations/**/*.sql
+
+# Uploaded user content
+# Real user files must never enter version control. Only the placeholder is
+# tracked so the directory exists in a fresh clone.
 uploads/
 server/public/uploads/*
 !server/public/uploads/.gitkeep
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# NOTE: `package.json` and `package-lock.json` are intentionally NOT ignored.
+# Ignoring them lets a new manifest fail to commit silently, after which CI's
+# `npm ci` resolves against a stale lockfile.
+
+# Test-only helpers that are committed deliberately.
+!server/scripts/*.ps1

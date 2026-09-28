@@ -1,9 +1,27 @@
 node_modules
+dist
 .next
 .git
+
+# Every environment variant, not just `.env`.
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Database snapshots and backups: a `dump.rdb` in the build context is live
+# session and cached PII data, and a `*.sql` dump is the whole database.
+*.rdb
+*.aof
+backups/
+*.sql
+
+# Logs
 *.log
-client/node_modules
-server/node_modules
-server-realtime/realtime
+
+# Docker and docs
+Dockerfile
+.dockerignore
+*.md
+docs/
