@@ -30,7 +30,6 @@ import LanguageSwitcher from "@/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import CrisisBanner from "@/components/ui/CrisisBanner";
 import SOSButton from "@/components/ui/SOSButton";
-import SOSAlertModal from "@/components/ui/SOSAlertModal";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const { user, logout, isLoading } = useAuth();
@@ -160,8 +159,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     {children}
                 </div>
             </main>
-
-            <SOSAlertModal />
         </div>
     );
 }

@@ -8,6 +8,7 @@ import SupportChat from "@/components/ui/SupportChat";
 import CookieBanner from "@/components/ui/CookieBanner";
 import PushPromptBanner from "@/components/ui/PushPromptBanner";
 import ServiceWorkerRegistration from "@/components/ui/ServiceWorkerRegistration";
+import SOSAlertModal from "@/components/ui/SOSAlertModal";
 import { AuthProvider } from "@/context/AuthContext";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
@@ -71,6 +72,10 @@ export default async function RootLayout({ children }) {
                     <InteractiveBlobs />
                     <ServiceWorkerRegistration />
                     <ErrorBoundary>{children}</ErrorBoundary>
+                    {/* Mounted at the root, not inside the dashboard layout: a
+                        clinician reading /messages when a patient presses SOS
+                        is exactly the person who needs to see it. */}
+                    <SOSAlertModal />
                     <SupportChat />
                     <CookieBanner />
                     <PushPromptBanner />
