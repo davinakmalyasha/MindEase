@@ -31,9 +31,20 @@ model User {
   totpSecret    String?
   totpEnabled   Boolean        @default(false)
   backupCodes   String?        @db.Text // JSON array of argon2 hashes, single-use
+  // Highest accepted TOTP step; blocks replay inside the +/-1 step tolerance
+  // window. An Int rather than BigInt: a step is seconds-since-epoch / 30, so
+  // it stays well inside Int range, and Int cannot surprise a JSON serializer.
+  lastTotpStep  Int?
   sessionCredits Int           @default(0) // referral reward: one free session per credit
+  // Password recovery and email verification are independent flows: sharing
+  // one OTP slot let a verification request silently invalidate an in-flight
+  // password reset, and let a code from one flow be spent on the other.
   resetOtpHash  String?
   resetOtpExpiresAt DateTime?
+  resetOtpAttempts Int         @default(0)
+  verifyOtpHash String?
+  verifyOtpExpiresAt DateTime?
+  verifyOtpAttempts Int        @default(0)
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]     @relation("ActorLogs")
   appointments  Appointment[]
@@ -50,6 +61,7 @@ model User {
   referralsMade Referral[]      @relation("ReferralsMade")
   referralReceived Referral?    @relation("ReferralReceived")
   pushSubscriptions PushSubscription[]
+  riskAlerts RiskAlert[]
   doctorProfile Doctor?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -62,7 +74,13 @@ model Doctor {
   specialty        String
   bio              String             @db.Text
   experience       Int                @default(0)
-  rating           Float              @default(5.0)
+  // Denormalised aggregate, kept in step by `ReviewService.recalcDoctorRating`.
+  // Defaults to 0 rather than 5.0: a clinician with no reviews yet must not be
+  // presented to patients as a perfect 5.0, which is a false clinical claim.
+  rating           Float              @default(0)
+  totalReviews     Int                @default(0)
+  languages        String?
+  education        String?            @db.Text
   price            Int                @default(0)
   bankName         String?
   bankAccount      String?
@@ -155,7 +173,7 @@ model Message {
   isRead     Boolean  @default(false)
   readAt     DateTime?
   attachmentUrl String?
-  attachmentType String?
+  attachmentType   String?       @db.VarChar(50)
   deletedAt  DateTime?
   reaction   String?
   createdAt  DateTime @default(now())
@@ -188,6 +206,9 @@ model ConsultationSlot {
   appointment Appointment?
 
   @@index([doctorId, date, isBooked])
+  // Two concurrent "create slot" requests can both pass an application-level
+  // overlap check; this makes an exact duplicate a database error instead.
+  @@unique([doctorId, date, startTime, endTime])
 }
 
 model AvailabilityPattern {
@@ -202,6 +223,7 @@ model AvailabilityPattern {
   createdAt  DateTime @default(now())
 
   @@index([doctorId])
+  @@unique([doctorId, weekday, startTime, endTime])
 }
 
 model PreSessionData {
@@ -215,13 +237,45 @@ model PreSessionData {
   updatedAt     DateTime @updatedAt
 }
 
+/**
+ * A clinically significant risk signal raised by a self-report instrument, for
+ * example a non-zero answer to PHQ-9 item 9.
+ *
+ * The score alone is not actionable — a care team needs to know that someone
+ * disclosed a thought of self-harm, and needs a durable record that it was
+ * raised and by whom it was acknowledged.
+ */
+model RiskAlert {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level     String   // "elevated" | "urgent"
+  reason    String   @db.Text
+  sourceType String  // e.g. "phq9"
+  sourceId  Int?
+  // Set once a clinician has seen and accepted the alert.
+  acknowledgedAt   DateTime?
+  acknowledgedById Int?
+  notifiedDoctorUserId Int?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([acknowledgedAt])
+  @@index([createdAt])
+}
+
 model RefreshToken {
   id        Int      @id @default(autoincrement())
-  token     String   @unique @db.VarChar(500)
+  // SHA-256 digest of the refresh token, never the token itself, so a leaked
+  // database read cannot be replayed as a live session.
+  tokenHash String   @unique @db.VarChar(64)
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model MoodEntry {
@@ -230,9 +284,14 @@ model MoodEntry {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   mood      Int
   notes     String?  @db.Text
+  // Calendar day in the user's own timezone, as `YYYY-MM-DD`. Enforcing
+  // uniqueness here makes "one mood log per day" a database invariant rather
+  // than a check-then-create race in application code.
+  moodDate  String   @db.VarChar(10)
   factors   String?  @db.Text // JSON array of factor tags
   createdAt DateTime @default(now())
 
+  @@unique([userId, moodDate])
   @@index([userId, createdAt])
 }
 
@@ -285,11 +344,11 @@ model FollowUp {
   endTime         String
   consultationType String  @default("video")
   notes           String?  @db.Text
-  status          String   @default("pending") // pending, accepted, declined, expired
-  createdAt       DateTime @default(now())
+  status    String   @default("pending") // pending, accepted, declined, expired
+  createdAt DateTime @default(now())
 
-  @@index([doctorId])
-  @@index([status])
+  // `status` and `doctorId` indexes were dropped: follow-ups are only ever
+  // fetched by `appointmentId` or `id`, so both were pure write amplification.
 }
 
 model WaitlistEntry {
@@ -299,9 +358,15 @@ model WaitlistEntry {
   patientId Int
   patient   User     @relation(fields: [patientId], references: [id], onDelete: Cascade)
   status    String   @default("waiting") // waiting, notified, booked, expired
+  // Notified at, so a stale notification can expire without a full scan.
+  notifiedAt DateTime?
   createdAt DateTime @default(now())
 
-  @@unique([doctorId, patientId, status])
+  // One row per (doctor, patient) pair. The previous key included `status`,
+  // which permitted `waiting` and `notified` rows to coexist for the same pair
+  // — so re-joining after a notification created a duplicate and produced two
+  // notifications when the slot opened.
+  @@unique([doctorId, patientId])
   @@index([doctorId, status])
 }
 
@@ -328,19 +393,24 @@ model PackagePurchase {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessionsLeft Int
   status       String   @default("active") // active, completed
+  // Set when a payment has been verified. A grant with no `paidAt` and no
+  // `grantedByUserId` is not a legitimate entitlement.
+  paidAt           DateTime?
+  grantedByUserId  Int?
   appointments Appointment[]
   createdAt    DateTime @default(now())
 
-  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([userId, status])
 }
 
 model PushSubscription {
   id        Int      @id @default(autoincrement())
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
+  endpoint  String   @unique @db.VarChar(500)
+  p256dh    String   @db.VarChar(500)
+  auth      String   @db.VarChar(500)
   userAgent String?
   createdAt DateTime @default(now())
 
