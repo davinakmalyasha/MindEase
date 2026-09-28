@@ -1,25 +1,37 @@
 import { prisma } from "../lib/prisma";
 import { NotificationService } from "./notification.service";
 
+/** A waitlist row is stale once this long has passed without the patient booking. */
+const NOTIFICATION_TTL_MS = 48 * 60 * 60 * 1000;
+/** Very old unfulfilled waiting entries are dropped. */
+const WAITING_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 export class WaitlistService {
     static async join(doctorId: number, patientId: number) {
         const doctor = await prisma.doctor.findUnique({ where: { id: doctorId } });
         if (!doctor) throw new Error("Doctor not found");
 
-        const existing = await prisma.waitlistEntry.findFirst({
-            where: { doctorId, patientId, status: "waiting" },
+        const existing = await prisma.waitlistEntry.findUnique({
+            where: { doctorId_patientId: { doctorId, patientId } },
         });
-        if (existing) throw new Error("You are already on this waitlist");
+        if (existing && existing.status !== "expired" && existing.status !== "booked") {
+            throw new Error("You are already on this waitlist");
+        }
 
-        const entry = await prisma.waitlistEntry.create({
-            data: { doctorId, patientId, status: "waiting" },
+        // One row per (doctor, patient). The previous unique key included
+        // `status`, so a patient who re-joined after being notified got a second
+        // row and was notified twice about the same opening.
+        const entry = await prisma.waitlistEntry.upsert({
+            where: { doctorId_patientId: { doctorId, patientId } },
+            create: { doctorId, patientId, status: "waiting" },
+            update: { status: "waiting", notifiedAt: null },
         });
         return entry;
     }
 
     static async leave(doctorId: number, patientId: number) {
         await prisma.waitlistEntry.updateMany({
-            where: { doctorId, patientId, status: "waiting" },
+            where: { doctorId, patientId, status: { in: ["waiting", "notified"] } },
             data: { status: "expired" },
         });
         return { success: true };
@@ -29,7 +41,19 @@ export class WaitlistService {
         const entry = await prisma.waitlistEntry.findFirst({
             where: { doctorId, patientId, status: { in: ["waiting", "notified"] } },
         });
-        return entry ? { onWaitlist: true, status: entry.status, joinedAt: entry.createdAt } : { onWaitlist: false };
+        return entry
+            ? { onWaitlist: true, status: entry.status, joinedAt: entry.createdAt }
+            : { onWaitlist: false };
+    }
+
+    /** Marks the waitlist entry as fulfilled when the patient books. */
+    static async markBooked(doctorId: number, patientId: number) {
+        await prisma.waitlistEntry
+            .updateMany({
+                where: { doctorId, patientId, status: { in: ["waiting", "notified"] } },
+                data: { status: "booked" },
+            })
+            .catch(() => null);
     }
 
     /**
@@ -45,16 +69,18 @@ export class WaitlistService {
 
         const notified: number[] = [];
         for (const waiter of waiters) {
+            // Compare-and-swap on status, so only one replica wins per waiter.
             const claim = await prisma.waitlistEntry.updateMany({
                 where: { id: waiter.id, status: "waiting" },
-                data: { status: "notified" },
+                data: { status: "notified", notifiedAt: new Date() },
             });
             if (claim.count !== 1) continue;
 
             await NotificationService.create({
                 userId: waiter.patientId,
                 title: "A slot just opened",
-                message: "One of your waitlisted psychologists just opened a new slot. Book it before it's gone!",
+                message:
+                    "One of your waitlisted psychologists just opened a new slot. Book it before it's gone!",
                 type: "appointment",
                 email: true,
             });
@@ -65,40 +91,37 @@ export class WaitlistService {
 
     /**
      * Waitlist hygiene (daily cron):
-     * 1. Expire stale notifications — patients notified more than 48h ago
-     *    who never booked re-enter the queue so the waitlist keeps moving.
-     * 2. Drop very old waiting entries (> 90 days).
+     * 1. Re-queue patients notified more than 48h ago who never booked, so the
+     *    waitlist keeps moving.
+     * 2. Drop waiting entries older than 90 days.
      */
     static async runWaitlistMaintenance() {
-        const now = new Date();
-        const notifyStaleCutoff = new Date(now.getTime() - 48 * 3600 * 1000);
-        const waitingStaleCutoff = new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+        const now = Date.now();
+        const staleNotifiedAt = new Date(now - NOTIFICATION_TTL_MS);
+        const waitingStaleBefore = new Date(now - WAITING_TTL_MS);
 
-        // Re-queue stale "notified" entries back to "waiting" (unique key
-        // @@unique([doctorId, patientId, status]) allows only one row per
-        // state, so delete the old row and recreate it as waiting)
-        const staleNotified = await prisma.waitlistEntry.findMany({
-            where: { status: "notified", createdAt: { lt: notifyStaleCutoff } },
-            select: { id: true, doctorId: true, patientId: true },
-            take: 200,
+        // A single bulk update — the previous implementation deleted and
+        // recreated each row inside its own transaction, because the old unique
+        // key made a status change impossible in place.
+        //
+        // `notifiedAt` is preferred, but rows written before the column existed
+        // have it null, so `createdAt` is used as the fallback rather than
+        // leaving those notifications stuck in `notified` forever.
+        const requeued = await prisma.waitlistEntry.updateMany({
+            where: {
+                status: "notified",
+                OR: [
+                    { notifiedAt: { lt: staleNotifiedAt } },
+                    { notifiedAt: null, createdAt: { lt: staleNotifiedAt } },
+                ],
+            },
+            data: { status: "waiting", notifiedAt: null },
         });
-        for (const entry of staleNotified) {
-            try {
-                await prisma.$transaction([
-                    prisma.waitlistEntry.delete({ where: { id: entry.id } }),
-                    prisma.waitlistEntry.create({
-                        data: { doctorId: entry.doctorId, patientId: entry.patientId, status: "waiting" },
-                    }),
-                ]);
-            } catch {
-                // concurrent modification — skip
-            }
-        }
 
         const removed = await prisma.waitlistEntry.deleteMany({
-            where: { status: "waiting", createdAt: { lt: waitingStaleCutoff } },
+            where: { status: "waiting", createdAt: { lt: waitingStaleBefore } },
         });
 
-        return { requeued: staleNotified.length, expiredWaiting: removed.count };
+        return { requeued: requeued.count, expiredWaiting: removed.count };
     }
 }
