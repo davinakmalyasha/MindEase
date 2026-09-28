@@ -1,6 +1,19 @@
-import axios from "axios";
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
+/**
+ * Called when the session is genuinely unrecoverable, so the app can surface a
+ * "your session expired" notice instead of appearing to log the user out for no
+ * reason. Kept as a hook so `AuthProvider` owns the reaction while this module
+ * stays free of React.
+ */
+type SessionExpiredListener = (reason?: unknown) => void;
+let sessionExpiredListener: SessionExpiredListener | null = null;
+
+export const onSessionExpired = (listener: SessionExpiredListener | null) => {
+    sessionExpiredListener = listener;
+};
 
 const api = axios.create({
     baseURL: API_URL,
@@ -10,7 +23,10 @@ const api = axios.create({
     },
 });
 
-// CSRF double-submit token: fetched once, echoed on all mutating requests
+/* ------------------------------------------------------------------ *
+ * CSRF double-submit token
+ * ------------------------------------------------------------------ */
+
 let csrfToken: string | null = null;
 let csrfPromise: Promise<string | null> | null = null;
 
@@ -31,9 +47,97 @@ const fetchCsrfToken = async (): Promise<string | null> => {
     return csrfPromise;
 };
 
+/** Forces the next mutating request to fetch a fresh token. */
+export const invalidateCsrfToken = () => {
+    csrfToken = null;
+};
+
+/* ------------------------------------------------------------------ *
+ * Access-token refresh
+ * ------------------------------------------------------------------ */
+
+/**
+ * Only one refresh may be in flight at a time, and every request that arrives
+ * while it is running waits on that same promise.
+ *
+ * The access token is short-lived (15 minutes) and the server *rotates* the
+ * refresh token on every use. Previously each 401 independently fired its own
+ * `POST /auth/refresh`, so with N parallel requests the second and subsequent
+ * calls presented an already-consumed token, were rejected, and logged the user
+ * out. Because a dashboard fires several requests at once, this happened
+ * roughly every session.
+ */
+let refreshPromise: Promise<void> | null = null;
+
+/**
+ * Increments on every *successful* refresh.
+ *
+ * A request records the current value when it is sent and may replay itself
+ * once if it comes back 401 while the value is unchanged. That single rule
+ * replaces the old global `refreshAttempts` counter, which had a real bug: with
+ * three parallel 401s the counter hit its cap on the third request, so that
+ * request failed even though a valid refresh was already in flight and about to
+ * succeed. Comparing generations lets any number of requests wait on the same
+ * refresh, and still guarantees a request is never replayed twice.
+ */
+let refreshGeneration = 0;
+
+const refreshAccessToken = (): Promise<void> => {
+    if (refreshPromise) return refreshPromise;
+
+    refreshPromise = (async () => {
+        // The refresh call must carry the CSRF token like any other mutating
+        // request. It goes through bare `axios` rather than the `api` instance
+        // to avoid re-entering the response interceptor, so the header has to
+        // be attached by hand. Without it the server answers 403 and the
+        // single-flight fix above is inert.
+        const token = await fetchCsrfToken();
+        const response = await axios.post(
+            `${API_URL}/auth/refresh`,
+            {},
+            {
+                withCredentials: true,
+                headers: token ? { "X-CSRF-Token": token } : undefined,
+            }
+        );
+
+        if (response.status === 200) {
+            refreshGeneration += 1;
+        }
+    })().finally(() => {
+        refreshPromise = null;
+    });
+
+    return refreshPromise;
+};
+
+interface RetriableRequest extends InternalAxiosRequestConfig {
+    /** Set once this request has already been replayed after a refresh. */
+    _retried?: boolean;
+    /** Refresh generation at the time the request was first sent. */
+    _generation?: number;
+}
+
+/** Endpoints that must never trigger a refresh-and-replay cycle. */
+const NO_RETRY_PATHS = ["/auth/refresh", "/auth/login", "/auth/register", "/auth/google", "/account/2fa/verify"];
+
+const isRetriable = (config: RetriableRequest | undefined): boolean => {
+    if (!config) return false;
+    if (config._retried) return false;
+    if (NO_RETRY_PATHS.some((path) => (config.url || "").includes(path))) return false;
+    // A refresh already succeeded while this request was in flight, so the 401
+    // it produced is stale — replaying would just 401 again.
+    return config._generation === refreshGeneration;
+};
+
 api.interceptors.request.use(async (config) => {
     const method = (config.method || "get").toLowerCase();
     const isMutating = !["get", "head", "options"].includes(method);
+
+    // Stamp the generation before any await, so a refresh that lands while the
+    // CSRF token is being fetched is still visible to the response interceptor.
+    (config as RetriableRequest)._generation ??= refreshGeneration;
+
     if (isMutating && typeof window !== "undefined") {
         const token = await fetchCsrfToken();
         if (token) {
@@ -43,26 +147,32 @@ api.interceptors.request.use(async (config) => {
     return config;
 });
 
-// Response interceptor for API calls
 api.interceptors.response.use(
     (response) => response,
-    async (error) => {
-        const originalRequest = error.config;
+    async (error: AxiosError) => {
+        const originalRequest = error.config as RetriableRequest | undefined;
+        const status = error.response?.status;
 
-        // Refresh token once on 401, then retry
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            originalRequest._retry = true;
+        // A rejected CSRF token (for example after a server restart) would
+        // otherwise surface as a confusing 403 on every future write.
+        if (status === 403 && originalRequest) {
+            const method = (originalRequest.method || "get").toLowerCase();
+            if (!["get", "head", "options"].includes(method)) {
+                invalidateCsrfToken();
+            }
+        }
+
+        if (status === 401 && isRetriable(originalRequest)) {
+            originalRequest._retried = true;
 
             try {
-                await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
+                await refreshAccessToken();
                 return api(originalRequest);
             } catch (refreshError) {
-                if (typeof window !== "undefined") {
-                    localStorage.removeItem("user");
-                    if (!window.location.pathname.startsWith("/login")) {
-                        window.location.href = "/login";
-                    }
-                }
+                // The session is genuinely gone. Tell the app, which clears the
+                // cached user and explains why, preserving the current route so
+                // the user lands back where they were after signing in.
+                sessionExpiredListener?.(refreshError);
                 return Promise.reject(refreshError);
             }
         }
@@ -71,9 +181,20 @@ api.interceptors.response.use(
     }
 );
 
-// Extract a friendly error message from an API error
-export const getErrorMessage = (error: any, fallback = "Something went wrong") => {
-    return error?.response?.data?.message || error?.message || fallback;
+/**
+ * Extracts a message safe to show a user.
+ *
+ * The API returns a curated `message` for expected failures, so prefer that
+ * and fall back to something neutral rather than surfacing a raw network or
+ * serialization error to someone in distress.
+ */
+export const getErrorMessage = (error: unknown, fallback = "Something went wrong"): string => {
+    if (typeof error === "object" && error !== null) {
+        const response = (error as AxiosError<{ message?: string }>).response;
+        if (response?.data?.message) return response.data.message;
+    }
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
 };
 
 export default api;
