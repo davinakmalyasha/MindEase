@@ -7,6 +7,22 @@ export const app = createApp();
 
 export const PASSWORD = "TestPass@123";
 
+/**
+ * The access token is delivered only as an HttpOnly cookie — it is deliberately
+ * no longer part of the JSON body, because returning it there makes it readable
+ * by any script on the page and defeats the point of the cookie. Tests read it
+ * back out of the cookie jar instead, which is also what a browser does.
+ */
+export const accessTokenFrom = (res: request.Response): string => {
+    const cookies = res.headers["set-cookie"];
+    if (!Array.isArray(cookies)) return "";
+    for (const cookie of cookies) {
+        const match = /^accessToken=([^;]*)/.exec(cookie);
+        if (match) return decodeURIComponent(match[1]);
+    }
+    return "";
+};
+
 export interface TestUser {
     email: string;
     password: string;
@@ -39,7 +55,7 @@ export const createUser = async (role: string, email?: string): Promise<TestUser
         password: PASSWORD,
         role,
         id: res.body.data.user.id,
-        accessToken: res.body.data.accessToken,
+        accessToken: accessTokenFrom(res),
         agent,
         csrf,
     };
@@ -73,10 +89,46 @@ export const createAdmin = async () => {
         password: PASSWORD,
         role: "admin",
         id: res.body.data.user.id,
-        accessToken: res.body.data.accessToken,
+        accessToken: accessTokenFrom(res),
         agent,
         csrf,
     };
 };
 
 export const withAuth = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+/** Seeds a mood entry with the timezone-aware day key the schema now requires. */
+export const createMoodEntry = (
+    userId: number,
+    mood: number,
+    createdAt: Date,
+    extra: Record<string, unknown> = {}
+) => {
+    // Matches the default user zone used by the application.
+    const wib = new Date(createdAt.getTime() + 7 * 60 * 60 * 1000);
+    const moodDate = `${wib.getUTCFullYear()}-${String(wib.getUTCMonth() + 1).padStart(2, "0")}-${String(
+        wib.getUTCDate()
+    ).padStart(2, "0")}`;
+    return prisma.moodEntry.create({
+        data: { userId, mood, createdAt, moodDate, ...extra } as never,
+    });
+};
+
+/**
+ * Creates a package entitlement the way the payment provider will once wired:
+ * a purchase with a verified `paidAt`.
+ *
+ * A patient-facing self-service purchase is deliberately refused (it used to
+ * mint unlimited free therapy packages), so tests that need to exercise booking
+ * against a package must go through this path.
+ */
+export const grantPaidPackage = async (userId: number, packageId: number) => {
+    const pkg = await prisma.package.findUnique({
+        where: { id: packageId },
+        select: { sessionCount: true },
+    });
+    if (!pkg) throw new Error("Package not found");
+    return prisma.packagePurchase.create({
+        data: { userId, packageId, sessionsLeft: pkg.sessionCount, paidAt: new Date() },
+    });
+};
