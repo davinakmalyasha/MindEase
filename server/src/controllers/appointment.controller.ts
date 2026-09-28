@@ -3,6 +3,7 @@ import { AppointmentService } from "../services/appointment.service";
 import { NotificationService } from "../services/notification.service";
 import { buildIcs } from "../services/calendar.service";
 import { prisma } from "../lib/prisma";
+import { publicMessageFor } from "../utils/appError";
 
 
 
@@ -43,7 +44,7 @@ export class AppointmentController {
                 }
             } catch (_) { /* non-critical */ }
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to book appointment.";
+            const message = publicMessageFor(error)?.message ?? "Failed to book appointment.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -56,7 +57,7 @@ export class AppointmentController {
             const result = await AppointmentService.getAppointmentsByRole(user, page, limit);
             res.json({ status: "success", data: result });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -112,7 +113,7 @@ export class AppointmentController {
                 }
             } catch (_) { /* non-critical */ }
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to update status.";
+            const message = publicMessageFor(error)?.message ?? "Failed to update status.";
             res.status(403).json({ status: "error", message });
         }
     }
@@ -148,7 +149,7 @@ export class AppointmentController {
                 }
             } catch (_) { /* non-critical */ }
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to reschedule appointment.";
+            const message = publicMessageFor(error)?.message ?? "Failed to reschedule appointment.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -161,9 +162,14 @@ export class AppointmentController {
             const room = await AppointmentService.joinRoom(id, req.user!);
             res.json({ status: "success", data: room });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to join room.";
-            const status = message.includes("Forbidden") ? 403 : message.includes("not active") || message.includes("opens in") || message.includes("closed") ? 400 : 500;
-            res.status(status).json({ status: "error", message });
+            const message = publicMessageFor(error)?.message ?? "Failed to join room.";
+            // A rejected join is a client-visible, expected outcome, not a
+            // server fault. "no live room" was missing from this list, so
+            // trying to open a video room for a text-chat consultation
+            // returned 500 instead of 400.
+            const clientErrors = ["Forbidden", "not active", "opens in", "closed", "no live room"];
+            const status = clientErrors.some((fragment) => message.includes(fragment)) ? 400 : 500;
+            res.status(status === 400 && message.includes("Forbidden") ? 403 : status).json({ status: "error", message });
         }
     }
 
@@ -175,7 +181,7 @@ export class AppointmentController {
             const options = await AppointmentService.getRebookOptions(id, req.user!);
             res.json({ status: "success", data: options });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch rebook options.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch rebook options.";
             const status = message.includes("Forbidden") ? 403 : 400;
             res.status(status).json({ status: "error", message });
         }
@@ -226,7 +232,7 @@ export class AppointmentController {
             res.setHeader("Content-Disposition", `attachment; filename="mindease-session-${appointment.id}.ics"`);
             res.send(ics);
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 }

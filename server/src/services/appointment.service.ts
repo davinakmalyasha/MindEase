@@ -1,6 +1,14 @@
 ﻿import { prisma } from "../lib/prisma";
 import { sanitize } from "../utils/sanitize";
-import { parseLocalDate, localDateKey } from "../utils/date";
+import {
+    parseLocalDate,
+    localDateKey,
+    timeToMinutes,
+    overlaps,
+    startOfZonedDay,
+    resolveTimezone,
+} from "../lib/date";
+import crypto from "crypto";
 import { MailerService } from "./mailer.service";
 import { publishEvent } from "./realtime.service";
 import { WaitlistService } from "./waitlist.service";
@@ -10,14 +18,10 @@ const formatDate = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short"
 
 
 
-const timeToMinutes = (t: string) => {
-    const [h, m] = t.split(":").map(Number);
-    if (isNaN(h) || isNaN(m)) return NaN;
-    return h * 60 + m;
-};
-
 const generateMeetingLink = (appointmentId: number) =>
-    `https://meet.jit.si/MindEase-${appointmentId}-${Math.random().toString(36).slice(2, 8)}`;
+    // `crypto`, not `Math.random`: this string is the only thing standing between
+    // a leaked link and an uninvited third party joining a therapy session.
+    `https://meet.jit.si/MindEase-${appointmentId}-${crypto.randomBytes(8).toString("hex")}`;
 
 export class AppointmentService {
     static async createAppointment(data: {
@@ -33,7 +37,7 @@ export class AppointmentService {
         packagePurchaseId?: number;
     }) {
         // Idempotency: replay-safe bookings. The stored result may only be
-        // returned to its owner â€” never leak another user's appointment.
+        // returned to its owner — never leak another user's appointment.
         if (data.idempotencyKey) {
             const existing = await prisma.appointment.findUnique({
                 where: { idempotencyKey: data.idempotencyKey },
@@ -91,12 +95,20 @@ export class AppointmentService {
             throw new Error("Invalid appointment time");
         }
 
-        // Block booking in the past
-        const now = new Date();
-        const slotStart = new Date(date);
-        slotStart.setHours(0, 0, 0, 0);
-        slotStart.setMinutes(start);
-        if (slotStart < now) throw new Error("Cannot book appointments in the past");
+        // Block booking in the past.
+        //
+        // The slot's calendar day and its `HH:mm` are both wall-clock readings
+        // in the *booker's* timezone — that is how the availability UI presents
+        // them. Reconstructing the instant with `new Date(date)` anchored the
+        // day to the server's zone, so on a UTC host every WIB user's "today at
+        // 23:00" was off by seven hours and legitimately bookable times were
+        // rejected as past.
+        const timezone = await this.getUserTimezone(data.userId);
+        const zonedDayStart = startOfZonedDay(localDateKey(date), timezone);
+        const slotStart = new Date(zonedDayStart.getTime() + start * 60 * 1000);
+        if (slotStart.getTime() < Date.now() - 60_000) {
+            throw new Error("Cannot book appointments in the past");
+        }
 
         let slotId: number | undefined;
 
@@ -175,11 +187,9 @@ export class AppointmentService {
             },
             select: { startTime: true, endTime: true },
         });
-        const hasConflict = sameDay.some((a) => {
-            const s = timeToMinutes(a.startTime ?? "");
-            const e = timeToMinutes(a.endTime ?? "");
-            return !isNaN(s) && !isNaN(e) && start < e && s < end;
-        });
+        const hasConflict = sameDay.some((a) =>
+            overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
+        );
         if (hasConflict) {
             if (slotId) {
                 await prisma.consultationSlot.updateMany({ where: { id: slotId }, data: { isBooked: false } }).catch(() => {});
@@ -217,7 +227,23 @@ export class AppointmentService {
 
         this.sendBookingReceivedEmail(appointment, doctor, data.userId);
 
+        // The doctor profile caches open slots; invalidate so the newly claimed
+        // slot stops being offered to other patients.
+        const { invalidateDoctorCache } = await import("./doctor.service");
+        invalidateDoctorCache(appointment.doctorId);
+
         return appointment;
+    }
+
+    /**
+     * The booker's calendar zone. `User.timezone` existed but was never read;
+     * every day boundary in this service was implicitly the server's own zone.
+     */
+    private static async getUserTimezone(userId: number): Promise<string> {
+        const user = await prisma.user
+            .findUnique({ where: { id: userId }, select: { timezone: true } })
+            .catch(() => null);
+        return resolveTimezone(user?.timezone);
     }
 
     private static async sendBookingReceivedEmail(
@@ -388,7 +414,7 @@ export class AppointmentService {
         const ALLOWED = ["confirmed", "cancelled", "completed"];
         if (!ALLOWED.includes(status)) throw new Error("Invalid status");
 
-        // Terminal states are immutable â€” no cancelling/completing a session
+        // Terminal states are immutable — no cancelling/completing a session
         // that already finished, and no resurrecting cancelled ones.
         if (["cancelled", "completed"].includes(appointment.status)) {
             throw new Error(`Cannot change an appointment that is already ${appointment.status}`);
@@ -456,12 +482,24 @@ export class AppointmentService {
             this.sendBookingConfirmedEmail(updated);
         }
 
-        // Release the slot when cancelled
+        // Release the slot when cancelled.
+        //
+        // The slot link must be cleared, not just the `isBooked` flag:
+        // `Appointment.slotId` is unique, so leaving it attached would make the
+        // freed slot permanently unbookable — every future attempt to book it
+        // would collide with this cancelled row. That also silently broke the
+        // waitlist, which emails patients to book a slot nobody could reserve.
         if (status === "cancelled" && updated.slotId) {
-            await prisma.consultationSlot.update({
-                where: { id: updated.slotId },
-                data: { isBooked: false },
-            });
+            await prisma.consultationSlot
+                .updateMany({
+                    where: { id: updated.slotId },
+                    data: { isBooked: false },
+                })
+                .catch(() => null);
+            await prisma.appointment
+                .update({ where: { id }, data: { slotId: null } })
+                .catch(() => null);
+            updated.slotId = null;
             // Waitlisted patients get notified about the freed slot
             await WaitlistService.notifyWaiters(updated.doctorId).catch(() => {});
         }
@@ -579,11 +617,9 @@ export class AppointmentService {
             },
             select: { startTime: true, endTime: true },
         });
-        const hasConflict = sameDay.some((a) => {
-            const s = timeToMinutes(a.startTime ?? "");
-            const e = timeToMinutes(a.endTime ?? "");
-            return !isNaN(s) && !isNaN(e) && start < e && s < end;
-        });
+        const hasConflict = sameDay.some((a) =>
+            overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
+        );
         if (hasConflict) {
             if (slotId) {
                 await prisma.consultationSlot.updateMany({ where: { id: slotId }, data: { isBooked: false } }).catch(() => {});
@@ -592,16 +628,32 @@ export class AppointmentService {
         }
 
         try {
-            const updated = await prisma.appointment.update({
-                where: { id },
-                data: {
-                    appointmentDate: date,
-                    startTime: data.startTime,
-                    endTime: data.endTime,
-                    slotId: slotId ?? null,
-                    status: "pending",
-                    meetingLink: null,
-                },
+            // The pre-session disclosure and the AI briefing derived from it
+            // describe the *previous* appointment, so the doctor must not read a
+            // briefing built for a date that no longer applies.
+            //
+            // A nested `preSessionData: { delete: true }` throws when no row
+            // exists, which is the common case, so it is an explicit
+            // `deleteMany` in the same transaction as the update instead.
+            const updated = await prisma.$transaction(async (tx) => {
+                await tx.preSessionData.deleteMany({ where: { appointmentId: id } });
+
+                return tx.appointment.update({
+                    where: { id },
+                    data: {
+                        appointmentDate: date,
+                        startTime: data.startTime,
+                        endTime: data.endTime,
+                        slotId: slotId ?? null,
+                        status: "pending",
+                        meetingLink: null,
+                        // The reminder and check-in claims are keyed on the old
+                        // date. Without clearing them the rescheduled session
+                        // would never be reminded about its new time.
+                        reminderSentAt: null,
+                        checkinSentAt: null,
+                    },
+                });
             });
 
             // Release the previous slot only after the move succeeded
@@ -611,6 +663,11 @@ export class AppointmentService {
                     data: { isBooked: false },
                 });
             }
+
+            // Slot availability is cached on the doctor profile; without this a
+            // patient could still be offered a slot that was just taken.
+            const { invalidateDoctorCache } = await import("./doctor.service");
+            invalidateDoctorCache(updated.doctorId);
 
             return updated;
         } catch (err) {
