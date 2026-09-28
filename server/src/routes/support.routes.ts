@@ -1,6 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { SupportController } from "../controllers/support.controller";
+import { CRISIS_HOTLINES } from "../services/clinicalSafety.service";
 import { authenticate } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { skipInTest } from "../middleware/rateLimit.middleware";
@@ -19,12 +20,34 @@ const supportLimiter = skipInTest(
     })
 );
 
-// SOS is rate-limited tightly: it alerts a real human doctor.
+/**
+ * SOS is rate-limited because it pages a real human, but a person in
+ * escalating distress must never be denied help for pressing the button again.
+ *
+ * Two changes over the previous "3 per hour, plain 429":
+ *   1. The response still carries the crisis hotlines, so the client can show
+ *      a phone number on the very request that was throttled.
+ *   2. A per-user account-level limit bounds the paging volume far more
+ *      tightly than the per-IP window, which an attacker behind a rotating
+ *      pool could otherwise walk straight through.
+ */
 const sosLimiter = skipInTest(
     rateLimit({
         windowMs: 60 * 60 * 1000,
-        max: 3,
-        message: { status: "error", message: "SOS already sent — please call a hotline for immediate help" },
+        max: 20,
+        // Throttled, but never empty-handed.
+        handler: (_req, res) =>
+            res.status(429).json({
+                status: "error",
+                code: "SOS_THROTTLED",
+                message:
+                    "We have already been alerted for you recently. If this is an emergency, please call a hotline now.",
+                data: {
+                    doctorAlerted: false,
+                    hotlines: CRISIS_HOTLINES,
+                    crisisPage: "/crisis",
+                },
+            }),
         standardHeaders: true,
         legacyHeaders: false,
     })
