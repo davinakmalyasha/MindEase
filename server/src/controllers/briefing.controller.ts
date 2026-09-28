@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { PreSessionService } from "../services/preSession.service";
+import { publicMessageFor } from "../utils/appError";
 
 export class BriefingController {
     static async generate(req: Request, res: Response) {
@@ -9,7 +10,7 @@ export class BriefingController {
             const result = await PreSessionService.getBriefing(Number(appointmentId), userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to generate briefing.";
+            const message = publicMessageFor(error)?.message ?? "Failed to generate briefing.";
             const status = message.startsWith("Forbidden") ? 403 : 400;
             res.status(status).json({ status: "error", message });
         }
@@ -25,7 +26,7 @@ export class BriefingController {
             const result = await PreSessionService.getBriefing(appointmentId, userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch briefing.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch briefing.";
             const status = message.startsWith("Forbidden") ? 403 : 400;
             res.status(status).json({ status: "error", message });
         }

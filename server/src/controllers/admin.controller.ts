@@ -5,6 +5,7 @@ import { MailerService } from "../services/mailer.service";
 import { NotificationService } from "../services/notification.service";
 import { ReviewService } from "../services/review.service";
 import { invalidateDoctorCache } from "../services/doctor.service";
+import { publicMessageFor } from "../utils/appError";
 
 
 
@@ -74,7 +75,7 @@ export class AdminController {
                 },
             });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -121,7 +122,7 @@ export class AdminController {
                 data: { users, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
             });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -166,7 +167,7 @@ export class AdminController {
 
             res.json({ status: "success", data: updated });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -195,7 +196,7 @@ export class AdminController {
 
             res.json({ status: "success", data: updated });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -226,7 +227,7 @@ export class AdminController {
                 data: { applications: doctors, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
             });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -265,7 +266,7 @@ export class AdminController {
 
             res.json({ status: "success", data: { ...updated, user: { id: doctor.user.id, email: doctor.user.email, name: doctor.user.name } } });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -290,7 +291,7 @@ export class AdminController {
 
             res.json({ status: "success", data: { recipients } });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -301,7 +302,7 @@ export class AdminController {
             const result = await AuditService.getLogs(page, limit);
             res.json({ status: "success", data: result });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -330,7 +331,7 @@ export class AdminController {
             ]);
             res.json({ status: "success", data: { reports: rows, total, page, totalPages: Math.ceil(total / limit) } });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -363,7 +364,7 @@ export class AdminController {
 
             res.json({ status: "success", data: { hidden: true } });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -393,7 +394,7 @@ export class AdminController {
 
             res.json({ status: "success", data: { status } });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -476,7 +477,7 @@ export class AdminController {
             res.setHeader("Content-Disposition", 'attachment; filename="mindease-bookings.csv"');
             return res.send(toCsv(rows));
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 }
