@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { MessageService } from "../services/message.service";
 import { saveFile } from "../lib/storage";
+import { publicMessageFor } from "../utils/appError";
 
 export class MessageController {
     static async getConversations(req: Request, res: Response) {
@@ -9,7 +10,7 @@ export class MessageController {
             const conversations = await MessageService.getConversations(userId);
             res.json({ status: "success", data: conversations });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch conversations.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch conversations.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -24,7 +25,7 @@ export class MessageController {
             const messages = await MessageService.getMessages(userId, otherUserId, limit, before);
             res.json({ status: "success", data: messages });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch messages.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch messages.";
             res.status(403).json({ status: "error", message });
         }
     }
@@ -38,7 +39,7 @@ export class MessageController {
             const message = await MessageService.sendMessage(userId, receiverId, content, attachment);
             res.status(201).json({ status: "success", data: message });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to send message.";
+            const message = publicMessageFor(error)?.message ?? "Failed to send message.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -69,7 +70,7 @@ export class MessageController {
             const type = req.file.mimetype.startsWith("image/") ? "image" : "file";
             res.status(201).json({ status: "success", data: { url, type } });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to upload attachment.";
+            const message = publicMessageFor(error)?.message ?? "Failed to upload attachment.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -83,7 +84,7 @@ export class MessageController {
             const result = await MessageService.sendTypingEvent(userId, receiverId, isTyping);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to send typing indicator.";
+            const message = publicMessageFor(error)?.message ?? "Failed to send typing indicator.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -95,7 +96,7 @@ export class MessageController {
             const result = await MessageService.deleteMessage(messageId, userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete message.";
+            const message = publicMessageFor(error)?.message ?? "Failed to delete message.";
             res.status(message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
         }
     }
@@ -108,7 +109,7 @@ export class MessageController {
             const updated = await MessageService.setReaction(messageId, userId, reaction);
             res.json({ status: "success", data: updated });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to update reaction.";
+            const message = publicMessageFor(error)?.message ?? "Failed to update reaction.";
             res.status(message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
         }
     }

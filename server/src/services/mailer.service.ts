@@ -7,7 +7,7 @@ const FROM_EMAIL = process.env.SMTP_FROM || "MindEase <no-reply@mindease.app>";
 const IS_PROD = process.env.NODE_ENV === "production";
 
 // User-controlled values (names, notes, titles) must never reach email HTML
-// unescaped â€” they would allow markup/script injection into recipients' mail.
+// unescaped — they would allow markup/script injection into recipients' mail.
 const esc = (v: unknown) =>
     String(v ?? "")
         .replace(/&/g, "&amp;")
@@ -49,7 +49,7 @@ export const checkMailerStatus = () => {
     return {
         configured: false,
         mode: IS_PROD
-            ? "PRODUCTION WITHOUT SMTP â€” password reset & email verification will FAIL"
+            ? "PRODUCTION WITHOUT SMTP — password reset & email verification will FAIL"
             : "development (emails printed to console)",
     };
 };
@@ -66,7 +66,7 @@ export const MailerService = {
                         "Password reset and email verification are disabled."
                 );
             }
-            // Dev fallback: no SMTP configured â€” log the email body
+            // Dev fallback: no SMTP configured — log the email body
             console.log(`\n[MAIL:${to}] ${subject}\n${html.replace(/<[^>]+>/g, "")}\n`);
             return { devFallback: true };
         }
@@ -82,8 +82,8 @@ export const MailerService = {
         const isReset = purpose === "reset";
         const subject = isReset ? "Your MindEase password reset code" : "Verify your MindEase email";
         const body = isReset
-            ? "We received a request to reset your password. Use the code below â€” it expires in 10 minutes."
-            : "Confirm your email address with this code â€” it expires in 10 minutes.";
+            ? "We received a request to reset your password. Use the code below — it expires in 10 minutes."
+            : "Confirm your email address with this code — it expires in 10 minutes.";
         const footer = isReset
             ? "If you didn't request this, you can safely ignore this email."
             : "If you didn't create a MindEase account, you can safely ignore this email.";
@@ -108,7 +108,7 @@ export const MailerService = {
         notes?: string | null;
     }): { subject: string; html: string } {
         return {
-            subject: "New session request â€” MindEase",
+            subject: "New session request — MindEase",
             html: `
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
   <h2 style="color:#4f46e5">MindEase</h2>
@@ -133,7 +133,7 @@ export const MailerService = {
         type: string;
     }): { subject: string; html: string } {
         return {
-            subject: "Your session is confirmed â€” MindEase",
+            subject: "Your session is confirmed — MindEase",
             html: `
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
   <h2 style="color:#4f46e5">MindEase</h2>
@@ -160,7 +160,7 @@ export const MailerService = {
     }): { subject: string; html: string } {
         const roleLabel = data.isPatient ? "your session" : "a session with a patient";
         return {
-            subject: `Reminder: ${esc(data.date)} â€” MindEase session`,
+            subject: `Reminder: ${esc(data.date)} — MindEase session`,
             html: `
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
   <h2 style="color:#4f46e5">MindEase</h2>
@@ -182,18 +182,18 @@ export const MailerService = {
     }): { subject: string; html: string } {
         const approved = data.approved;
         return {
-            subject: approved ? "Welcome to MindEase â€” profile approved" : "Update on your MindEase application",
+            subject: approved ? "Welcome to MindEase — profile approved" : "Update on your MindEase application",
             html: `
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
   <h2 style="color:#4f46e5">MindEase</h2>
   ${approved
         ? `<p>Hi ${esc(data.doctorName)},</p>
-  <p>Great news â€” your psychologist profile has been <strong>approved</strong>! Patients can now find and book sessions with you.</p>
+  <p>Great news — your psychologist profile has been <strong>approved</strong>! Patients can now find and book sessions with you.</p>
   <p>Set up your availability slots from your dashboard to start receiving bookings.</p>`
         : `<p>Hi ${esc(data.doctorName)},</p>
   <p>Thank you for applying to join MindEase. After review, we were unable to approve your profile at this time.</p>
   <p>If you believe this was a mistake, contact us at support@mindease.id.</p>`}
-  <p style="color:#64748b;font-size:13px">â€” The MindEase team</p>
+  <p style="color:#64748b;font-size:13px">— The MindEase team</p>
 </div>`,
         };
     },
@@ -220,7 +220,7 @@ export const MailerService = {
     <p style="margin:4px 0"><strong>Journal entries this week:</strong> ${data.journalCount}</p>
   </div>
   ${data.aiSummary ? `<div style="background:#eef2ff;border-radius:8px;padding:16px;margin:16px 0"><p style="margin:0;font-style:italic">${esc(data.aiSummary)}</p></div>` : ""}
-  <p style="color:#64748b;font-size:13px">Keep logging your mood daily â€” small steps make a difference.</p>
+  <p style="color:#64748b;font-size:13px">Keep logging your mood daily — small steps make a difference.</p>
   <p style="color:#64748b;font-size:13px">In crisis? Call 112 (Indonesia) or see our crisis hotlines.</p>
 </div>`,
         };
@@ -232,7 +232,7 @@ export const MailerService = {
         type: string;
     }): { subject: string; html: string } {
         return {
-            subject: `${esc(data.title)} â€” MindEase`,
+            subject: `${esc(data.title)} — MindEase`,
             html: `
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
   <h2 style="color:#4f46e5">MindEase</h2>
@@ -240,7 +240,7 @@ export const MailerService = {
   <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:8px 0">
     <p style="margin:0;color:#475569">${esc(data.message)}</p>
   </div>
-  <p style="color:#64748b;font-size:13px">Open your dashboard to view details. You can adjust these email notifications anytime in Profile â†’ Notification preferences.</p>
+  <p style="color:#64748b;font-size:13px">Open your dashboard to view details. You can adjust these email notifications anytime in Profile — Notification preferences.</p>
 </div>`,
         };
     },
