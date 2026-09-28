@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
+import argon2 from "argon2";
 import { AccountService } from "../services/account.service";
+import { TwoFactorService } from "../services/twoFactor.service";
 import { prisma } from "../lib/prisma";
+import { publicMessageFor } from "../utils/appError";
 
 export class AccountController {
     static async changePassword(req: Request, res: Response) {
@@ -10,7 +13,7 @@ export class AccountController {
             const result = await AccountService.changePassword(userId, currentPassword, newPassword);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to change password.";
+            const message = publicMessageFor(error)?.message ?? "Failed to change password.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -31,7 +34,7 @@ export class AccountController {
             const result = await AccountService.resetPassword(email, otp, newPassword);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to reset password.";
+            const message = publicMessageFor(error)?.message ?? "Failed to reset password.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -39,12 +42,41 @@ export class AccountController {
     static async deleteAccount(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
+            const { password, code } = req.body as { password: string; code?: string };
+
+            // Re-authenticate. This is the single most destructive request in the
+            // API: it destroys a patient's treatment history irreversibly, so a
+            // live session alone must not be enough.
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { password: true, totpEnabled: true, totpSecret: true },
+            });
+            if (!user) return res.status(404).json({ status: "error", message: "Account not found" });
+
+            if (!user.password) {
+                return res.status(400).json({
+                    status: "error",
+                    message: "This account signs in with Google and has no password. Contact support to delete it.",
+                });
+            }
+            if (!(await argon2.verify(user.password, password))) {
+                return res.status(401).json({ status: "error", message: "Password is incorrect" });
+            }
+            // An account with 2FA must clear that too.
+            if (user.totpEnabled && user.totpSecret) {
+                if (!code || !TwoFactorService.verifyCode(user.totpSecret, code)) {
+                    return res
+                        .status(400)
+                        .json({ status: "error", message: "A valid two-factor code is required" });
+                }
+            }
+
             await AccountService.deleteAccount(userId);
             res.clearCookie("refreshToken");
             res.clearCookie("accessToken");
             res.json({ status: "success", message: "Account deleted." });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete account.";
+            const message = publicMessageFor(error)?.message ?? "Failed to delete account.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -105,7 +137,7 @@ export class AccountController {
             res.setHeader("Content-Disposition", `attachment; filename="mindease-data-${userId}.json"`);
             res.json(exportData);
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to export data.";
+            const message = publicMessageFor(error)?.message ?? "Failed to export data.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -126,7 +158,7 @@ export class AccountController {
             const result = await AccountService.verifyEmail(email, otp);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Verification failed.";
+            const message = publicMessageFor(error)?.message ?? "Verification failed.";
             res.status(400).json({ status: "error", message });
         }
     }
