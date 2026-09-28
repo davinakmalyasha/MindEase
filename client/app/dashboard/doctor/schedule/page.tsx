@@ -209,7 +209,7 @@ export default function DoctorSchedule() {
         const start = weekDays[0];
         const end = weekDays[6];
         const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-        return `${start.toLocaleDateString("en-US", opts)} â€“ ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+        return `${start.toLocaleDateString("en-US", opts)} – ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
     }, [weekDays]);
 
     if (user?.role !== "doctor") {

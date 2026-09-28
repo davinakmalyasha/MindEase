@@ -174,7 +174,7 @@ export default function MoodPage() {
                                     <div className="w-10 h-10 rounded-xl bg-indigo-500 text-white flex items-center justify-center"><HeartPulse className="w-5 h-5" /></div>
                                     <div>
                                         <p className="text-xs font-bold text-gray-400 uppercase">{tm("avg30")}</p>
-                                        <p className="text-2xl font-black text-gray-900">{stats?.average ?? "â€”"} <span className="text-sm font-bold text-gray-400">/ 5</span></p>
+                                        <p className="text-2xl font-black text-gray-900">{stats?.average ?? "—"} <span className="text-sm font-bold text-gray-400">/ 5</span></p>
                                     </div>
                                 </div>
                             </div>
@@ -192,7 +192,7 @@ export default function MoodPage() {
                                     <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center"><TrendIcon className="w-5 h-5" /></div>
                                     <div>
                                         <p className="text-xs font-bold text-gray-400 uppercase">{tm("trend")}</p>
-                                        <p className={cn("text-2xl font-black capitalize", trendColor)}>{stats?.trend ?? "â€”"}</p>
+                                        <p className={cn("text-2xl font-black capitalize", trendColor)}>{stats?.trend ?? "—"}</p>
                                     </div>
                                 </div>
                             </div>

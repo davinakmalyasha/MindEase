@@ -86,7 +86,9 @@ export default function Navbar() {
                             className="text-gray-700 font-bold hover:text-indigo-600 transition-colors px-4 py-2 flex items-center gap-2"
                         >
                             <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center overflow-hidden border border-indigo-100">
-                                {user.avatar ? <img src={user.avatar} className="w-full h-full object-cover" /> : <div className="text-[10px]">{user.name?.[0]}</div>}
+                                {/* Decorative: the user's name sits directly beside
+                                    this image, so an alt would be announced twice. */}
+                                {user.avatar ? <img src={user.avatar} alt="" className="w-full h-full object-cover" /> : <div className="text-[10px]" aria-hidden="true">{user.name?.[0]}</div>}
                             </div>
                             {user.name}
                         </Link>
