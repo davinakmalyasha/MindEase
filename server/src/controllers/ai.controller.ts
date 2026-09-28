@@ -3,6 +3,7 @@ import { PreSessionService } from "../services/preSession.service";
 import { AIService } from "../services/ai.service";
 import { WellnessService } from "../services/wellness.service";
 import { prisma } from "../lib/prisma";
+import { publicMessageFor } from "../utils/appError";
 
 // Fallback keyword → specialty hints when Gemini is unavailable
 const SPECIALTY_HINTS: { keywords: RegExp; specialty: string }[] = [
@@ -23,7 +24,7 @@ export class AIController {
             const result = await PreSessionService.getQuestionsForPatient(Number(appointmentId), userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to generate questions.";
+            const message = publicMessageFor(error)?.message ?? "Failed to generate questions.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -34,7 +35,7 @@ export class AIController {
             const data = await PreSessionService.getData(appointmentId, req.user!);
             res.json({ status: "success", data });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch pre-session data.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch pre-session data.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -46,7 +47,7 @@ export class AIController {
             const result = await PreSessionService.submitAnswers(Number(appointmentId), userId, answers);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to submit answers.";
+            const message = publicMessageFor(error)?.message ?? "Failed to submit answers.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -58,7 +59,7 @@ export class AIController {
             const suggestions = await AIService.suggestResources(recentMoods);
             res.json({ status: "success", data: suggestions });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to get suggestions.";
+            const message = publicMessageFor(error)?.message ?? "Failed to get suggestions.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -124,7 +125,7 @@ export class AIController {
                 },
             });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to match doctors.";
+            const message = publicMessageFor(error)?.message ?? "Failed to match doctors.";
             res.status(500).json({ status: "error", message });
         }
     }
