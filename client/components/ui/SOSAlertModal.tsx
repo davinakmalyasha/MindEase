@@ -1,91 +1,92 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Siren, MessageCircle, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Siren, MessageCircle } from "lucide-react";
 import Link from "next/link";
+import Dialog from "@/components/ui/Dialog";
 
 interface SOSAlert {
     patientName?: string;
     patientId?: number;
 }
 
+/** How many alerts to hold before dropping the oldest. */
+const MAX_QUEUE = 3;
+
 /**
- * Urgent full-screen alert shown to doctors when a patient presses SOS.
- * Triggered via the `realtime:sos-alert` window event from the WebSocket hook.
+ * Urgent alert shown to clinicians when a patient presses SOS.
+ *
+ * Mounted once at the application root rather than inside a dashboard layout:
+ * previously it only existed on `/dashboard/*`, so a clinician reading a message
+ * — the most likely place to be when an SOS arrives — never saw it.
+ *
+ * Dismissal is deliberately non-dismissible by backdrop click or Escape. This
+ * is an interrupt: a clinician should have to make an explicit choice, and
+ * accidentally clicking the backdrop should not hide a disclosure that someone
+ * in distress made.
  */
 export default function SOSAlertModal() {
     const [alerts, setAlerts] = useState<SOSAlert[]>([]);
 
     useEffect(() => {
-        const handler = (e: Event) => {
-            setAlerts((prev) => [...prev.slice(-2), (e as CustomEvent).detail || {}]);
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent).detail || {};
+            setAlerts((previous) => [...previous.slice(-(MAX_QUEUE - 1)), detail]);
         };
         window.addEventListener("realtime:sos-alert", handler);
         return () => window.removeEventListener("realtime:sos-alert", handler);
     }, []);
 
-    const current = alerts[0];
-    if (!current) return null;
-    const dismiss = () => setAlerts((prev) => prev.slice(1));
+    const dismiss = useCallback(() => {
+        setAlerts((previous) => previous.slice(1));
+    }, []);
+
+    const current = alerts[0] ?? null;
+    const remaining = alerts.length - 1;
 
     return (
-        <AnimatePresence>
-            {current && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[100] bg-rose-950/70 backdrop-blur-md flex items-center justify-center p-4"
-                >
-                    <motion.div
-                        initial={{ scale: 0.85, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.85, opacity: 0 }}
-                        className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border-4 border-rose-500"
-                        role="alertdialog"
-                        aria-live="assertive"
-                    >
-                        <div className="flex items-start justify-between mb-5">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-rose-500 text-white flex items-center justify-center animate-pulse shadow-lg shadow-rose-200">
-                                    <Siren className="w-6 h-6" />
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-black text-gray-900">SOS Alert</h3>
-                                    <p className="text-xs font-bold uppercase tracking-widest text-rose-500">
-                                        A patient needs support now
-                                    </p>
-                                </div>
-                            </div>
-                            <button onClick={dismiss} aria-label="Dismiss" className="text-gray-300 hover:text-gray-500 transition-colors">
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
+        <Dialog
+            open={current !== null}
+            onClose={dismiss}
+            dismissible={false}
+            tone="danger"
+            title="SOS Alert"
+            description="A patient needs support now"
+            className="max-w-md border-4 border-rose-500"
+        >
+            <p
+                className="mb-6 text-sm font-semibold leading-relaxed text-gray-700 dark:text-gray-200"
+                role="alert"
+            >
+                <span className="font-black">{current?.patientName || "A patient"}</span> pressed the SOS
+                panic button and needs support. Please check in with them as soon as possible.
+            </p>
 
-                        <p className="text-sm font-semibold text-gray-700 leading-relaxed mb-6">
-                            <span className="font-black">{current.patientName || "A patient"}</span> pressed the SOS
-                            panic button and needs support. Please check in with them as soon as possible.
-                        </p>
-
-                        <div className="flex gap-3">
-                            <Link
-                                href="/messages"
-                                onClick={dismiss}
-                                className="flex-1 py-3 bg-rose-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-rose-600 transition-all"
-                            >
-                                <MessageCircle className="w-4 h-4" /> Open chat
-                            </Link>
-                            <button
-                                onClick={dismiss}
-                                className="px-5 py-3 rounded-2xl font-bold text-sm text-gray-500 hover:bg-gray-50 transition-all"
-                            >
-                                Dismiss
-                            </button>
-                        </div>
-                    </motion.div>
-                </motion.div>
+            {remaining > 0 && (
+                <p className="mb-4 text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {remaining} more {remaining === 1 ? "alert" : "alerts"} waiting.
+                </p>
             )}
-        </AnimatePresence>
+
+            <div className="flex gap-3">
+                <Link
+                    href="/messages"
+                    onClick={dismiss}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-500 py-3 text-sm font-black text-white transition-colors hover:bg-rose-600"
+                >
+                    <MessageCircle className="h-4 w-4" aria-hidden="true" /> Open chat
+                </Link>
+                <button
+                    type="button"
+                    onClick={dismiss}
+                    className="rounded-2xl bg-gray-100 px-5 py-3 text-sm font-bold text-gray-600 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                    Dismiss
+                </button>
+            </div>
+        </Dialog>
     );
 }
+
+/** Exported for the icon used by the trigger button. */
+export { Siren };
