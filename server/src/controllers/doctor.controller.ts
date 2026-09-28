@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { DoctorService } from "../services/doctor.service";
 import { WaitlistService } from "../services/waitlist.service";
+import { publicMessageFor } from "../utils/appError";
 
 export class DoctorController {
     static async getAll(req: Request, res: Response) {
@@ -26,7 +27,7 @@ export class DoctorController {
             });
             res.json({ status: "success", data: doctors });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -42,7 +43,7 @@ export class DoctorController {
             }
             res.json({ status: "success", data: doctor });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -55,7 +56,7 @@ export class DoctorController {
             const stats = await DoctorService.getDoctorStats(doctorId);
             res.json({ status: "success", data: stats });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -68,7 +69,7 @@ export class DoctorController {
             const analytics = await DoctorService.getDoctorAnalytics(doctorId);
             res.json({ status: "success", data: analytics });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -81,7 +82,7 @@ export class DoctorController {
             const slots = await DoctorService.getSlots(doctorId);
             res.json({ status: "success", data: slots });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -99,7 +100,7 @@ export class DoctorController {
             });
             res.status(201).json({ status: "success", data: slot });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create slot.";
+            const message = publicMessageFor(error)?.message ?? "Failed to create slot.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -114,7 +115,7 @@ export class DoctorController {
             const result = await DoctorService.deleteSlot(slotId, doctorId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete slot.";
+            const message = publicMessageFor(error)?.message ?? "Failed to delete slot.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -134,7 +135,7 @@ export class DoctorController {
             });
             res.status(201).json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create pattern.";
+            const message = publicMessageFor(error)?.message ?? "Failed to create pattern.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -148,7 +149,7 @@ export class DoctorController {
             const patterns = await DoctorService.getPatterns(doctorId);
             res.json({ status: "success", data: patterns });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch patterns.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch patterns.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -163,7 +164,7 @@ export class DoctorController {
             const result = await DoctorService.deletePattern(patternId, doctorId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete pattern.";
+            const message = publicMessageFor(error)?.message ?? "Failed to delete pattern.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -174,7 +175,7 @@ export class DoctorController {
             const entry = await WaitlistService.join(doctorId, req.user!.id);
             res.status(201).json({ status: "success", data: entry });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to join waitlist.";
+            const message = publicMessageFor(error)?.message ?? "Failed to join waitlist.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -185,7 +186,7 @@ export class DoctorController {
             const result = await WaitlistService.leave(doctorId, req.user!.id);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to leave waitlist.";
+            const message = publicMessageFor(error)?.message ?? "Failed to leave waitlist.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -196,7 +197,7 @@ export class DoctorController {
             const status = await WaitlistService.status(doctorId, req.user!.id);
             res.json({ status: "success", data: status });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch waitlist status.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch waitlist status.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -210,7 +211,7 @@ export class DoctorController {
             const result = await DoctorService.setAway(doctorId, req.body.awayUntil || null);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to update away mode.";
+            const message = publicMessageFor(error)?.message ?? "Failed to update away mode.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -225,7 +226,7 @@ export class DoctorController {
             const result = await DoctorService.regeneratePattern(patternId, doctorId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to regenerate pattern.";
+            const message = publicMessageFor(error)?.message ?? "Failed to regenerate pattern.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -244,7 +245,7 @@ export class DoctorController {
             });
             res.status(201).json({ status: "success", data: pkg });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create package.";
+            const message = publicMessageFor(error)?.message ?? "Failed to create package.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -255,7 +256,7 @@ export class DoctorController {
             const packages = await DoctorService.getPackages(doctorId, true);
             res.json({ status: "success", data: packages });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch packages.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch packages.";
             res.status(500).json({ status: "error", message });
         }
     }
@@ -270,18 +271,25 @@ export class DoctorController {
             const result = await DoctorService.deletePackage(packageId, doctorId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete package.";
+            const message = publicMessageFor(error)?.message ?? "Failed to delete package.";
             res.status(400).json({ status: "error", message });
         }
     }
 
     static async purchasePackage(req: Request, res: Response) {
         try {
-            const packageId = parseInt(req.params.id as string);
-            const purchase = await DoctorService.purchasePackage(packageId, req.user!.id);
+            const packageId = Number(req.params.id);
+
+            // A patient cannot grant themselves a package. Until the payment
+            // provider is wired up (Wave 3) the only legitimate path is an
+            // administrator granting an entitlement on the patient's behalf.
+            const isAdmin = req.user!.role === "admin";
+            const purchase = await DoctorService.purchasePackage(packageId, req.user!.id, {
+                grantedByUserId: isAdmin ? req.user!.id : null,
+            });
             res.status(201).json({ status: "success", data: purchase });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to purchase package.";
+            const message = publicMessageFor(error)?.message ?? "Failed to purchase package.";
             res.status(400).json({ status: "error", message });
         }
     }
@@ -291,7 +299,7 @@ export class DoctorController {
             const purchases = await DoctorService.getMyPackagePurchases(req.user!.id);
             res.json({ status: "success", data: purchases });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch packages.";
+            const message = publicMessageFor(error)?.message ?? "Failed to fetch packages.";
             res.status(500).json({ status: "error", message });
         }
     }

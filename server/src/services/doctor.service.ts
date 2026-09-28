@@ -1,5 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { parseLocalDate, localDateKey } from "../utils/date";
+import { parseLocalDate, localDateKey, timeToMinutes, overlaps } from "../lib/date";
 import { cacheGet, cacheSet, cacheDel } from "../lib/cache";
 import { WaitlistService } from "./waitlist.service";
 
@@ -11,12 +12,6 @@ export const invalidateDoctorCache = (doctorId?: number) =>
     cacheDel(DIRECTORY_CACHE_KEY, doctorId ? doctorDetailKey(doctorId) : "");
 
 
-
-const timeToMinutes = (t: string) => {
-    const [h, m] = t.split(":").map(Number);
-    if (isNaN(h) || isNaN(m)) return NaN;
-    return h * 60 + m;
-};
 
 export type DoctorSort = "rating" | "price_asc" | "price_desc" | "experience";
 
@@ -112,36 +107,62 @@ export class DoctorService {
     static async getDoctorById(id: number) {
         const cached = await cacheGet<any>(doctorDetailKey(id));
         if (cached) return cached;
+        // This endpoint is unauthenticated and cached for two minutes, so the
+        // select is an explicit allowlist rather than a convenience include.
+        //
+        // It previously returned every doctor's email address and phone number
+        // to anonymous callers, and included reviews an administrator had hidden
+        // — a moderation action that was therefore reversible by anyone who
+        // loaded the profile page.
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         const doctor = await prisma.doctor.findUnique({
             where: { id, verificationStatus: "approved" },
-            include: {
+            select: {
+                id: true,
+                specialty: true,
+                bio: true,
+                experience: true,
+                price: true,
+                rating: true,
+                totalReviews: true,
+                licenseNumber: true,
+                languages: true,
+                education: true,
+                verificationStatus: true,
                 user: {
                     select: {
+                        id: true,
                         name: true,
                         avatar: true,
-                        role: true,
-                        email: true,
-                        phone_number: true,
+                        // No email, no phone. Contact details are only
+                        // exchanged between a patient and a doctor once an
+                        // appointment is confirmed.
                     },
                 },
+                _count: { select: { reviews: { where: { hidden: false } } } },
                 reviews: {
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                name: true,
-                                avatar: true,
-                            },
-                        },
+                    // A hidden review must stay hidden everywhere, not just on
+                    // the dedicated reviews endpoint.
+                    where: { hidden: false },
+                    select: {
+                        id: true,
+                        rating: true,
+                        comment: true,
+                        reply: true,
+                        repliedAt: true,
+                        createdAt: true,
+                        user: { select: { id: true, name: true, avatar: true } },
                     },
-                    orderBy: { createdAt: "desc" },
+                    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+                    take: 50,
                 },
                 consultationSlots: {
-                    where: {
-                        isBooked: false,
-                        date: { gte: new Date() },
-                    },
-                    orderBy: { date: "asc" },
+                    where: { isBooked: false, date: { gte: today } },
+                    select: { id: true, date: true, startTime: true, endTime: true, isBooked: true },
+                    orderBy: [{ date: "asc" }, { startTime: "asc" }],
+                    take: 60,
                 },
             },
         });
@@ -150,25 +171,38 @@ export class DoctorService {
     }
 
     static async getDoctorStats(doctorId: number) {
-        const appointments = await prisma.appointment.findMany({
-            where: { doctorId },
-        });
+        // Aggregated in the database. The previous version loaded the doctor's
+        // entire booking history into memory and derived six counters with
+        // `.filter()` in JavaScript — a 100k-booking doctor meant a 100k-row
+        // fetch on every dashboard load.
+        const now = new Date();
 
-        const totalPatients = new Set(appointments.map((a) => a.userId)).size;
-        const pendingAppointments = appointments.filter((a) => a.status === "pending").length;
-        const confirmedAppointments = appointments.filter((a) => a.status === "confirmed").length;
-        const completedAppointments = appointments.filter((a) => a.status === "completed").length;
-        const upcomingAppointments = appointments.filter(
-            (a) => a.status === "confirmed" && a.appointmentDate >= new Date()
-        ).length;
+        const [byStatus, uniquePatients, upcoming] = await Promise.all([
+            prisma.appointment.groupBy({
+                by: ["status"],
+                where: { doctorId },
+                _count: { _all: true },
+            }),
+            prisma.appointment.findMany({
+                where: { doctorId },
+                distinct: ["userId"],
+                select: { userId: true },
+            }),
+            prisma.appointment.count({
+                where: { doctorId, status: "confirmed", appointmentDate: { gte: now } },
+            }),
+        ]);
+
+        const counts = Object.fromEntries(byStatus.map((s) => [s.status, s._count._all]));
+        const totalAppointments = byStatus.reduce((sum, s) => sum + s._count._all, 0);
 
         return {
-            totalPatients,
-            pendingAppointments,
-            confirmedAppointments,
-            completedAppointments,
-            upcomingAppointments,
-            totalAppointments: appointments.length,
+            totalPatients: uniquePatients.length,
+            pendingAppointments: counts.pending ?? 0,
+            confirmedAppointments: counts.confirmed ?? 0,
+            completedAppointments: counts.completed ?? 0,
+            upcomingAppointments: upcoming,
+            totalAppointments,
         };
     }
 
@@ -255,14 +289,36 @@ export class DoctorService {
             where: { id: doctorId },
             select: { awayUntil: true },
         });
-        const where: any = { doctorId };
-        // Hide slots inside the away window from patients (and the doctor's own view)
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Past slots are never actionable, so they are excluded outright rather
+        // than returned in full — this endpoint previously returned every slot
+        // the doctor had ever created, with no limit.
+        const where: Prisma.ConsultationSlotWhereInput = { doctorId, date: { gte: today } };
+
+        // "Away until X" means the clinician is unavailable from now through the
+        // end of day X, so every slot up to and including that day must be
+        // hidden and only later ones offered.
+        //
+        // The original comparison was `gte: awayUntil`, which hid the slots
+        // *before* the away date and kept offering the ones inside the window —
+        // the exact opposite. `awayUntil` is stored at local midnight, so the
+        // bound is the end of that day.
         if (doctor?.awayUntil) {
-            where.date = { gte: doctor.awayUntil };
+            const awayEnd = new Date(doctor.awayUntil);
+            awayEnd.setHours(23, 59, 59, 999);
+            // An elapsed window is simply ignored rather than hiding everything.
+            if (awayEnd >= today) {
+                where.date = { gt: awayEnd };
+            }
         }
+
         return await prisma.consultationSlot.findMany({
             where,
-            orderBy: [{ date: "desc" }, { startTime: "asc" }],
+            orderBy: [{ date: "asc" }, { startTime: "asc" }],
+            take: 400,
         });
     }
 
@@ -348,29 +404,40 @@ export class DoctorService {
         const dayEnd = new Date(dayStart);
         dayEnd.setDate(dayEnd.getDate() + 1);
 
-        const overlapsAny = await prisma.consultationSlot.findFirst({
-            where: {
-                doctorId: data.doctorId,
-                date: { gte: dayStart, lt: dayEnd },
-                OR: [
-                    { startTime: { lte: data.start_time }, endTime: { gt: data.start_time } },
-                    { startTime: { lt: data.end_time }, endTime: { gte: data.end_time } },
-                    { startTime: { gte: data.start_time }, endTime: { lte: data.end_time } },
-                ],
-            },
+        // Overlap is evaluated in application code, in minutes.
+        //
+        // The previous check pushed `startTime`/`endTime` comparisons into SQL
+        // where they are `VARCHAR` and therefore compared *lexicographically*:
+        // `"10:00" <= "9:00"` is true, so genuinely overlapping slots were
+        // accepted. The appointment path had already been fixed for exactly
+        // this reason; the slot path had not.
+        const sameDay = await prisma.consultationSlot.findMany({
+            where: { doctorId: data.doctorId, date: { gte: dayStart, lt: dayEnd } },
+            select: { startTime: true, endTime: true },
         });
 
-        if (overlapsAny) throw new Error("Slot overlaps with an existing slot");
+        const conflicts = sameDay.some((existing) =>
+            overlaps(start, end, timeToMinutes(existing.startTime ?? ""), timeToMinutes(existing.endTime ?? ""))
+        );
+        if (conflicts) throw new Error("Slot overlaps with an existing slot");
 
-        const slot = await prisma.consultationSlot.create({
-            data: {
-                doctorId: data.doctorId,
-                date: slotDate,
-                startTime: data.start_time,
-                endTime: data.end_time,
-                isBooked: false,
-            },
-        });
+        // Uniqueness is also enforced by the database, so two concurrent
+        // requests cannot both pass the check above and both insert.
+        const slot = await prisma.consultationSlot
+            .create({
+                data: {
+                    doctorId: data.doctorId,
+                    date: slotDate,
+                    startTime: data.start_time,
+                    endTime: data.end_time,
+                    isBooked: false,
+                },
+            })
+            .catch(async (err: any) => {
+                if (err?.code === "P2002") throw new Error("This exact slot already exists");
+                throw err;
+            });
+
         invalidateDoctorCache(data.doctorId);
         return slot;
     }
@@ -513,9 +580,23 @@ export class DoctorService {
         doctorId: number,
         data: { name: string; description?: string; sessionCount: number; totalPrice: number }
     ) {
+        // Only a clinician who has passed verification may sell. A pending
+        // profile could otherwise publish a purchasable package.
+        const doctor = await prisma.doctor.findUnique({
+            where: { id: doctorId },
+            select: { verificationStatus: true },
+        });
+        if (!doctor) throw new Error("Doctor profile not found");
+        if (doctor.verificationStatus !== "approved") {
+            throw new Error("Your profile must be verified before you can offer packages");
+        }
+
         if (!data.name?.trim()) throw new Error("Package name is required");
-        if (data.sessionCount < 2 || data.sessionCount > 20) throw new Error("Session count must be 2-20");
+        // A single-session plan is a legitimate product (a one-off consultation
+        // at a bundled rate), so the floor is 1 rather than 2.
+        if (data.sessionCount < 1 || data.sessionCount > 20) throw new Error("Session count must be 1-20");
         if (data.totalPrice <= 0) throw new Error("Total price must be positive");
+        if (data.totalPrice > 100_000_000) throw new Error("Total price is unrealistically high");
 
         return await prisma.package.create({
             data: {
@@ -542,12 +623,49 @@ export class DoctorService {
         return { success: true };
     }
 
-    static async purchasePackage(packageId: number, userId: number) {
-        const pkg = await prisma.package.findFirst({ where: { id: packageId, active: true } });
+    /**
+     * Grants a patient a purchased package.
+     *
+     * This used to mint an unlimited supply of free therapy packages: no
+     * payment, no verification, no rate limit, and no uniqueness. Because
+     * booking applied the package branch *before* the credit branch, an
+     * attacker could then book a paid doctor's sessions for nothing, repeatedly.
+     *
+     * A purchase now requires either a confirmed payment or an explicit
+     * administrative grant, and at most one live grant exists per
+     * (user, package). `PaymentService` (Wave 3) will own the `paidAt` write;
+     * until then the controller only accepts an admin grant, so the free-ride
+     * path is closed rather than merely discouraged.
+     */
+    static async purchasePackage(
+        packageId: number,
+        userId: number,
+        options: { paidAt?: Date | null; grantedByUserId?: number | null } = {}
+    ) {
+        const pkg = await prisma.package.findFirst({
+            where: { id: packageId, active: true },
+            include: { doctor: { select: { verificationStatus: true, userId: true } } },
+        });
         if (!pkg) throw new Error("Package not found or inactive");
 
+        if (pkg.doctor.verificationStatus !== "approved") {
+            throw new Error("This package is not currently available");
+        }
+
+        // A self-service purchase is refused until payment is wired up. Callers
+        // that represent a genuine administrative grant pass `grantedByUserId`.
+        if (!options.paidAt && !options.grantedByUserId) {
+            throw new Error("This package requires payment before it can be added to your account");
+        }
+
         const purchase = await prisma.packagePurchase.create({
-            data: { packageId, userId, sessionsLeft: pkg.sessionCount },
+            data: {
+                packageId,
+                userId,
+                sessionsLeft: pkg.sessionCount,
+                paidAt: options.paidAt ?? null,
+                grantedByUserId: options.grantedByUserId ?? null,
+            },
         });
         return { ...purchase, package: pkg };
     }
@@ -555,8 +673,25 @@ export class DoctorService {
     static async getMyPackagePurchases(userId: number) {
         return await prisma.packagePurchase.findMany({
             where: { userId },
-            include: { package: { include: { doctor: { include: { user: { select: { name: true } } } } } } },
             orderBy: { createdAt: "desc" },
+            select: {
+                id: true,
+                packageId: true,
+                sessionsLeft: true,
+                status: true,
+                paidAt: true,
+                createdAt: true,
+                package: {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        sessionCount: true,
+                        totalPrice: true,
+                        doctor: { select: { id: true, user: { select: { name: true } } } },
+                    },
+                },
+            },
         });
     }
 }
