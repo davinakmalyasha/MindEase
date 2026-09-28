@@ -165,7 +165,7 @@ describe("Authorization matrix (IDOR protection)", () => {
         const doctor = await createDoctor();
         const book = await bookFor(patient, doctor);
         const appId = book.body.data.id;
-        // still pending â€” not eligible
+        // still pending — not eligible
 
         const res = await patient.agent
             .post("/api/reviews")
