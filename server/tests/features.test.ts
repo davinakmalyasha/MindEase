@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { createUser, createDoctor, createAdmin, setupClient, PASSWORD } from "./helpers";
+import {
+    createUser,
+    createDoctor,
+    createAdmin,
+    setupClient,
+    createMoodEntry,
+    grantPaidPackage,
+    PASSWORD,
+} from "./helpers";
 import { prisma } from "../src/app";
 
 const futureDate = (days = 3) => {
@@ -7,6 +15,16 @@ const futureDate = (days = 3) => {
     d.setDate(d.getDate() + days);
     return d.toISOString().split("T")[0];
 };
+
+/**
+ * A `YYYY-MM-DD` calendar day read in the host's own zone.
+ *
+ * Deriving the day from `toISOString()` (UTC) while pairing it with a
+ * wall-clock time taken from `getHours()` (local) mixes two zones, and near
+ * midnight the resulting day and time can disagree by 24 hours.
+ */
+const localDay = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const bookFor = async (patient: any, doctor: any, extra: Record<string, any> = {}) => {
     return patient.agent
@@ -70,8 +88,9 @@ describe("Mood factors", () => {
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         yesterday.setHours(12, 0, 0, 0);
-        await prisma.moodEntry.create({
-            data: { userId: user.id, mood: 2, notes: "Rough day", factors: JSON.stringify(["stress"]), createdAt: yesterday },
+        await createMoodEntry(user.id, 2, yesterday, {
+            notes: "Rough day",
+            factors: JSON.stringify(["stress"]),
         });
 
         const stats = await user.agent.get("/api/wellness/mood/stats");
@@ -233,7 +252,7 @@ describe("Consultation rooms (video/voice join)", () => {
             .set("X-CSRF-Token", patient.csrf)
             .send({
                 doctorId: doctor.doctorId,
-                appointmentDate: start.toISOString().split("T")[0],
+                appointmentDate: localDay(start),
                 startTime: fmt(start),
                 endTime: fmt(end),
                 consultationType: "voice",
@@ -312,7 +331,8 @@ describe("Doctor analytics", () => {
     it("denies analytics to patients", async () => {
         const patient = await createUser("patient");
         const res = await patient.agent.get("/api/doctors/analytics");
-        expect(res.status).toBe(400);
+        // 403 rather than 400: the caller is authenticated but not a clinician.
+        expect(res.status).toBe(403);
     });
 });
 
@@ -320,14 +340,48 @@ describe("Notification preferences", () => {
     it("defaults to all enabled and persists updates", async () => {
         const user = await createUser("patient");
         const get = await user.agent.get("/api/notifications/preferences");
-        expect(get.body.data).toEqual({ appointment: true, message: true, system: true });
+        // Preferences are per-channel: in-app and email are independent toggles.
+        expect(get.body.data).toEqual({
+            appointment: { inApp: true, email: false },
+            message: { inApp: true, email: false },
+            system: { inApp: true, email: true },
+        });
 
+        const put = await user.agent
+            .put("/api/notifications/preferences")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ appointment: { inApp: false, email: true } });
+        expect(put.status).toBe(200);
+        expect(put.body.data.appointment).toEqual({ inApp: false, email: true });
+
+        const reread = await user.agent.get("/api/notifications/preferences");
+        expect(reread.body.data.appointment).toEqual({ inApp: false, email: true });
+    });
+
+    it("still accepts the legacy flat boolean shape", async () => {
+        const user = await createUser("patient");
         const put = await user.agent
             .put("/api/notifications/preferences")
             .set("X-CSRF-Token", user.csrf)
             .send({ appointment: false });
         expect(put.status).toBe(200);
-        expect(put.body.data.appointment).toBe(false);
+        expect(put.body.data.appointment.inApp).toBe(false);
+    });
+
+    it("keeps the in-app and email channels independent", async () => {
+        // Turning off in-app must not silently suppress the confirmation email.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        await patient.agent
+            .put("/api/notifications/preferences")
+            .set("X-CSRF-Token", patient.csrf)
+            .send({ appointment: { inApp: false, email: true } });
+
+        const book = await bookFor(patient, doctor);
+        expect(book.status).toBe(201);
+
+        const count = await patient.agent.get("/api/notifications/unread-count");
+        expect(count.body.data.count).toBe(0); // in-app suppressed, as requested
     });
 
     it("skips notifications for disabled categories", async () => {
@@ -336,7 +390,7 @@ describe("Notification preferences", () => {
         await patient.agent
             .put("/api/notifications/preferences")
             .set("X-CSRF-Token", patient.csrf)
-            .send({ appointment: false });
+            .send({ appointment: { inApp: false, email: false } });
 
         const book = await bookFor(patient, doctor);
         expect(book.status).toBe(201);
@@ -465,16 +519,27 @@ describe("Review reports & moderation", () => {
     });
 
     it("admin can dismiss reports", async () => {
-        const { reviewId } = await setupReview();
+        const { doctor, reviewId } = await setupReview();
+        // A report has to exist before it can be dismissed.
+        const report = await doctor.agent
+            .post(`/api/reviews/${reviewId}/report`)
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ reason: "This review misrepresents the session" });
+        expect(report.status).toBe(201);
+
         const admin = await createAdmin();
         const reports = await admin.agent.get("/api/admin/review-reports?status=open");
         const reportId = reports.body.data.reports[0]?.id;
         expect(reportId).toBeTruthy();
+
         const res = await admin.agent
             .post(`/api/admin/review-reports/${reportId}/status`)
             .set("X-CSRF-Token", admin.csrf)
             .send({ status: "dismissed" });
         expect(res.status).toBe(200);
+
+        const after = await admin.agent.get("/api/admin/review-reports?status=open");
+        expect(after.body.data.reports.some((r: any) => r.id === reportId)).toBe(false);
     });
 });
 
@@ -622,9 +687,10 @@ describe("Round 3: therapy packages", () => {
         expect(create.status).toBe(201);
         const pkgId = create.body.data.id;
 
-        const purchase = await patient.agent.post(`/api/packages/${pkgId}/purchase`).set("X-CSRF-Token", patient.csrf);
-        expect(purchase.status).toBe(201);
-        expect(purchase.body.data.sessionsLeft).toBe(4);
+        // The entitlement is created the way a verified payment would create it;
+        // a patient self-service purchase is refused on purpose.
+        const purchase = await grantPaidPackage(patient.id, pkgId);
+        expect(purchase.sessionsLeft).toBe(4);
 
         const book = await patient.agent
             .post("/api/appointments/book")
@@ -635,10 +701,41 @@ describe("Round 3: therapy packages", () => {
                 startTime: "10:00",
                 endTime: "11:00",
                 consultationType: "video",
-                packagePurchaseId: purchase.body.data.id,
+                packagePurchaseId: purchase.id,
             });
         expect(book.status).toBe(201);
-        expect(book.body.data.packagePurchaseId).toBe(purchase.body.data.id);
+        expect(book.body.data.packagePurchaseId).toBe(purchase.id);
+    });
+
+    it("refuses a patient self-service package purchase", async () => {
+        // Regression: this endpoint used to mint unlimited free therapy
+        // packages with no payment, and because booking applied the package
+        // branch before the credit branch, that granted free access to a paid
+        // doctor's sessions.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        const create = await doctor.agent
+            .post("/api/doctors/packages")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ name: "Free-for-all plan", sessionCount: 4, totalPrice: 400000 });
+        expect(create.status).toBe(201);
+
+        const attempt = await patient.agent
+            .post(`/api/doctors/packages/${create.body.data.id}/purchase`)
+            .set("X-CSRF-Token", patient.csrf);
+        expect(attempt.status).toBe(400);
+
+        const purchases = await prisma.packagePurchase.count({ where: { userId: patient.id } });
+        expect(purchases).toBe(0);
+    });
+
+    it("refuses a package created by an unverified doctor", async () => {
+        const doctor = await createDoctor(undefined, { verified: false });
+        const res = await doctor.agent
+            .post("/api/doctors/packages")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ name: "Unverified plan", sessionCount: 3, totalPrice: 300000 });
+        expect(res.status).toBe(400);
     });
 
     it("rejects booking with a package from another doctor", async () => {
@@ -649,7 +746,7 @@ describe("Round 3: therapy packages", () => {
             .post("/api/doctors/packages")
             .set("X-CSRF-Token", doctorA.csrf)
             .send({ name: "Plan A", sessionCount: 3, totalPrice: 300000 });
-        const purchase = await patient.agent.post(`/api/packages/${create.body.data.id}/purchase`).set("X-CSRF-Token", patient.csrf);
+        const purchase = await grantPaidPackage(patient.id, create.body.data.id);
 
         const book = await patient.agent
             .post("/api/appointments/book")
@@ -660,7 +757,7 @@ describe("Round 3: therapy packages", () => {
                 startTime: "10:00",
                 endTime: "11:00",
                 consultationType: "video",
-                packagePurchaseId: purchase.body.data.id,
+                packagePurchaseId: purchase.id,
             });
         expect(book.status).toBe(400);
         expect(book.body.message).toContain("different doctor");
@@ -692,7 +789,13 @@ describe("Round 3: referrals", () => {
         await doctor.agent.put(`/api/appointments/${appId}/status`).set("X-CSRF-Token", doctor.csrf).send({ status: "completed" });
 
         const referrerNotifs = await referrer.agent.get("/api/notifications");
-        expect(referrerNotifs.body.data.rows.some((n: any) => n.title.includes("referral"))).toBe(true);
+        expect(
+            referrerNotifs.body.data.rows.some((n: any) => /referral/i.test(n.title))
+        ).toBe(true);
+
+        // The credit is real and spendable, not just announced.
+        const referrerProfile = await referrer.agent.get("/api/users/profile");
+        expect(referrerProfile.body.data.sessionCredits).toBe(1);
     });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
-import { app, createUser, createDoctor, createAdmin } from "./helpers";
+import { app, createUser, createDoctor, createAdmin , createMoodEntry } from "./helpers";
 import { prisma } from "../src/app";
 
 describe("Notification pagination", () => {
@@ -79,9 +79,7 @@ describe("Admin broadcast", () => {
 describe("Data export (GDPR)", () => {
     it("returns the user's data as JSON", async () => {
         const user = await createUser("patient");
-        await prisma.moodEntry.create({
-            data: { userId: user.id, mood: 4, notes: "Feeling good" },
-        });
+        await createMoodEntry(user.id, 4, new Date(), { notes: "Feeling good" });
 
         const res = await user.agent.get("/api/account/export");
         expect(res.status).toBe(200);
