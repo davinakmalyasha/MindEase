@@ -1,5 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { parseLocalDate } from "../utils/date";
+import { parseLocalDate, timeToMinutes, overlaps } from "../lib/date";
 import { NotificationService } from "./notification.service";
 
 export class FollowUpService {
@@ -81,57 +82,132 @@ export class FollowUpService {
             return { followUp: updated, appointment: null };
         }
 
-        // Accept → create a new pending appointment reusing the booking rules
         const appointment = await prisma.appointment.findUnique({
             where: { id: followUp.appointmentId },
-            include: { doctor: { select: { id: true, userId: true } } },
+            include: { doctor: { select: { id: true, userId: true, awayUntil: true } } },
         });
         if (!appointment) throw new Error("Appointment not found");
 
-        // Detect conflicts for the same doctor at the same time
-        const dayStart = new Date(followUp.suggestedDate);
+        // A suggestion for a date that has already passed can no longer be
+        // accepted — previously a doctor could propose a past date and the
+        // patient could accept it into a confirmed session.
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const suggested = new Date(followUp.suggestedDate);
+        if (isNaN(suggested.getTime())) throw new Error("This follow-up has an invalid date");
+        if (suggested < today) {
+            throw new Error("This follow-up date has already passed — please ask your doctor for a new time");
+        }
+
+        // Times are compared in minutes, not lexicographically. The previous
+        // check pushed the comparison into SQL where the columns are VARCHAR,
+        // so `"10:00" <= "9:00"` was true and overlapping sessions were accepted.
+        const start = timeToMinutes(followUp.startTime);
+        const end = timeToMinutes(followUp.endTime);
+        if (isNaN(start) || isNaN(end)) throw new Error("This follow-up has an invalid time");
+        if (start >= end) throw new Error("This follow-up has an invalid time range");
+
+        const dayStart = new Date(suggested);
         dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(dayStart);
         dayEnd.setDate(dayEnd.getDate() + 1);
-        const conflict = await prisma.appointment.findFirst({
+
+        const sameDay = await prisma.appointment.findMany({
             where: {
                 doctorId: followUp.doctorId,
                 appointmentDate: { gte: dayStart, lt: dayEnd },
                 status: { in: ["pending", "confirmed"] },
-                OR: [
-                    { startTime: { lte: followUp.startTime }, endTime: { gt: followUp.startTime } },
-                    { startTime: { lt: followUp.endTime }, endTime: { gte: followUp.endTime } },
-                    { startTime: { gte: followUp.startTime }, endTime: { lte: followUp.endTime } },
-                ],
             },
+            select: { startTime: true, endTime: true },
         });
+        const conflict = sameDay.some((a) =>
+            overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
+        );
         if (conflict) throw new Error("That time is already booked for this doctor — please ask them for another slot");
 
-        const created = await prisma.appointment.create({
-            data: {
-                userId: patientId,
-                doctorId: followUp.doctorId,
-                appointmentDate: followUp.suggestedDate,
-                startTime: followUp.startTime,
-                endTime: followUp.endTime,
-                consultationType: followUp.consultationType,
-                notes: followUp.notes || "Follow-up session",
-                status: "pending",
-            },
+        // Claim and create inside one transaction, and mark the follow-up
+        // accepted in the same transaction. Previously the status was written
+        // after the appointment, so a failure between the two left a
+        // `pending` follow-up and a duplicate booking on retry.
+        const created = await prisma.$transaction(async (tx) => {
+            const claim = await tx.followUp.updateMany({
+                where: { id: followUpId, status: "pending" },
+                data: { status: "accepted" },
+            });
+            if (claim.count !== 1) throw new Error("This follow-up was already responded to");
+
+            return tx.appointment.create({
+                data: {
+                    userId: patientId,
+                    doctorId: followUp.doctorId,
+                    appointmentDate: suggested,
+                    startTime: followUp.startTime,
+                    endTime: followUp.endTime,
+                    consultationType: followUp.consultationType,
+                    notes: followUp.notes || "Follow-up session",
+                    status: "pending",
+                    // A follow-up consumes a package session or referral credit
+                    // like any other booking, so the ledger stays accurate.
+                    ...(await this.findConsumableReservation(tx, patientId, followUp.doctorId)),
+                },
+            });
         });
 
-        await prisma.followUp.update({
-            where: { id: followUpId },
-            data: { status: "accepted" },
-        });
+        // Slot availability is cached on the doctor profile.
+        const { invalidateDoctorCache } = await import("./doctor.service");
+        invalidateDoctorCache(followUp.doctorId);
 
         await NotificationService.create({
             userId: appointment.doctor.userId,
             title: "Follow-up accepted",
-            message: `Your patient accepted the follow-up on ${followUp.suggestedDate.toLocaleDateString("en-GB")} at ${followUp.startTime}. Please confirm it.`,
+            message: `Your patient accepted the follow-up on ${suggested.toLocaleDateString("en-GB")} at ${followUp.startTime}. Please confirm it.`,
             type: "appointment",
         });
 
         return { followUp: { ...followUp, status: "accepted" }, appointment: created };
+    }
+
+    /**
+     * Follow-up bookings previously bypassed package/credit reservation
+     * entirely, so the ledger drifted: sessions were consumed without being
+     * decremented, and the credits a referral had granted were never spent.
+     */
+    private static async findConsumableReservation(
+        tx: Prisma.TransactionClient,
+        patientId: number,
+        doctorId: number
+    ): Promise<{ packagePurchaseId?: number; creditApplied?: boolean }> {
+        const purchase = await tx.packagePurchase.findFirst({
+            where: {
+                userId: patientId,
+                sessionsLeft: { gt: 0 },
+                status: "active",
+                // A package covers its own doctor's sessions.
+                package: { doctorId },
+            },
+            orderBy: { createdAt: "asc" },
+            select: { id: true },
+        });
+        if (purchase) {
+            await tx.packagePurchase.update({
+                where: { id: purchase.id },
+                data: { sessionsLeft: { decrement: 1 }, status: "active" },
+            });
+            return { packagePurchaseId: purchase.id };
+        }
+
+        const user = await tx.user.findUnique({
+            where: { id: patientId },
+            select: { sessionCredits: true },
+        });
+        if (user && user.sessionCredits > 0) {
+            await tx.user.update({
+                where: { id: patientId },
+                data: { sessionCredits: { decrement: 1 } },
+            });
+            return { creditApplied: true };
+        }
+
+        return {};
     }
 }
