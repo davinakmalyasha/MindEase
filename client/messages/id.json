@@ -175,7 +175,13 @@
       "confirm": "Ini akan memberi tahu dokter Anda dan menampilkan hotline krisis. Lanjutkan?",
       "alerted": "Dokter Anda telah diberi tahu. Silakan hubungi hotline krisis jika Anda membutuhkan dukungan segera.",
       "crisisHotlines": "Hotline krisis",
-      "myDoctor": "Dokter saya"
+      "myDoctor": "Dokter saya",
+      "notAlerted": "Kami tidak dapat menghubungi tim perawatan. Silakan hubungi salah satu nomor di bawah sekarang — tersedia 24 jam.",
+      "sendFailed": "Kami tidak dapat mengirim peringatan Anda. Silakan hubungi hotline langsung.",
+      "sending": "Mengirim…",
+      "alertDoctor": "Hubungi dokter saya",
+      "viewAllResources": "Lihat semua sumber daya krisis",
+      "offlineFallback": "Sepertinya Anda sedang offline, sehingga dokter Anda mungkin belum dihubungi. Silakan hubungi hotline sekarang."
     }
   },
   "staticPages": {
@@ -190,27 +196,134 @@
       "reachOutTitle": "Hubungi untuk dukungan",
       "reachOutBody": "Jika berbicara lewat telepon terasa sulit, kirim pesan atau ngobrol dengan orang yang Anda percaya. Anda juga dapat membuat janji temu dengan psikolog berlisensi di MindEase — tetapi jika ada bahaya langsung, selalu hubungi darurat terlebih dahulu.",
       "hotlines": [
-        { "name": "Layanan Darurat (Ambulans & Polisi)", "number": "112", "note": "Hubungi segera jika ada bahaya langsung terhadap nyawa." },
-        { "name": "Kemenkes SEJIWA (Hotline Krisis Nasional)", "number": "119 ext 8", "note": "Kementerian Kesehatan RI — hotline krisis kesehatan jiwa 24/7." },
-        { "name": "Halo Kemenkes", "number": "1500-567", "note": "Layanan kesehatan umum — minta dihubungkan ke dukungan psikologis." },
-        { "name": "Into The Light Indonesia", "number": "+62 812-123-2012", "note": "Chat dukungan sebaya bagi yang mengalami tekanan (WhatsApp)." },
-        { "name": "Bebas Bicara", "number": "+62 811-125-2424", "note": "Layanan pendengar dan rujukan gratis via WhatsApp." },
-        { "name": "988 Suicide & Crisis Lifeline (AS)", "number": "988", "note": "Untuk pengguna di Amerika Serikat — telepon atau SMS, 24/7." },
-        { "name": "Samaritans (UK & ROI)", "number": "116 123", "note": "Saluran bantuan 24/7 gratis bagi siapa saja yang sedang kesulitan." },
-        { "name": "Layanan Darurat (Internasional)", "number": "112", "note": "Nomor darurat standar di sebagian besar negara." }
+        {
+          "name": "Layanan Darurat (Ambulans & Polisi)",
+          "number": "112",
+          "note": "Hubungi segera jika ada bahaya langsung terhadap nyawa.",
+          "whatsapp": false
+        },
+        {
+          "name": "Kemenkes SEJIWA (Hotline Krisis Nasional)",
+          "number": "119 ext 8",
+          "note": "Kementerian Kesehatan RI — hotline krisis kesehatan jiwa 24/7.",
+          "whatsapp": false
+        },
+        {
+          "name": "Halo Kemenkes",
+          "number": "1500-567",
+          "note": "Layanan kesehatan umum — minta dihubungkan ke dukungan psikologis.",
+          "whatsapp": false
+        },
+        {
+          "name": "Into The Light Indonesia",
+          "number": "+62 812-123-2012",
+          "note": "Chat dukungan sebaya bagi yang mengalami tekanan (WhatsApp).",
+          "whatsapp": true
+        },
+        {
+          "name": "Bebas Bicara",
+          "number": "+62 811-125-2424",
+          "note": "Layanan pendengar dan rujukan gratis via WhatsApp.",
+          "whatsapp": true
+        },
+        {
+          "name": "988 Suicide & Crisis Lifeline (AS)",
+          "number": "988",
+          "note": "Untuk pengguna di Amerika Serikat — telepon atau SMS, 24/7.",
+          "whatsapp": false
+        },
+        {
+          "name": "Samaritans (UK & ROI)",
+          "number": "116 123",
+          "note": "Saluran bantuan 24/7 gratis bagi siapa saja yang sedang kesulitan.",
+          "whatsapp": false
+        },
+        {
+          "name": "Layanan Darurat (Internasional)",
+          "number": "112",
+          "note": "Nomor darurat standar di sebagian besar negara.",
+          "whatsapp": false
+        }
       ],
       "steps": [
-        { "title": "1. Hubungi hotline sekarang", "description": "Jangan menunggu. Hotline krisis gratis, rahasia, dan tersedia 24/7. Teruslah berbicara sampai Anda merasa risiko langsung telah berlalu." },
-        { "title": "2. Jangan sendirian", "description": "Jika memungkinkan, jangan sendirian. Hubungi teman atau keluarga yang dipercaya, atau pergilah ke tempat yang ada orang lain." },
-        { "title": "3. Jauhkan bahaya langsung", "description": "Jika Anda memiliki akses ke sesuatu yang dapat membahayakan Anda, jauhkan diri Anda darinya — atau minta orang yang Anda percaya untuk memindahkannya." }
+        {
+          "title": "1. Hubungi hotline sekarang",
+          "description": "Jangan menunggu. Hotline krisis gratis, rahasia, dan tersedia 24/7. Teruslah berbicara sampai Anda merasa risiko langsung telah berlalu."
+        },
+        {
+          "title": "2. Jangan sendirian",
+          "description": "Jika memungkinkan, jangan sendirian. Hubungi teman atau keluarga yang dipercaya, atau pergilah ke tempat yang ada orang lain."
+        },
+        {
+          "title": "3. Jauhkan bahaya langsung",
+          "description": "Jika Anda memiliki akses ke sesuatu yang dapat membahayakan Anda, jauhkan diri Anda darinya — atau minta orang yang Anda percaya untuk memindahkannya."
+        }
       ]
     },
-    "faq": { "title": "Pertanyaan yang sering", "titleAccent": "diajukan", "subtitle": "Semua yang perlu Anda ketahui tentang pemesanan, konsultasi, fitur AI, dan data Anda." },
-    "help": { "title": "Pusat Bantuan", "subtitle": "Semua yang Anda butuhkan untuk memaksimalkan MindEase. Cari topik, atau gunakan asisten dukungan di pojok kanan bawah untuk jawaban instan." },
-    "about": { "title": "Perawatan kesehatan jiwa yang", "titleAccent": "sesuai dengan hidup Anda", "subtitle": "MindEase hadir untuk menjernihkan dukungan kesehatan jiwa. Kami menggabungkan jaringan psikolog berlisensi dengan alat AI klinis yang menyiapkan Anda dan dokter untuk setiap sesi — agar waktu bersama menjadi berharga." },
-    "contact": { "title": "Kami siap", "titleAccent": "membantu", "subtitle": "Hubungi tim yang tepat di bawah. Untuk hal mendesak, gunakan hotline krisis kami daripada email." },
-    "disclaimer": { "title": "Mohon baca ini", "titleAccent": "dengan saksama", "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan dan fitur AI MindEase" },
-    "terms": { "title": "Ketentuan yang jelas,", "titleAccent": "perawatan yang adil.", "subtitle": "Terakhir diperbarui: Agustus 2026 · Baca bersama Kebijakan Privasi kami" },
-    "privacy": { "title": "Privasi Anda", "titleAccent": "sangat berharga.", "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan MindEase" }
+    "faq": {
+      "title": "Pertanyaan yang sering",
+      "titleAccent": "diajukan",
+      "subtitle": "Semua yang perlu Anda ketahui tentang pemesanan, konsultasi, fitur AI, dan data Anda."
+    },
+    "help": {
+      "title": "Pusat Bantuan",
+      "subtitle": "Semua yang Anda butuhkan untuk memaksimalkan MindEase. Cari topik, atau gunakan asisten dukungan di pojok kanan bawah untuk jawaban instan."
+    },
+    "about": {
+      "title": "Perawatan kesehatan jiwa yang",
+      "titleAccent": "sesuai dengan hidup Anda",
+      "subtitle": "MindEase hadir untuk menjernihkan dukungan kesehatan jiwa. Kami menggabungkan jaringan psikolog berlisensi dengan alat AI klinis yang menyiapkan Anda dan dokter untuk setiap sesi — agar waktu bersama menjadi berharga."
+    },
+    "contact": {
+      "title": "Kami siap",
+      "titleAccent": "membantu",
+      "subtitle": "Hubungi tim yang tepat di bawah. Untuk hal mendesak, gunakan hotline krisis kami daripada email."
+    },
+    "disclaimer": {
+      "title": "Mohon baca ini",
+      "titleAccent": "dengan saksama",
+      "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan dan fitur AI MindEase"
+    },
+    "terms": {
+      "title": "Ketentuan yang jelas,",
+      "titleAccent": "perawatan yang adil.",
+      "subtitle": "Terakhir diperbarui: Agustus 2026 · Baca bersama Kebijakan Privasi kami"
+    },
+    "privacy": {
+      "title": "Privasi Anda",
+      "titleAccent": "sangat berharga.",
+      "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan MindEase"
+    },
+    "offline": {
+      "metaTitle": "Anda sedang offline — MindEase",
+      "metaDescription": "MindEase tidak dapat menjangkau jaringan.",
+      "title": "Sepertinya Anda sedang offline",
+      "body": "Kami tidak dapat menjangkau jaringan, jadi sebagian fitur MindEase tidak tersedia saat ini. Periksa koneksi Anda lalu coba lagi.",
+      "retry": "Coba lagi",
+      "crisisTitle": "Butuh bantuan sekarang?",
+      "crisisBody": "Nomor ini dapat dihubungi tanpa koneksi data. Jika Anda dalam bahaya segera, hubungi nomor darurat.",
+      "hotlines": [
+        {
+          "name": "Layanan Darurat (Indonesia)",
+          "dial": "112",
+          "contact": "112 / 119"
+        },
+        {
+          "name": "Kemenkes SEJIWA",
+          "dial": "119",
+          "contact": "119 ext 8"
+        },
+        {
+          "name": "Halo Kemenkes",
+          "dial": "1500567",
+          "contact": "1500-567"
+        },
+        {
+          "name": "Into The Light (WhatsApp)",
+          "dial": "628121232012",
+          "contact": "+62 812-123-2012"
+        }
+      ]
+    }
   }
 }

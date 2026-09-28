@@ -175,7 +175,13 @@
       "confirm": "This will alert your assigned doctor and show you crisis hotlines. Continue?",
       "alerted": "Your doctor has been alerted. Please reach out to a crisis hotline if you need immediate support.",
       "crisisHotlines": "Crisis hotlines",
-      "myDoctor": "My doctor"
+      "myDoctor": "My doctor",
+      "notAlerted": "We could not reach a care team. Please call one of the numbers below now — they are available 24/7.",
+      "sendFailed": "We could not send your alert. Please call a hotline directly.",
+      "sending": "Alerting…",
+      "alertDoctor": "Alert my doctor",
+      "viewAllResources": "View all crisis resources",
+      "offlineFallback": "You appear to be offline, so your doctor may not have been reached. Please call a hotline now."
     }
   },
   "staticPages": {
@@ -190,27 +196,134 @@
       "reachOutTitle": "Reach out for support",
       "reachOutBody": "If talking on the phone feels hard, text or chat with someone you trust. You can also book a session with a licensed psychologist on MindEase — but if there is any immediate danger, always call first.",
       "hotlines": [
-        { "name": "Emergency Services (Ambulance & Police)", "number": "112", "note": "Call immediately if there is immediate danger to life." },
-        { "name": "Kemenkes SEJIWA (National Crisis Line)", "number": "119 ext 8", "note": "Kementerian Kesehatan RI — 24/7 mental health crisis line." },
-        { "name": "Halo Kemenkes", "number": "1500-567", "note": "General health line — ask to be connected to psychological support." },
-        { "name": "Into The Light Indonesia", "number": "+62 812-123-2012", "note": "Peer support chat for those in distress (WhatsApp)." },
-        { "name": "Bebas Bicara", "number": "+62 811-125-2424", "note": "Free listening ear and referral service via WhatsApp." },
-        { "name": "988 Suicide & Crisis Lifeline (US)", "number": "988", "note": "For users in the United States — call or text, 24/7." },
-        { "name": "Samaritans (UK & ROI)", "number": "116 123", "note": "Free 24/7 helpline for anyone struggling to cope." },
-        { "name": "Emergency Services (International)", "number": "112", "note": "Standard emergency number in most countries." }
+        {
+          "name": "Emergency Services (Ambulance & Police)",
+          "number": "112",
+          "note": "Call immediately if there is immediate danger to life.",
+          "whatsapp": false
+        },
+        {
+          "name": "Kemenkes SEJIWA (National Crisis Line)",
+          "number": "119 ext 8",
+          "note": "Kementerian Kesehatan RI — 24/7 mental health crisis line.",
+          "whatsapp": false
+        },
+        {
+          "name": "Halo Kemenkes",
+          "number": "1500-567",
+          "note": "General health line — ask to be connected to psychological support.",
+          "whatsapp": false
+        },
+        {
+          "name": "Into The Light Indonesia",
+          "number": "+62 812-123-2012",
+          "note": "Peer support chat for those in distress (WhatsApp).",
+          "whatsapp": true
+        },
+        {
+          "name": "Bebas Bicara",
+          "number": "+62 811-125-2424",
+          "note": "Free listening ear and referral service via WhatsApp.",
+          "whatsapp": true
+        },
+        {
+          "name": "988 Suicide & Crisis Lifeline (US)",
+          "number": "988",
+          "note": "For users in the United States — call or text, 24/7.",
+          "whatsapp": false
+        },
+        {
+          "name": "Samaritans (UK & ROI)",
+          "number": "116 123",
+          "note": "Free 24/7 helpline for anyone struggling to cope.",
+          "whatsapp": false
+        },
+        {
+          "name": "Emergency Services (International)",
+          "number": "112",
+          "note": "Standard emergency number in most countries.",
+          "whatsapp": false
+        }
       ],
       "steps": [
-        { "title": "1. Call a hotline right now", "description": "Do not wait. Crisis lines are free, confidential, and staffed 24/7. Keep talking until you feel the immediate risk has passed." },
-        { "title": "2. Stay with someone", "description": "Do not be alone if you can help it. Reach a trusted friend or family member, or go somewhere with people around you." },
-        { "title": "3. Remove immediate danger", "description": "If you have access to anything that could harm you, put distance between yourself and it — or have someone you trust remove it." }
+        {
+          "title": "1. Call a hotline right now",
+          "description": "Do not wait. Crisis lines are free, confidential, and staffed 24/7. Keep talking until you feel the immediate risk has passed."
+        },
+        {
+          "title": "2. Stay with someone",
+          "description": "Do not be alone if you can help it. Reach a trusted friend or family member, or go somewhere with people around you."
+        },
+        {
+          "title": "3. Remove immediate danger",
+          "description": "If you have access to anything that could harm you, put distance between yourself and it — or have someone you trust remove it."
+        }
       ]
     },
-    "faq": { "title": "Frequently asked", "titleAccent": "questions", "subtitle": "Everything you need to know about booking, consultations, AI features, and your data." },
-    "help": { "title": "Help Center", "subtitle": "Everything you need to get the most out of MindEase. Search a topic, or use the support assistant in the bottom-right corner for instant answers." },
-    "about": { "title": "Mental health care that", "titleAccent": "fits your life", "subtitle": "MindEase exists to demystify mental health support. We combine a network of licensed psychologists with clinical AI tools that prepare you and your doctor for every session — so time together counts." },
-    "contact": { "title": "We're here to", "titleAccent": "help", "subtitle": "Reach the right team below. For anything urgent, please use our crisis hotlines instead of email." },
-    "disclaimer": { "title": "Please read this", "titleAccent": "carefully", "subtitle": "Last updated: August 2026 · Applies to all MindEase services and AI features" },
-    "terms": { "title": "Clear terms,", "titleAccent": "fair care.", "subtitle": "Last updated: August 2026 · Read alongside our Privacy Policy" },
-    "privacy": { "title": "Your privacy is", "titleAccent": "sacred.", "subtitle": "Last updated: August 2026 · Applies to all MindEase services" }
+    "faq": {
+      "title": "Frequently asked",
+      "titleAccent": "questions",
+      "subtitle": "Everything you need to know about booking, consultations, AI features, and your data."
+    },
+    "help": {
+      "title": "Help Center",
+      "subtitle": "Everything you need to get the most out of MindEase. Search a topic, or use the support assistant in the bottom-right corner for instant answers."
+    },
+    "about": {
+      "title": "Mental health care that",
+      "titleAccent": "fits your life",
+      "subtitle": "MindEase exists to demystify mental health support. We combine a network of licensed psychologists with clinical AI tools that prepare you and your doctor for every session — so time together counts."
+    },
+    "contact": {
+      "title": "We're here to",
+      "titleAccent": "help",
+      "subtitle": "Reach the right team below. For anything urgent, please use our crisis hotlines instead of email."
+    },
+    "disclaimer": {
+      "title": "Please read this",
+      "titleAccent": "carefully",
+      "subtitle": "Last updated: August 2026 · Applies to all MindEase services and AI features"
+    },
+    "terms": {
+      "title": "Clear terms,",
+      "titleAccent": "fair care.",
+      "subtitle": "Last updated: August 2026 · Read alongside our Privacy Policy"
+    },
+    "privacy": {
+      "title": "Your privacy is",
+      "titleAccent": "sacred.",
+      "subtitle": "Last updated: August 2026 · Applies to all MindEase services"
+    },
+    "offline": {
+      "metaTitle": "You are offline — MindEase",
+      "metaDescription": "MindEase could not reach the network.",
+      "title": "You appear to be offline",
+      "body": "We could not reach the network, so some parts of MindEase are unavailable right now. Please check your connection and try again.",
+      "retry": "Try again",
+      "crisisTitle": "Need help now?",
+      "crisisBody": "These numbers work without a data connection. If you are in immediate danger, please call an emergency line.",
+      "hotlines": [
+        {
+          "name": "Emergency (Indonesia)",
+          "dial": "112",
+          "contact": "112 / 119"
+        },
+        {
+          "name": "Kemenkes SEJIWA",
+          "dial": "119",
+          "contact": "119 ext 8"
+        },
+        {
+          "name": "Halo Kemenkes",
+          "dial": "1500567",
+          "contact": "1500-567"
+        },
+        {
+          "name": "Into The Light (WhatsApp)",
+          "dial": "628121232012",
+          "contact": "+62 812-123-2012"
+        }
+      ]
+    }
   }
 }
