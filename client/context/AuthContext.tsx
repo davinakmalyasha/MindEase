@@ -1,8 +1,16 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import api from "@/lib/api";
+import {
+    createContext,
+    useContext,
+    useEffect,
+    useState,
+    useCallback,
+    useMemo,
+    useRef,
+    type ReactNode,
+} from "react";
+import api, { onSessionExpired } from "@/lib/api";
 
 export interface AuthUser {
     id: number;
@@ -12,16 +20,41 @@ export interface AuthUser {
     role: "patient" | "doctor" | "admin";
     phone_number?: string | null;
     provider?: string;
-    [key: string]: any;
+    isVerified?: boolean;
+    totpEnabled?: boolean;
+    referralCode?: string | null;
+    sessionCredits?: number;
+    timezone?: string | null;
+    doctorProfile?: { id: number; specialty?: string } | null;
 }
+
+export interface TwoFactorChallenge {
+    requires2FA: true;
+    twoFactorToken: string;
+}
+
+type LoginResult = AuthUser | TwoFactorChallenge;
 
 interface AuthContextValue {
     user: AuthUser | null;
+    /**
+     * True until the stored session has been checked against the server.
+     * Previously it flipped to false on mount without any request, so route
+     * guards passed on stale `localStorage` and a user with a valid cookie but
+     * an empty store saw an indefinite spinner.
+     */
     isLoading: boolean;
-    login: (email: string, password: string) => Promise<AuthUser | { requires2FA: true; twoFactorToken: string }>;
-    loginWithGoogle: (idToken: string) => Promise<AuthUser | { requires2FA: true; twoFactorToken: string }>;
+    login: (email: string, password: string) => Promise<LoginResult>;
+    loginWithGoogle: (idToken: string) => Promise<LoginResult>;
     complete2FA: (token: string, code: string) => Promise<AuthUser>;
-    register: (data: { name: string; email: string; password: string; phone_number?: string; role?: string; referralCode?: string }) => Promise<AuthUser>;
+    register: (data: {
+        name: string;
+        email: string;
+        password: string;
+        phone_number?: string;
+        role?: string;
+        referralCode?: string;
+    }) => Promise<AuthUser>;
     logout: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     setUser: (user: AuthUser | null) => void;
@@ -29,112 +62,218 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const STORAGE_KEY = "mindease:user";
+
 const readStoredUser = (): AuthUser | null => {
     if (typeof window === "undefined") return null;
     try {
-        const stored = localStorage.getItem("user");
-        return stored ? JSON.parse(stored) : null;
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        return stored ? (JSON.parse(stored) as AuthUser) : null;
     } catch {
         return null;
     }
 };
 
+const persistUser = (user: AuthUser | null) => {
+    if (typeof window === "undefined") return;
+    try {
+        if (user) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+        else window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+        // Storage can be unavailable in private browsing or under a strict
+        // cookie policy. The in-memory state is still authoritative.
+    }
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<AuthUser | null>(readStoredUser);
+    // Seed from storage so the first paint is not empty, but treat it as
+    // unverified until the server confirms it.
+    const [user, setUserState] = useState<AuthUser | null>(readStoredUser);
     const [isLoading, setIsLoading] = useState(true);
+    const mounted = useRef(true);
 
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsLoading(false);
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
+
+    const setUser = useCallback((next: AuthUser | null) => {
+        setUserState(next);
+        persistUser(next);
     }, []);
 
     const refreshProfile = useCallback(async () => {
         try {
             const res = await api.get("/users/profile");
             const profile = res.data?.data?.user ?? res.data?.data;
-            if (profile) {
-                setUser(profile);
-                localStorage.setItem("user", JSON.stringify(profile));
+            if (profile && mounted.current) {
+                setUserState(profile as AuthUser);
+                persistUser(profile as AuthUser);
             }
         } catch {
-            // Not logged in — ignore
+            // Not signed in, or the request was superseded. The stored value
+            // remains until an explicit sign-out or an expired session.
         }
     }, []);
 
-    const login = useCallback(async (email: string, password: string) => {
+    // Validate the stored session against the server exactly once on mount.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await api.get("/users/profile");
+                if (!cancelled && mounted.current) {
+                    const profile = res.data?.data?.user ?? res.data?.data;
+                    if (profile) {
+                        setUserState(profile as AuthUser);
+                        persistUser(profile as AuthUser);
+                    }
+                }
+            } catch {
+                if (!cancelled && mounted.current) {
+                    // No valid session: drop the cached user rather than
+                    // leaving the UI in a half-authenticated state.
+                    setUserState(null);
+                    persistUser(null);
+                }
+            } finally {
+                if (!cancelled && mounted.current) setIsLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    // The API client owns the "your session is gone" decision; the provider
+    // owns the user-visible reaction to it.
+    useEffect(() => {
+        onSessionExpired(() => {
+            setUserState(null);
+            persistUser(null);
+            if (typeof window === "undefined") return;
+            const { pathname, search } = window.location;
+            if (pathname.startsWith("/login")) return;
+            const next = encodeURIComponent(`${pathname}${search}`);
+            window.location.href = `/login?next=${next}&expired=1`;
+        });
+        return () => onSessionExpired(null);
+    }, []);
+
+    const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
         const res = await api.post("/auth/login", { email, password });
         const data = res.data.data;
         if (data.requires2FA) {
-            return { requires2FA: true as const, twoFactorToken: data.twoFactorToken as string };
+            return { requires2FA: true, twoFactorToken: String(data.twoFactorToken) };
         }
         const loggedIn = data.user as AuthUser;
-        setUser(loggedIn);
-        localStorage.setItem("user", JSON.stringify(loggedIn));
+        setUserState(loggedIn);
+        persistUser(loggedIn);
         return loggedIn;
     }, []);
 
-    const loginWithGoogle = useCallback(async (idToken: string) => {
+    const loginWithGoogle = useCallback(async (idToken: string): Promise<LoginResult> => {
         const res = await api.post("/auth/google", { token: idToken });
         const data = res.data.data;
         if (data.requires2FA) {
-            return { requires2FA: true as const, twoFactorToken: data.twoFactorToken as string };
+            return { requires2FA: true, twoFactorToken: String(data.twoFactorToken) };
         }
         const loggedIn = data.user as AuthUser;
-        setUser(loggedIn);
-        localStorage.setItem("user", JSON.stringify(loggedIn));
+        setUserState(loggedIn);
+        persistUser(loggedIn);
         return loggedIn;
     }, []);
 
     const complete2FA = useCallback(async (token: string, code: string) => {
         const res = await api.post("/account/2fa/verify", { token, code });
         const loggedIn = res.data.data.user as AuthUser;
-        setUser(loggedIn);
-        localStorage.setItem("user", JSON.stringify(loggedIn));
+        setUserState(loggedIn);
+        persistUser(loggedIn);
         return loggedIn;
     }, []);
 
-    const register = useCallback(async (data: { name: string; email: string; password: string; phone_number?: string; role?: string; referralCode?: string }) => {
-        const res = await api.post("/auth/register", data);
-        const registered = res.data.data.user as AuthUser;
-        setUser(registered);
-        localStorage.setItem("user", JSON.stringify(registered));
-        return registered;
-    }, []);
+    const register = useCallback(
+        async (data: {
+            name: string;
+            email: string;
+            password: string;
+            phone_number?: string;
+            role?: string;
+            referralCode?: string;
+        }) => {
+            const res = await api.post("/auth/register", data);
+            const registered = res.data.data.user as AuthUser;
+            setUserState(registered);
+            persistUser(registered);
+            return registered;
+        },
+        []
+    );
 
     const logout = useCallback(async () => {
         try {
             await api.post("/auth/logout");
         } catch {
-            // Ignore server-side logout errors
+            // The local session is cleared regardless: a failed server-side
+            // logout must not leave the user apparently signed in.
         }
-        setUser(null);
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
+        setUserState(null);
+        persistUser(null);
     }, []);
 
-    return (
-        <AuthContext.Provider value={{ user, isLoading, login, loginWithGoogle, complete2FA, register, logout, refreshProfile, setUser }}>
-            {children}
-        </AuthContext.Provider>
+    /**
+     * A single memoized value. Previously a fresh object literal was created on
+     * every render, so all 30-odd `useAuth()` consumers re-rendered on any
+     * auth-state change — including on every notification poll.
+     */
+    const value = useMemo<AuthContextValue>(
+        () => ({
+            user,
+            isLoading,
+            login,
+            loginWithGoogle,
+            complete2FA,
+            register,
+            logout,
+            refreshProfile,
+            setUser,
+        }),
+        [user, isLoading, login, loginWithGoogle, complete2FA, register, logout, refreshProfile, setUser]
     );
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextValue {
     const ctx = useContext(AuthContext);
     if (!ctx) throw new Error("useAuth must be used within AuthProvider");
     return ctx;
 }
 
-// Redirects to login if not authenticated. Returns user when ready.
-export function useRequireAuth() {
+/**
+ * Redirects to the login page when there is no session, preserving the current
+ * route so the user returns to it.
+ */
+export function useRequireAuth(requiredRole?: "patient" | "doctor" | "admin") {
     const { user, isLoading } = useAuth();
-    const router = useRouter();
 
     useEffect(() => {
-        if (!isLoading && !user) {
-            router.replace("/login");
+        if (isLoading) return;
+        if (!user) {
+            if (typeof window !== "undefined") {
+                const next = encodeURIComponent(
+                    `${window.location.pathname}${window.location.search}`
+                );
+                window.location.href = `/login?next=${next}`;
+            }
+            return;
         }
-    }, [isLoading, user, router]);
+        if (requiredRole && user.role !== requiredRole) {
+            window.location.href = "/dashboard";
+        }
+    }, [isLoading, user, requiredRole]);
 
     return { user, isLoading };
 }
