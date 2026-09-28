@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
-import { app } from "./helpers";
-import { createUser } from "./helpers";
+import { app, createUser, setupClient } from "./helpers";
 
 // Chat is authenticated: anonymous calls would expose paid AI capacity.
 const chat = async (message: string) => {
@@ -50,7 +49,17 @@ describe("Support chat", () => {
     });
 
     it("rejects anonymous callers", async () => {
+        // The CSRF guard runs before authentication, so an anonymous POST
+        // without a token is rejected there. Defence in depth: even a caller
+        // who somehow obtains a CSRF token still cannot reach the handler.
         const res = await request(app).post("/api/support/chat").send({ message: "hello" });
-        expect(res.status).toBe(401);
+        expect(res.status).toBe(403);
+
+        const { agent, csrf } = await setupClient();
+        const withCsrf = await agent
+            .post("/api/support/chat")
+            .set("X-CSRF-Token", csrf)
+            .send({ message: "hello" });
+        expect(withCsrf.status).toBe(401);
     });
 });
