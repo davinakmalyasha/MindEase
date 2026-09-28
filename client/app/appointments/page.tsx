@@ -30,7 +30,7 @@ const SORT_OPTIONS: { value: SortOption; label: string; icon: React.ReactNode }[
 const PRICE_RANGES: { value: PriceRange; label: string }[] = [
     { value: "all", label: "All Prices" },
     { value: "under100", label: "< Rp 100k" },
-    { value: "100to300", label: "100k â€“ 300k" },
+    { value: "100to300", label: "100k – 300k" },
     { value: "over300", label: "> Rp 300k" },
 ];
 

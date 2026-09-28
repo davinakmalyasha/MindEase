@@ -106,7 +106,7 @@ export default function ForgotPasswordPage() {
                             {isLoading ? <Loader2 className="animate-spin" /> : "Set New Password"}
                         </button>
                         <button type="button" onClick={() => setStep(1)} className="w-full text-sm text-gray-500 hover:text-indigo-600">
-                            â† Change email
+                            Change email
                         </button>
                     </form>
                 )}
