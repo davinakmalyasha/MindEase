@@ -54,23 +54,37 @@ export class NotificationService {
         const wantsEmail = data.email === true;
 
         let prefs: NotificationPrefs = { ...DEFAULT_PREFS };
+        let recipientEmail: string | null = null;
         if (PREFS_TYPES.includes(type)) {
             const user = await prisma.user.findUnique({
                 where: { id: data.userId },
                 select: { notificationPrefs: true, email: true },
             });
             prefs = parsePrefs(user?.notificationPrefs ?? null);
+            recipientEmail = user?.email ?? null;
 
-            if (!prefs[type].inApp) return null;
+            // Channels are independent. The previous `if (!prefs[type].inApp)
+            // return null;` sat *above* the email branch, so a patient who
+            // turned off in-app notifications for appointments silently also
+            // stopped receiving booking confirmations by email.
+            if (!prefs[type].inApp && !(wantsEmail && prefs[type].email)) {
+                return null;
+            }
 
-            if (wantsEmail && prefs[type].email && user?.email) {
+            if (wantsEmail && prefs[type].email && recipientEmail) {
                 const { subject, html } = MailerService.buildNotificationEmail({
                     title: data.title,
                     message: data.message,
                     type,
                 });
-                MailerService.send(user.email, subject, html).catch(() => {});
+                MailerService.send(recipientEmail, subject, html).catch(() => {});
             }
+        }
+
+        if (!prefs[type]?.inApp) {
+            // Email-only: the in-app row is suppressed, which is the point of
+            // the channel being separate.
+            return null;
         }
 
         const notification = await prisma.notification.create({
@@ -127,8 +141,24 @@ export class NotificationService {
         return parsePrefs(user?.notificationPrefs ?? null);
     }
 
-    static async updatePreferences(userId: number, prefs: Partial<NotificationPrefs>) {
-        const clean = { ...JSON.parse(JSON.stringify(DEFAULT_PREFS)), ...prefs };
+    static async updatePreferences(userId: number, prefs: Partial<Record<string, unknown>>) {
+        // Only the three known categories are persisted, and each is coerced to
+        // the `{inApp, email}` shape, so a malformed payload can never write
+        // junk that `parsePrefs` later has to defend against.
+        const clean: NotificationPrefs = JSON.parse(JSON.stringify(DEFAULT_PREFS));
+        for (const type of PREFS_TYPES) {
+            const incoming = prefs?.[type];
+            if (incoming === undefined) continue;
+            if (typeof incoming === "boolean") {
+                clean[type].inApp = incoming;
+                continue;
+            }
+            if (typeof incoming === "object" && incoming !== null) {
+                const v = incoming as Record<string, unknown>;
+                if (typeof v.inApp === "boolean") clean[type].inApp = v.inApp;
+                if (typeof v.email === "boolean") clean[type].email = v.email;
+            }
+        }
         await prisma.user.update({
             where: { id: userId },
             data: { notificationPrefs: JSON.stringify(clean) },
@@ -137,18 +167,26 @@ export class NotificationService {
     }
 
     static async getUserNotifications(userId: number, page = 1, limit = 20) {
-        const skip = (page - 1) * limit;
-        const take = Math.min(limit, 30);
+        // Clamp once, then derive `skip` from the clamped page size. Computing
+        // `skip` from an unclamped `limit` while `take` was clamped made page 2
+        // of `?limit=100&page=2` start at row 100 and return 50 rows, so pages
+        // were skipped and rows duplicated across boundaries.
+        const take = Math.max(1, Math.min(limit, 30));
+        const currentPage = Math.max(1, page);
+        const skip = (currentPage - 1) * take;
         const [rows, total] = await Promise.all([
             prisma.notification.findMany({
                 where: { userId },
-                orderBy: { createdAt: "desc" },
+                // A unique tiebreaker is required for stable paging: `createdAt`
+                // alone collides at DATETIME(3) precision once concurrent
+                // inserts share a millisecond, which shifts rows between pages.
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
                 skip,
                 take,
             }),
             prisma.notification.count({ where: { userId } }),
         ]);
-        return { rows, total, page, totalPages: Math.ceil(total / take) };
+        return { rows, total, page: currentPage, totalPages: Math.ceil(total / take) };
     }
 
     static async markAsRead(notificationId: number, userId: number) {
