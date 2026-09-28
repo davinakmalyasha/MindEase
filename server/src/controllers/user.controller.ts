@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { UserService } from "../services/user.service";
 import { saveFile, deleteFile } from "../lib/storage";
+import { publicMessageFor } from "../utils/appError";
+import { logger } from "../utils/logger";
 
 export class UserController {
     static async getProfile(req: Request, res: Response) {
@@ -12,7 +14,7 @@ export class UserController {
             }
             res.json({ status: "success", data: profile });
         } catch (error: any) {
-            res.status(500).json({ status: "error", message: error.message });
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
         }
     }
 
@@ -28,11 +30,10 @@ export class UserController {
                 oldAvatar = current?.avatar;
             }
 
-            const profileData = {
-                ...req.body,
-            };
-
-            const updatedProfile = await UserService.updateProfile(userId, profileData, avatarUrl ?? req.body.avatar);
+            // `req.body` is the validated, allow-listed object: unknown keys are
+            // rejected by the schema and an avatar supplied in the body is
+            // ignored, so the only way to change an avatar is a real upload.
+            const updatedProfile = await UserService.updateProfile(userId, req.body, avatarUrl);
 
             // Clean up the replaced avatar (best-effort)
             if (avatarUrl && oldAvatar && oldAvatar !== avatarUrl) {
@@ -41,8 +42,8 @@ export class UserController {
 
             res.json({ status: "success", data: { user: updatedProfile } });
         } catch (error: any) {
-            console.error("[Update Profile Error]", error);
-            res.status(500).json({ status: "error", message: error.message });
+            logger.error({ err: error?.message, userId: req.user?.id }, "Update profile failed");
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again." });
         }
     }
 }
