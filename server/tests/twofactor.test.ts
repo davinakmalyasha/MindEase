@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createUser, createDoctor } from "./helpers";
+import request from "supertest";
+import speakeasy from "speakeasy";
+import { app, createUser, createDoctor, accessTokenFrom, PASSWORD } from "./helpers";
 
 const futureDate = (days = 3) => {
     const d = new Date();
@@ -55,10 +57,85 @@ describe("2FA (TOTP)", () => {
             .post("/api/account/2fa/verify")
             .set("X-CSRF-Token", doctor.csrf)
             .send({ token: login.body.data.twoFactorToken, code: code2 });
-        if (verify.status !== 200) {
-            console.log("VERIFY FAILED:", JSON.stringify(verify.body), "code2:", code2, "secret:", secret);
-        }
         expect(verify.status).toBe(200);
-        expect(verify.body.data.accessToken).toBeTruthy();
+        // The session is delivered as an HttpOnly cookie only — never in the
+        // JSON body, where any script on the page could read it.
+        expect(accessTokenFrom(verify)).toBeTruthy();
+        expect(verify.body.data.accessToken).toBeUndefined();
+    });
+
+    it("does not issue a usable session before the second factor", async () => {
+        const user = await createUser("patient");
+        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const secret = setup.body.data.secret;
+        const code = speakeasy.totp({ secret, encoding: "base32" });
+        await user.agent
+            .post("/api/account/2fa/enable")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ code });
+
+        const login = await user.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        expect(login.body.data.requires2FA).toBe(true);
+        const ticket = login.body.data.twoFactorToken;
+        expect(ticket).toBeTruthy();
+
+        // No session cookies are set by a login that stopped at the gate.
+        const cookieNames = (login.headers["set-cookie"] ?? []).map((c: string) => c.split("=")[0]);
+        expect(cookieNames).not.toContain("accessToken");
+        expect(cookieNames).not.toContain("refreshToken");
+
+        // A bare request, with no cookie jar of its own, so the only credential
+        // presented is the pending ticket. This is the regression the test
+        // exists for: the ticket used to be signed with the access-token secret
+        // and was accepted verbatim by `authenticate`.
+        const asAccessToken = await request(app)
+            .get("/api/notifications")
+            .set("Authorization", `Bearer ${ticket}`);
+        expect(asAccessToken.status).toBe(401);
+
+        // Nor as a refresh token.
+        const asRefresh = await request(app)
+            .post("/api/auth/refresh")
+            .set("Cookie", `refreshToken=${ticket}`);
+        expect(asRefresh.status).toBe(403);
+    });
+
+    it("rejects a replayed TOTP code", async () => {
+        // A captured code stays valid for roughly 90 seconds under the +/- 1
+        // step tolerance, so it must not be usable twice.
+        const user = await createUser("patient");
+        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const secret = setup.body.data.secret;
+        await user.agent
+            .post("/api/account/2fa/enable")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ code: speakeasy.totp({ secret, encoding: "base32" }) });
+
+        const code = speakeasy.totp({ secret, encoding: "base32" });
+        const first = await user.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        const ticket = first.body.data.twoFactorToken;
+
+        const used = await user.agent
+            .post("/api/account/2fa/verify")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ token: ticket, code });
+        expect(used.status).toBe(200);
+
+        // A second login presents the same captured code.
+        const second = await user.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        const replay = await user.agent
+            .post("/api/account/2fa/verify")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ token: second.body.data.twoFactorToken, code });
+        expect(replay.status).toBe(401);
     });
 });
