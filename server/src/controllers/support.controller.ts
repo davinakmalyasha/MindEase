@@ -5,13 +5,29 @@ import { WhatsAppService } from "../services/wa.service";
 import { MailerService } from "../services/mailer.service";
 import { prisma } from "../lib/prisma";
 import { publishEvent } from "../services/realtime.service";
+import { AuditService } from "../services/audit.service";
+import { logger } from "../utils/logger";
+import { CRISIS_HOTLINES, type CrisisHotline } from "../services/clinicalSafety.service";
 
-const CRISIS_HOTLINES = [
-    { name: "Emergency (Indonesia)", contact: "112 / 119" },
-    { name: "Kemenkes SEJIWA", contact: "119 ext 8" },
-    { name: "Halo Kemenkes", contact: "1500-567" },
-    { name: "Into The Light (WhatsApp)", contact: "+62 812-123-2012" },
-];
+const CRISIS_PAGE = "/crisis";
+
+/**
+ * Hotlines are returned on every response path, including failures and
+ * rate-limit rejections. A person in acute distress who has pressed SOS four
+ * times in an hour must still be handed a phone number.
+ */
+const crisisPayload = (extra: Record<string, unknown> = {}): {
+    doctorAlerted: boolean;
+    doctorName: string | null;
+    hotlines: CrisisHotline[];
+    crisisPage: string;
+} => ({
+    doctorAlerted: false,
+    doctorName: null,
+    hotlines: CRISIS_HOTLINES,
+    crisisPage: CRISIS_PAGE,
+    ...extra,
+});
 
 export class SupportController {
     static async chat(req: Request, res: Response) {
@@ -20,81 +36,125 @@ export class SupportController {
             const result = await SupportService.chat(message, history || []);
             res.json({ status: "success", data: result });
         } catch (error: any) {
+            logger.error({ err: error.message }, "Support chat failed");
             res.status(500).json({ status: "error", message: "Support chat unavailable, please try again" });
         }
     }
 
     /**
-     * SOS: alerts the patient's latest doctor via notification + realtime push
-     * and returns crisis hotlines. Deterministic and fast (no AI call).
+     * SOS: alerts the patient's assigned doctor via notification + realtime
+     * push and returns crisis hotlines. Deterministic and fast (no AI call).
+     *
+     * Every downstream alerting channel is isolated: a failing third party must
+     * never turn a successfully recorded SOS into a reported failure, because
+     * the user is then told nothing happened when a doctor was in fact paged.
      */
     static async sos(req: Request, res: Response) {
-        try {
-            const user = req.user!;
-            if (user.role !== "patient") {
-                return res.status(403).json({ status: "error", message: "Only patients can trigger SOS" });
-            }
+        const user = req.user!;
+        if (user.role !== "patient") {
+            return res.status(403).json({ status: "error", message: "Only patients can trigger SOS" });
+        }
 
-            // Latest doctor (confirmed or completed appointment)
-            const appointment = await prisma.appointment.findFirst({
+        // Latest doctor with an active or past clinical relationship.
+        const appointment = await prisma.appointment
+            .findFirst({
                 where: { userId: user.id, status: { in: ["confirmed", "completed"] } },
                 orderBy: { appointmentDate: "desc" },
-                include: {
-                    doctor: { include: { user: { select: { id: true, name: true } } } },
-                },
-            });
+                select: { doctor: { select: { userId: true, user: { select: { id: true, name: true } } } } },
+            })
+            .catch(() => null);
 
-            let doctorAlerted = false;
-            if (appointment) {
-                const doctor = appointment.doctor;
-                await NotificationService.create({
-                    userId: doctor.user.id,
-                    title: "SOS Alert from a patient",
-                    message: `Your patient (${user.name || "a patient"}) pressed the SOS button and needs support. Please check in with them.`,
-                    type: "system",
-                    email: true,
-                });
-                await publishEvent(doctor.user.id, {
-                    type: "sos:alert",
-                    payload: {
-                        patientName: user.name || "Patient",
-                        patientId: user.id,
-                    },
-                });
-                doctorAlerted = true;
+        if (!appointment) {
+            // No clinician is attached, so nobody can be paged. Say so plainly
+            // rather than implying a human was notified.
+            await AuditService.log({
+                action: "sos.triggered",
+                actorId: user.id,
+                meta: { doctorAlerted: false, reason: "no_assigned_doctor" },
+            }).catch(() => {});
 
-                // Hardened alerting: also ping the doctor via WhatsApp when configured
-                const doctorUser = await prisma.user.findUnique({
-                    where: { id: doctor.user.id },
-                    select: { phone_number: true, email: true },
-                });
-                if (doctorUser?.phone_number) {
-                    await WhatsAppService.send(
-                        doctorUser.phone_number,
-                        `SOS: your patient (${user.name || "a patient"}) pressed the SOS button on MindEase and needs support. Please check in with them as soon as possible.`
-                    );
-                }
-                if (doctorUser?.email) {
-                    const { subject, html } = MailerService.buildNotificationEmail({
-                        title: "SOS Alert from a patient",
-                        message: `Your patient (${user.name || "a patient"}) pressed the SOS button and needs support. Please check in with them as soon as possible.`,
-                        type: "system",
-                    });
-                    MailerService.send(doctorUser.email, subject, html).catch(() => {});
-                }
-            }
-
-            res.json({
+            return res.json({
                 status: "success",
-                data: {
-                    doctorAlerted,
-                    doctorName: appointment?.doctor.user.name || null,
-                    hotlines: CRISIS_HOTLINES,
-                    crisisPage: "/crisis",
-                },
+                data: crisisPayload({
+                    doctorAlerted: false,
+                    reachedCareTeam: false,
+                    message:
+                        "We could not reach a care team because you have no active therapist. Please call one of the numbers below now.",
+                }),
             });
-        } catch (error: any) {
-            res.status(500).json({ status: "error", message: "Failed to send SOS. Please call a hotline directly." });
         }
+
+        const doctorUserId = appointment.doctor.userId;
+        const patientName = user.name || "a patient";
+        const alertText = `Your patient (${patientName}) pressed the SOS button and needs support. Please check in with them.`;
+
+        // --- Channel 1: in-app notification (must succeed to count as alerted)
+        try {
+            await NotificationService.create({
+                userId: doctorUserId,
+                title: "SOS Alert from a patient",
+                message: alertText,
+                type: "system",
+                email: true,
+            });
+        } catch (err: any) {
+            logger.error({ err: err.message, doctorUserId }, "SOS in-app notification failed");
+        }
+
+        // --- Channel 2: realtime push
+        try {
+            await publishEvent(doctorUserId, {
+                type: "sos:alert",
+                payload: { patientName, patientId: user.id },
+            });
+        } catch (err: any) {
+            logger.error({ err: err.message, doctorUserId }, "SOS realtime publish failed");
+        }
+
+        // --- Channel 3 & 4: out-of-band, best effort
+        const doctorUser = await prisma.user
+            .findUnique({
+                where: { id: doctorUserId },
+                select: { phone_number: true, email: true },
+            })
+            .catch(() => null);
+
+        if (doctorUser?.phone_number) {
+            try {
+                await WhatsAppService.send(doctorUser.phone_number, `SOS: ${alertText}`);
+            } catch (err: any) {
+                logger.error({ err: err.message }, "SOS WhatsApp alert failed");
+            }
+        }
+
+        if (doctorUser?.email) {
+            try {
+                const { subject, html } = MailerService.buildNotificationEmail({
+                    title: "SOS Alert from a patient",
+                    message: alertText,
+                    type: "system",
+                });
+                await MailerService.send(doctorUser.email, subject, html);
+            } catch (err: any) {
+                logger.error({ err: err.message }, "SOS email alert failed");
+            }
+        }
+
+        await AuditService.log({
+            action: "sos.triggered",
+            actorId: user.id,
+            targetType: "User",
+            targetId: doctorUserId,
+            meta: { doctorAlerted: true },
+        }).catch(() => {});
+
+        res.json({
+            status: "success",
+            data: crisisPayload({
+                doctorAlerted: true,
+                doctorName: appointment.doctor.user.name,
+                reachedCareTeam: true,
+            }),
+        });
     }
 }
