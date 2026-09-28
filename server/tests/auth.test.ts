@@ -103,12 +103,14 @@ describe("Auth", () => {
 
     it("verifies email via OTP", async () => {
         const user = await createUser("patient");
-        // OTP is printed to the mail log in dev; simulate by setting it directly
+        // The verification code lives in its own column pair, separate from the
+        // password-reset code, so requesting a reset cannot invalidate an
+        // in-flight email verification (and vice versa).
         const otp = "123456";
         const hash = await argon2.hash(otp);
         await prisma.user.update({
             where: { id: user.id },
-            data: { resetOtpHash: hash, resetOtpExpiresAt: new Date(Date.now() + 600000) },
+            data: { verifyOtpHash: hash, verifyOtpExpiresAt: new Date(Date.now() + 600000) },
         });
 
         const { agent, csrf } = await setupClient();
