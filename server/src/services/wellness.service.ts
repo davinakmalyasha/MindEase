@@ -15,6 +15,59 @@ export const ASSESSMENT_QUESTION_COUNTS: Record<AssessmentType, number> = {
     gad7: 7,
 };
 
+/**
+ * The two instruments, described once.
+ *
+ * Both are self-report *screening* instruments. They indicate whether further
+ * assessment is warranted; they do not diagnose, and the product must not
+ * present them as though they do. `max` is the instrument's own top score -
+ * they differ, which is exactly why both instruments can never share an axis.
+ *
+ * Sourced here rather than in the client so a chart cannot quietly disagree
+ * with the server about where a band starts.
+ */
+export const INSTRUMENTS: Record<
+    AssessmentType,
+    { label: string; max: number; bands: { upTo: number; severity: string }[] }
+> = {
+    phq9: {
+        label: "PHQ-9",
+        max: 27,
+        bands: [
+            { upTo: 4, severity: "minimal" },
+            { upTo: 9, severity: "mild" },
+            { upTo: 14, severity: "moderate" },
+            { upTo: 19, severity: "moderately-severe" },
+            { upTo: 27, severity: "severe" },
+        ],
+    },
+    gad7: {
+        label: "GAD-7",
+        max: 21,
+        bands: [
+            { upTo: 4, severity: "minimal" },
+            { upTo: 9, severity: "mild" },
+            { upTo: 14, severity: "moderate" },
+            { upTo: 21, severity: "severe" },
+        ],
+    },
+};
+
+/**
+ * "Fewer than three sittings" is the honest answer for anything shorter.
+ * A single sitting is not a trend, and a two-point difference between two
+ * measurements is inside the noise of a self-report instrument.
+ */
+const describeDirection = (
+    totalChange: number | null,
+    sittings: number
+): "improving" | "worsening" | "stable" | "insufficient-data" => {
+    if (totalChange === null || sittings < 3) return "insufficient-data";
+    if (totalChange <= -3) return "improving";
+    if (totalChange >= 3) return "worsening";
+    return "stable";
+};
+
 const severityFor = (type: AssessmentType, score: number): string => {
     if (type === "phq9") {
         if (score <= 4) return "minimal";
@@ -303,6 +356,61 @@ export class WellnessService {
             orderBy: { createdAt: "desc" },
             take: Math.min(limit, 100),
         });
+    }
+
+    /**
+     * A scored series for one instrument, oldest first, with the change since
+     * the previous sitting.
+     *
+     * The clinical framing belongs here, not in the chart. A screening
+     * instrument moving from 18 to 11 is a change in a *screening score*, and
+     * the response says so explicitly rather than reporting "an 7-point
+     * improvement", which reads as a treatment effect. PHQ-9 and GAD-7 are
+     * screening tools; they are not diagnoses, and a trend line is not
+     * evidence of recovery.
+     *
+     * `bands` travels with the data so a client cannot invent its own cut-offs
+     * and get them subtly wrong per instrument - the two scales differ, and
+     * both are already wrong in most client code that hardcodes them.
+     */
+    static async getAssessmentTrajectory(userId: number, type: AssessmentType, limit = 24) {
+        const rows = await prisma.assessment.findMany({
+            where: { userId, type },
+            orderBy: { createdAt: "asc" },
+            take: Math.min(limit, 100),
+            select: { id: true, score: true, severity: true, createdAt: true },
+        });
+
+        const points = rows.map((row, i) => ({
+            id: row.id,
+            score: row.score,
+            severity: row.severity,
+            createdAt: row.createdAt,
+            // Negative means the score fell, which is the direction these scales
+            // move in when symptoms ease. Named rather than left as a signed
+            // number so a client cannot render it as an increase in severity.
+            changeFromPrevious: i === 0 ? null : row.score - rows[i - 1].score,
+        }));
+
+        const first = points[0]?.score ?? null;
+        const last = points[points.length - 1]?.score ?? null;
+        const totalChange = first !== null && last !== null ? last - first : null;
+
+        return {
+            type,
+            instrument: INSTRUMENTS[type],
+            points,
+            summary: {
+                sittings: points.length,
+                first,
+                latest: last,
+                totalChange,
+                // Null rather than "stable" when there is not enough data. A
+                // single sitting is not a trend, and calling it stable would be
+                // a claim about a person made from one data point.
+                direction: describeDirection(totalChange, points.length),
+            },
+        };
     }
 
     static async getLatestAssessments(userId: number) {

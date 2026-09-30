@@ -15,6 +15,8 @@ import {
     AssessmentListSchema,
     MoodStatsSchema,
     JournalIdSchema,
+    ResolveRiskAlertSchema,
+    TrajectorySchema,
     idParam,
 } from "../schemas/wellness.schema";
 
@@ -37,9 +39,21 @@ router.post("/journal/summarize", skipInTest(aiLimiter), validate(JournalSummari
 router.post("/assessments", validate(SubmitAssessmentSchema), WellnessController.submitAssessment);
 router.get("/assessments", validate(AssessmentListSchema), WellnessController.getAssessments);
 
-// Risk disclosures raised by self-report instruments. Scoped to patients the
-// requesting clinician actually has a clinical relationship with.
+// The clinician triage queue. Scoped to patients the requesting clinician
+// actually has a clinical relationship with, or alerts explicitly assigned to
+// them.
+//
+// These three endpoints return the disclosure a patient made about thoughts of
+// self-harm, so they are the highest-consequence surface in the API: every one
+// of them filters server-side, and none of them trusts a client-supplied
+// patient id.
 router.get("/risk-alerts", requireDoctor, ClinicalSafetyController.listForDoctor);
 router.post("/risk-alerts/:id/acknowledge", requireDoctor, validate(idParam), ClinicalSafetyController.acknowledge);
+router.post("/risk-alerts/:id/resolve", requireDoctor, validate(idParam), validate(ResolveRiskAlertSchema), ClinicalSafetyController.resolve);
+
+// Longitudinal screening trajectory. Distinct from GET /assessments, which
+// returns the raw history: this returns a scored series with the instrument's
+// bands, for plotting.
+router.get("/assessments/trajectory", validate(TrajectorySchema), WellnessController.getAssessmentTrajectory);
 
 export default router;
