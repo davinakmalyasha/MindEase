@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { NotificationService } from "./notification.service";
+import { conflict, notFound } from "../utils/appError";
 
 /** A waitlist row is stale once this long has passed without the patient booking. */
 const NOTIFICATION_TTL_MS = 48 * 60 * 60 * 1000;
@@ -9,13 +10,13 @@ const WAITING_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export class WaitlistService {
     static async join(doctorId: number, patientId: number) {
         const doctor = await prisma.doctor.findUnique({ where: { id: doctorId } });
-        if (!doctor) throw new Error("Doctor not found");
+        if (!doctor) throw notFound("Doctor not found");
 
         const existing = await prisma.waitlistEntry.findUnique({
             where: { doctorId_patientId: { doctorId, patientId } },
         });
         if (existing && existing.status !== "expired" && existing.status !== "booked") {
-            throw new Error("You are already on this waitlist");
+            throw conflict("You are already on this waitlist");
         }
 
         // One row per (doctor, patient). The previous unique key included
