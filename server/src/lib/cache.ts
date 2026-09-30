@@ -176,7 +176,7 @@ export const closeCache = async () => {
 export const acquireLock = async (key: string, ttlSeconds = 600): Promise<boolean> => {
     const redisKey = `lock:${key}`;
 
-    let client: RedisClient | null = null;
+    let client: RedisClient | null;
     try {
         client = await getClient();
     } catch {
