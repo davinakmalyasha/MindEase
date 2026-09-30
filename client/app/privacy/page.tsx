@@ -10,6 +10,22 @@ export async function generateMetadata() {
     };
 }
 
+/**
+ * `"9. Cookies & storage"` -> `"cookies-storage"`.
+ *
+ * Sections used to render bare `<div>`s with no `id`, so the cookie banner's
+ * `/privacy#cookies` link and the footer's both resolved to nothing. The anchor
+ * is derived from the heading rather than hand-written, so it cannot drift from
+ * the content, and `&` is dropped so the common case reads as one word.
+ */
+const slugify = (title: string) =>
+    title
+        .replace(/^\d+\.\s*/, "")
+        .toLowerCase()
+        .replace(/&/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
 const SECTIONS = [
     {
         title: "1. Who we are",
@@ -81,10 +97,19 @@ export default async function PrivacyPage() {
 
                 <div className="space-y-8">
                     {SECTIONS.map((s) => (
-                        <div key={s.title} className="bg-white rounded-3xl border border-gray-100 p-8">
+                        <section
+                            key={s.title}
+                            // Anchors are derived from the heading so the cookie
+                            // banner's `/privacy#cookies` link and the footer's
+                            // resolve to a real element. They previously pointed at
+                            // nothing, because the sections rendered bare `<div>`s
+                            // with no `id` at all.
+                            id={slugify(s.title)}
+                            className="bg-white rounded-3xl border border-gray-100 p-8 scroll-mt-28"
+                        >
                             <h2 className="text-xl font-extrabold text-gray-900 mb-3">{s.title}</h2>
                             <p className="text-gray-600 leading-relaxed">{s.body}</p>
-                        </div>
+                        </section>
                     ))}
                 </div>
 
