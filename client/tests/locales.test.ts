@@ -96,7 +96,16 @@ describe("locale files", () => {
         //
         // Anything else matching between the files is untranslated prose, and
         // would render as English in the middle of an Indonesian page.
-        const allowIdentical = new Set(["common.appName", "auth.email"]);
+        //
+        //  - "Status" is listed because it is not English that leaked through:
+        //    it is the Indonesian word as well, identically spelt. Translating
+        //    it would mean inventing a synonym to satisfy a test, which makes
+        //    the check less meaningful, not more.
+        const allowIdentical = new Set([
+            "common.appName",
+            "auth.email",
+            "features.doctorProfile.credentialsStatusLabel",
+        ]);
         const isHotlineData = (path: string) =>
             /^staticPages\.(crisis|offline)\.hotlines\.\d+\.(number|dial|contact|name)$/.test(path);
 

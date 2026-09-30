@@ -183,6 +183,17 @@
       "alertDoctor": "Hubungi dokter saya",
       "viewAllResources": "Lihat semua sumber daya krisis",
       "offlineFallback": "Sepertinya Anda sedang offline, sehingga dokter Anda mungkin belum dihubungi. Silakan hubungi hotline sekarang."
+    },
+    "doctorProfile": {
+      "credentialsTitle": "Registrasi dan kredensial",
+      "credentialsStatusLabel": "Status",
+      "credentialsReviewed": "Profil ditinjau oleh MindEase",
+      "credentialsPending": "Menunggu peninjauan",
+      "credentialsLicenceLabel": "Lisensi",
+      "credentialsNotProvided": "Tidak disediakan",
+      "credentialsDisclaimer": "Profil yang telah ditinjau berarti administrator MindEase telah memeriksa informasi yang dikirimkan oleh klinisi. Peninjauan ini bukan pemeriksaan terhadap dewan lisensi, dan MindEase tidak terhubung dengan dewan lisensi mana pun. Jika nomor lisensi ditampilkan, itu adalah pernyataan klinisi sendiri dan belum dikonfirmasi secara independen. Jika Anda membutuhkan bukti registrasi, mintakan detail registrasinya kepada klinisi.",
+      "scheduleNotPublished": "Jadwal rutin klinisi ini belum dipublikasikan. Slot waktu yang tersedia ditampilkan di halaman pemesanan.",
+      "scheduleMayChange": "Ketersediaan dapat berubah sewaktu-waktu."
     }
   },
   "staticPages": {

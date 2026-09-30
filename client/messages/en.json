@@ -183,6 +183,17 @@
       "alertDoctor": "Alert my doctor",
       "viewAllResources": "View all crisis resources",
       "offlineFallback": "You appear to be offline, so your doctor may not have been reached. Please call a hotline now."
+    },
+    "doctorProfile": {
+      "credentialsTitle": "Registration and credentials",
+      "credentialsStatusLabel": "Status",
+      "credentialsReviewed": "Profile reviewed by MindEase",
+      "credentialsPending": "Awaiting review",
+      "credentialsLicenceLabel": "Licence",
+      "credentialsNotProvided": "Not provided",
+      "credentialsDisclaimer": "A reviewed profile means an administrator at MindEase has checked the information a clinician submitted. It is not a check against a licensing board, and MindEase is not connected to one. Where a licence number is shown, it is the clinician's own statement and has not been independently confirmed. If you need a registration confirmed, ask the clinician for their registration details.",
+      "scheduleNotPublished": "This clinician has not published a regular schedule. Available times are shown on the booking page.",
+      "scheduleMayChange": "Availability may change at any time."
     }
   },
   "staticPages": {
