@@ -43,7 +43,10 @@ test.describe("Journey 1: Patient registers, logs mood, books an appointment", (
         await expect(page.getByText(/Book an/)).toBeVisible({ timeout: 15_000 });
 
         // Pick a genuinely free slot from the API first (deterministic, no retries)
-        const doctorId = 2; // Dr. Sarah Mitchell (seeded with slots)
+        // Seeded doctor 2, which the seed creates with availability. Not named
+        // here because the seed's name list is shuffled — the profile is read
+        // from the API below rather than asserted against a literal.
+        const doctorId = 2;
         const docRes = await page.request.get(`${API}/doctors/${doctorId}`);
         const docData = (await docRes.json()).data;
         const freeSlot = (docData.consultationSlots || []).find((s: any) => !s.isBooked);
@@ -171,7 +174,13 @@ test.describe("Journey 6: Review reply + report (round 3)", () => {
         await page.goto("/doctors/1");
         await expect(page.getByText(/Latest Reviews/)).toBeVisible({ timeout: 15_000 });
 
-        // Actions render for the owning doctor (requires reviews to exist in the seed)
+        // Actions render for the owning doctor. Conditional because the seed
+        // deliberately creates no reviews: Phase 0 removed the fabricated
+        // ratings the seed used to invent, since a real doctor's review count
+        // must not be populated with fake entries. With an empty seed this
+        // journey asserts the page loads and passes without exercising the
+        // reply/report path — see the note in README about covering it with a
+        // self-contained booking -> complete -> review flow.
         const replyAction = page.getByRole("button", { name: /^Reply$/ }).first();
         const reportAction = page.getByRole("button", { name: /Report/ }).first();
         if (await replyAction.isVisible().catch(() => false)) {
