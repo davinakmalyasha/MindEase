@@ -26,6 +26,17 @@ export interface Doctor {
     bio: string;
     price: number;
     availability?: string;
+    /**
+     * Stated by the clinician. The API has always returned these; the profile
+     * page previously ignored them and rendered a fixed list of clinical focus
+     * areas instead, which asserted a scope for every psychologist in the
+     * directory that nothing in the data supported.
+     */
+    languages?: string | null;
+    education?: string | null;
+    /** Free-text until the specialty taxonomy lands. */
+    licenseNumber?: string | null;
+    licenseIssuer?: string | null;
 }
 
 export interface AppointmentWithDoctor {
