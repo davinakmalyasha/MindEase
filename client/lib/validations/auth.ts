@@ -31,5 +31,25 @@ export const LoginSchema = z.object({
     password: z.string().min(1, "Password is required"),
 });
 
-export type RegisterFormData = z.infer<typeof RegisterSchema>;
-export type LoginFormData = z.infer<typeof LoginSchema>;
+// The schema's *input* and *output* types differ: `phoneNumberRules` transforms
+// `""` to `undefined`, so the key is optional on input but always present on
+// output. React Hook Form holds the values the user typed (the input), while
+// the submit handler receives the validated (output) values, so both types are
+// needed and conflating them makes `zodResolver` unassignable to `useForm`.
+// The output type is the one that reaches the API.
+export type RegisterFormInput = z.input<typeof RegisterSchema>;
+export type RegisterFormData = z.output<typeof RegisterSchema>;
+export type LoginFormInput = z.input<typeof LoginSchema>;
+export type LoginFormData = z.output<typeof LoginSchema>;
+
+/**
+ * Normalises validated form input into the exact payload the API accepts.
+ *
+ * React Hook Form's `handleSubmit` hands the handler the schema's *input* shape,
+ * so the `phoneNumberRules` transform (which maps `""` to `undefined`) never
+ * reaches the caller. Re-parsing applies it and guarantees the object on the
+ * wire satisfies the schema, rather than sending `phone_number: ""` to an
+ * endpoint that treats the field as optional.
+ */
+export const toRegisterPayload = (data: RegisterFormInput): RegisterFormData =>
+    RegisterSchema.parse(data);

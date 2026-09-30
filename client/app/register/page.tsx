@@ -8,28 +8,32 @@ import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/api";
-import { RegisterSchema, type RegisterFormData } from "@/lib/validations/auth";
+import { RegisterSchema, type RegisterFormInput, toRegisterPayload } from "@/lib/validations/auth";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
+import { useTranslations } from "next-intl";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 export default function RegisterPage() {
+    const ta = useTranslations("auth");
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const { register, loginWithGoogle } = useAuth();
     const refCode = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
 
-    const { register: field, handleSubmit, setValue, watch, formState: { errors } } = useForm<RegisterFormData>({
+    const { register: field, handleSubmit, setValue, watch, formState: { errors } } = useForm<RegisterFormInput>({
         resolver: zodResolver(RegisterSchema),
         defaultValues: { role: "patient" },
     });
     const selectedRole = watch("role");
 
-    const onSubmit = async (data: RegisterFormData) => {
+    const onSubmit = async (data: RegisterFormInput) => {
         setIsLoading(true);
         setError(null);
         try {
-            const user = await register({ ...data, referralCode: refCode || undefined });
+            // Applies the schema's transforms (empty phone -> undefined) so the
+            // payload matches the endpoint's contract exactly.
+            const user = await register({ ...toRegisterPayload(data), referralCode: refCode || undefined });
             window.location.href = user.role === "patient" ? "/dashboard/mood" : "/dashboard";
         } catch (err: any) {
             setError(getErrorMessage(err, "Registration failed"));
@@ -116,7 +120,7 @@ export default function RegisterPage() {
                         {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">I want to join as</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">{ta("joinAs")}</label>
                         <div className="grid grid-cols-2 gap-3">
                             {(["patient", "doctor"] as const).map((role) => (
                                 <button
