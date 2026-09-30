@@ -1,4 +1,6 @@
-﻿import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
+import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { cookies } from "next/headers";
 import ThemeProvider from "@/components/ui/ThemeProvider";
 import IntlProvider from "@/components/ui/IntlProvider";
@@ -29,11 +31,11 @@ const geistMono = Geist_Mono({
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  weight: ['300', '400', '500', '600', '700', '800'],
-  variable: '--font-jakarta',
+  weight: ["300", "400", "500", "600", "700", "800"],
+  variable: "--font-jakarta",
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://mindease.app"),
   title: {
     default: "MindEase - Mental Health Consultation Platform",
@@ -55,7 +57,7 @@ export const metadata = {
   robots: { index: true, follow: true },
 };
 
-export default async function RootLayout({ children }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
   const cookieStore = await cookies();
   const locale = cookieStore.get("locale")?.value === "id" ? "id" : "en";
   const messages = locale === "id" ? idMessages : enMessages;
