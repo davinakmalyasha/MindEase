@@ -10,6 +10,7 @@ import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { formatIDR } from "@/lib/format";
+import { formatPublishedSchedule, hasPublishedSchedule } from "@/lib/doctorSchedule";
 import { useAuth } from "@/context/AuthContext";
 import {
     Star,
@@ -92,6 +93,7 @@ function ReviewReplyForm({ reviewId, onDone }: { reviewId: number; onDone: () =>
 
 export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfileProps) {
     const tr = useTranslations("features.reviewReply");
+    const t = useTranslations("features.doctorProfile");
     const { toast } = useToast();
     const { user } = useAuth();
     const confirm = useConfirm();
@@ -434,6 +436,74 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                         </div>
                     </motion.section>
 
+                    {/* Credentials.
+                        The licence fields existed in the schema and were
+                        write-only: a clinician entered them and no patient could
+                        see them. What is displayed is what they actually stated,
+                        and the verification badge is described for what it really
+                        is - see the wording below. */}
+                    <motion.section
+                        initial={{ y: 20, opacity: 0 }}
+                        whileInView={{ y: 0, opacity: 1 }}
+                        viewport={{ once: true }}
+                        className="mb-12"
+                    >
+                        <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-3">
+                            <ShieldCheck className="w-7 h-7 text-indigo-500" />
+                            {t("credentialsTitle")}
+                        </h2>
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-baseline gap-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                    {t("credentialsStatusLabel")}
+                                </span>
+                                {doctor.isVerified ? (
+                                    <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700">
+                                        <BadgeCheck className="h-4 w-4" />
+                                        {t("credentialsReviewed")}
+                                    </span>
+                                ) : (
+                                    <span className="text-sm font-bold text-amber-700">
+                                        {t("credentialsPending")}
+                                    </span>
+                                )}
+                            </div>
+
+                            {doctor.licenseNumber ? (
+                                <div className="flex flex-wrap items-baseline gap-3">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        {t("credentialsLicenceLabel")}
+                                    </span>
+                                    <span className="text-sm font-semibold text-gray-700">
+                                        {doctor.licenseNumber}
+                                        {doctor.licenseIssuer ? ` · ${doctor.licenseIssuer}` : ""}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="flex flex-wrap items-baseline gap-3">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        {t("credentialsLicenceLabel")}
+                                    </span>
+                                    <span className="text-sm font-medium text-gray-400 italic">
+                                        {t("credentialsNotProvided")}
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* The one thing on this page most likely to be
+                                misread. `verificationStatus: approved` is an
+                                administrative decision inside this platform -
+                                it is not a check against a licence board, and
+                                there is no integration with one. Saying so
+                                plainly is the difference between a useful
+                                disclosure and a reassurance the platform cannot
+                                actually give. */}
+                            <p className="text-xs leading-relaxed text-gray-500 bg-gray-50 rounded-2xl p-4">
+                                {t("credentialsDisclaimer")}
+                            </p>
+                        </div>
+                    </motion.section>
+
                     {/* Packages Section */}
                     <section className="mb-12">
                         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
@@ -604,12 +674,21 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                         </div>
 
                         <div className="space-y-4 mb-8">
-                            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
-                                <Calendar className="w-5 h-5 text-indigo-500" />
-                                <span className="text-sm font-bold text-gray-700">{doctor.availability || "Mon - Fri, 09:00 - 17:00"}</span>
+                            <div className="flex items-start gap-4 p-4 bg-gray-50 rounded-2xl">
+                                <Calendar className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
+                                <div className="min-w-0">
+                                    <span className="text-sm font-bold text-gray-700">
+                                        {formatPublishedSchedule(doctor)}
+                                    </span>
+                                    {!hasPublishedSchedule(doctor) && (
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            {t("scheduleNotPublished")}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                             <p className="text-xs text-center text-gray-400 font-medium">
-                                *Schedule availability may change at any time.
+                                {t("scheduleMayChange")}
                             </p>
                         </div>
 

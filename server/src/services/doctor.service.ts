@@ -155,7 +155,7 @@ export class DoctorService {
         // cache below keeps the extra round trip off the hot path.
         const doctorRow = await prisma.doctor.findUnique({
             where: { id },
-            select: { awayUntil: true },
+            select: { awayUntil: true, availability: true },
         });
 
         const slotWhere: Prisma.ConsultationSlotWhereInput = {
@@ -175,9 +175,29 @@ export class DoctorService {
                 rating: true,
                 totalReviews: true,
                 licenseNumber: true,
+                licenseIssuer: true,
                 languages: true,
                 education: true,
                 verificationStatus: true,
+                // The clinician's own free-text availability label. Distinct
+                // from the weekly patterns below and from the live slots above:
+                // this is what the clinician typed, the other two are what the
+                // system knows. Returned because the profile used to invent
+                // hours when this was absent.
+                availability: true,
+                // The clinician's actual recurring schedule.
+                //
+                // A patient asking "who is treating me and when are they
+                // available" was previously answered with a hardcoded
+                // "Mon - Fri, 09:00 - 17:00" on a clinician who had never
+                // entered any hours. The real pattern is here, and a clinician
+                // who has set none returns an empty list, which the client
+                // renders as "not published" rather than as a guess.
+                availabilityPatterns: {
+                    where: { activeUntil: null },
+                    select: { weekday: true, startTime: true, endTime: true },
+                    orderBy: [{ weekday: "asc" }, { startTime: "asc" }],
+                },
                 user: {
                     select: {
                         id: true,

@@ -9,35 +9,7 @@ import DoctorGrid from "@/components/doctors/DoctorGrid";
 import Navbar from "@/components/layout/Navbar";
 import AiSourceBadge from "@/components/ui/AiSourceBadge";
 import api from "@/lib/api";
-
-interface ApiDoctor {
-    id: number;
-    specialty: string;
-    bio: string;
-    experience: number;
-    rating: number;
-    price: number;
-    availability: string;
-    verificationStatus?: string;
-    user: { name?: string; avatar?: string; phone_number?: string };
-    reviews?: any[];
-}
-
-const mapDoctor = (d: ApiDoctor): any => ({
-    id: d.id,
-    name: d.user?.name || "Doctor",
-    specialty: d.specialty,
-    avatar: d.user?.avatar || "",
-    image: d.user?.avatar || "",
-    rating: d.rating || 0,
-    reviewCount: (d as any)._count?.reviews || d.reviews?.length || 0,
-    experience: d.experience || 0,
-    isAvailable: d.availability === "Available",
-    isVerified: d.verificationStatus === "approved",
-    bio: d.bio || "",
-    price: d.price || 0,
-    availability: d.availability,
-});
+import { mapDoctor, type ApiDoctor } from "@/lib/mapDoctor";
 
 const PRICE_RANGES: Record<string, { min?: number; max?: number }> = {
     under100: { max: 100000 },
