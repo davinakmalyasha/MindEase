@@ -6,6 +6,7 @@ import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import DoctorProfile from "@/components/doctors/DoctorProfile";
 import api from "@/lib/api";
+import { jsonLdScript } from "@/lib/jsonLd";
 import { useAuth } from "@/context/AuthContext";
 
 interface ApiReview {
@@ -102,7 +103,11 @@ export default function DoctorDetailPage({ params }: { params: Promise<{ id: str
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
-                    __html: JSON.stringify({
+                    // Not a plain `JSON.stringify`: `name` and `specialty` are
+                    // clinician-supplied and this renders on the public profile
+                    // page, and an unescaped `</script` inside a value would end
+                    // the element and hand the rest to the HTML parser.
+                    __html: jsonLdScript({
                         "@context": "https://schema.org",
                         "@type": "MedicalBusiness",
                         name: doctor.name,
