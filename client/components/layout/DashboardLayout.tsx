@@ -10,6 +10,7 @@ import {
     History,
     User as UserIcon,
     ShieldCheck,
+    ShieldAlert,
     HeartPulse,
     MessageCircle,
     Bell,
@@ -48,6 +49,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             { label: t("assessments"), href: "/dashboard/assessments", icon: ClipboardCheck, roles: ["patient"] },
             { label: t("journal"), href: "/dashboard/journal", icon: BookOpen, roles: ["patient"] },
             { label: t("mySchedule"), href: "/dashboard/doctor/schedule", icon: CalendarClock, roles: ["doctor"] },
+    // The triage queue. Placed first among the clinician entries because it is
+    // the one page that can contain something time-critical.
+    {
+        label: t("riskQueue"),
+        href: "/dashboard/doctor/risk",
+        icon: ShieldAlert,
+        roles: ["doctor"],
+    },
             { label: t("aiBriefings"), href: "/dashboard/appointments", icon: Sparkles, roles: ["doctor"] },
             { label: t("analytics"), href: "/dashboard/analytics", icon: BarChart3, roles: ["doctor"] },
             { label: t("adminOverview"), href: "/dashboard/admin", icon: ShieldCheck, roles: ["admin"] },
