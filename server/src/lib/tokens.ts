@@ -11,7 +11,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { env } from "../config/env";
 
-export type TokenPurpose = "access" | "refresh" | "2fa-pending";
+export type TokenPurpose = "access" | "refresh" | "2fa-pending" | "ws-ticket";
 
 const ISSUER = "mindease";
 const ALGORITHMS: jwt.Algorithm[] = ["HS256"];
@@ -19,6 +19,11 @@ const ALGORITHMS: jwt.Algorithm[] = ["HS256"];
 const ACCESS_TTL = "15m";
 const REFRESH_TTL = "7d";
 const TWO_FACTOR_TTL = "5m";
+/**
+ * Short enough that a ticket captured from a proxy access log is worthless by
+ * the time it is read, and only ever used to open a socket.
+ */
+export const WS_TICKET_TTL_SECONDS = 30;
 
 const secretFor = (purpose: TokenPurpose): string => {
     switch (purpose) {
@@ -28,6 +33,13 @@ const secretFor = (purpose: TokenPurpose): string => {
             return env.refreshSecret;
         case "2fa-pending":
             return env.twoFactorSecret;
+        case "ws-ticket":
+            // Signed with the access secret because the Go realtime service only
+            // holds JWT_SECRET and has to verify it. It still cannot be replayed
+            // as an access token: it carries a distinct audience
+            // (`mindease:ws-ticket`), and every Node verification asserts the
+            // audience for the purpose it expects.
+            return env.jwtSecret;
     }
 };
 
@@ -91,6 +103,32 @@ export const signRefreshToken = (userId: number, amr: AuthMethod[] = ["pwd"]): s
 
 export const signTwoFactorPendingToken = (userId: number): string =>
     sign("2fa-pending", { userId }, TWO_FACTOR_TTL);
+
+export interface WsTicketClaims {
+    userId: number;
+    role: string;
+}
+
+/**
+ * Mints a short-lived ticket a browser can hand to the realtime service.
+ *
+ * The WebSocket handshake cannot carry an `Authorization` header, and the
+ * `accessToken` cookie is host-only for the API origin, so a browser on
+ * `app.example.com` could never send it to `realtime.example.com`. Handing the
+ * long-lived access token over as a query parameter instead would leak a 15
+ * minute session credential into every proxy access log on the path.
+ *
+ * This ticket is minted only after `authenticate` has validated the session
+ * against the database, so a banned user or an unfinished two-factor challenge
+ * cannot obtain one. It is valid for 30 seconds and can do exactly one thing:
+ * open a socket as the user it names.
+ */
+export const signWsTicket = (user: { id: number; role: string }): string =>
+    sign(
+        "ws-ticket",
+        { userId: user.id, role: user.role },
+        `${WS_TICKET_TTL_SECONDS}s`
+    );
 
 /**
  * Refresh tokens are persisted as a SHA-256 digest so a database read (a
