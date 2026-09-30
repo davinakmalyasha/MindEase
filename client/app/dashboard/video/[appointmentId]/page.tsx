@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Video, Phone, ArrowLeft, Bell, Loader2, AlertCircle } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import api, { getErrorMessage } from "@/lib/api";
+import VideoRoom from "@/components/video/VideoRoom";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -85,14 +86,15 @@ export default function VideoRoomPage() {
                         </div>
                     </div>
 
-                    <div className="bg-black rounded-3xl overflow-hidden aspect-video">
-                        <iframe
-                            title="Consultation room"
-                            src={`${room.meetingLink}${room.consultationType === "voice" ? "#config.startWithVideoMuted=true&config.prejoinPageEnabled=false" : "#config.prejoinPageEnabled=true"}`}
-                            allow="camera; microphone; fullscreen; display-capture; autoplay"
-                            className="w-full h-full border-0"
-                        />
-                    </div>
+                    <VideoRoom
+                        grant={{
+                            provider: room.provider ?? "jitsi",
+                            room: room.room ?? room.meetingLink,
+                            token: room.token ?? null,
+                            identity: room.identity,
+                        }}
+                        consultationType={room.consultationType}
+                    />
 
                     <p className="text-[11px] text-gray-400 text-center">
                         {t("poweredBy")} {user.role === "doctor" ? t("yourPatient") : t("yourDoctor")}.

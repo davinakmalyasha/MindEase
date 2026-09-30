@@ -11,12 +11,15 @@ export async function generateMetadata() {
 }
 
 /**
- * `"9. Cookies & storage"` -> `"cookies-storage"`.
+ * `"10. Cookies & storage"` -> `"cookies-storage"`.
  *
  * Sections used to render bare `<div>`s with no `id`, so the cookie banner's
  * `/privacy#cookies` link and the footer's both resolved to nothing. The anchor
  * is derived from the heading rather than hand-written, so it cannot drift from
  * the content, and `&` is dropped so the common case reads as one word.
+ *
+ * The leading section number is stripped, which is why inserting the new
+ * "Video consultations" section did not break the cookie banner's anchor.
  */
 const slugify = (title: string) =>
     title
@@ -48,27 +51,35 @@ const SECTIONS = [
         body: "AI features (question generation, clinical briefings, wellness suggestions) may send your mood entries, notes, and pre-session answers to our AI provider for processing. AI output is for guidance only and is not a diagnosis. You may decline to use AI-assisted features without affecting core services. Always review our AI disclaimers before relying on AI-generated content.",
     },
     {
-        title: "6. Security",
+        // Previously absent entirely. Every consultation's audio and video was
+        // being relayed through a third party's public infrastructure, with
+        // nothing in this policy saying so - which is a disclosure gap, not a
+        // configuration detail.
+        title: "6. Video consultations",
+        body: "Video and voice consultations are carried by a third-party real-time media provider acting as our processor, under contract and limited to delivering the call. We do not record consultations, and the provider is not authorised to retain audio or video beyond the session. Access to a consultation room requires a short-lived credential issued to you individually when you open the room; a link alone is not sufficient, and the credential expires when the scheduled session ends. If a deployment is running an older configuration where the room is instead a shared link, the consultation screen will say so before you join.",
+    },
+    {
+        title: "7. Security",
         body: "We protect your data with encryption in transit and at rest, Argon2 password hashing, short-lived session tokens with rotation, CSRF protection, and strict access controls. Health-related data is only accessible to the relevant psychologist and administrators bound by confidentiality obligations.",
     },
     {
-        title: "7. Retention",
-        body: "We retain your data while your account is active and as long as needed to provide the service or comply with legal obligations. You can request deletion at any time (see your rights below), after which we purge your personal data while anonymizing historical appointment records.",
+        title: "8. Retention",
+        body: "We retain your data while your account is active and as long as needed to provide the service or comply with legal obligations. You can request deletion at any time (see your rights below), after which we purge your personal data while anonymizing historical appointment records. Clinical safety records — for example, that a screening answer triggered a clinician alert — are retained in anonymized form, because the fact that a disclosure happened is clinically relevant to whoever treats you next.",
     },
     {
-        title: "8. Your rights",
+        title: "9. Your rights",
         body: "You may: access, correct, or update your data from your profile page; request a copy of your data (data portability); delete your account and associated personal data from your profile settings; withdraw consent for AI features at any time. To exercise any right, contact us at support@mindease.id.",
     },
     {
-        title: "9. Cookies & storage",
+        title: "10. Cookies & storage",
         body: "We use essential cookies for authentication (login session), security (CSRF token), and preferences (language, theme). We do not use third-party advertising cookies. You can manage cookies through your browser, but disabling essential cookies will prevent you from using the platform.",
     },
     {
-        title: "10. Children's privacy",
+        title: "11. Children's privacy",
         body: "Our services are intended for users aged 18 and above. We do not knowingly collect data from children under 18. If you believe a child has provided us personal data, contact us and we will delete it.",
     },
     {
-        title: "11. Changes to this policy",
+        title: "12. Changes to this policy",
         body: "We may update this policy from time to time. Material changes will be announced in-app and by email where required. Continued use of the platform after changes constitutes acceptance of the revised policy.",
     },
     {
