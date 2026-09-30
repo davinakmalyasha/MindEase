@@ -94,16 +94,30 @@ export default function Navbar() {
                         </Link>
                     </>
                 ) : (
-                    <Link
-                        href="/login"
-                        className={cn(
-                            "text-white py-2 px-6 rounded-[10px] flex justify-center items-center text-center font-medium",
-                            "bg-gradient-to-r from-[#4837F2] to-[#8643FF]",
-                            "hover:opacity-90 transition-all hover:shadow-lg active:scale-95"
-                        )}
-                    >
-                        {t("signIn")}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        {/* `/register` is a full working page that nothing linked
+                            to, so a prospective patient had no route to sign up
+                            except finding the tab buried inside the login page. */}
+                        <Link
+                            href="/register"
+                            className={cn(
+                                "text-white/80 hover:text-white py-2 px-4 rounded-[10px] flex items-center text-center font-medium transition-colors",
+                                "hidden sm:flex"
+                            )}
+                        >
+                            {t("signUp")}
+                        </Link>
+                        <Link
+                            href="/login"
+                            className={cn(
+                                "text-white py-2 px-6 rounded-[10px] flex justify-center items-center text-center font-medium",
+                                "bg-gradient-to-r from-[#4837F2] to-[#8643FF]",
+                                "hover:opacity-90 transition-all hover:shadow-lg active:scale-95"
+                            )}
+                        >
+                            {t("signIn")}
+                        </Link>
+                    </div>
                 )}
             </div>
         </nav>

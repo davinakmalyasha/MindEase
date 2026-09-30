@@ -15,6 +15,13 @@ const PUBLIC_AFTER_LOGIN: Record<string, string[]> = {
     "/dashboard/mood": ["patient"],
     "/dashboard/briefing": ["doctor"],
     "/dashboard/pre-session": ["patient"],
+    // Doctors only. This page calls a doctor-only endpoint, so without a guard
+    // here a patient or admin who typed the URL got a 403 toast and then a
+    // loading skeleton that never resolved. The in-page guard is kept as a
+    // second layer; this stops the request being made at all.
+    "/dashboard/analytics": ["doctor"],
+    // Journal is the patient's own private record. A doctor has no such view.
+    "/dashboard/journal": ["patient"],
 };
 
 export async function proxy(req: NextRequest) {
