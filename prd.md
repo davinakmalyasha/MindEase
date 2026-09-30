@@ -113,11 +113,19 @@ The platform is designed with three distinct user roles:
 - **Description**: AI compiles patient data into a concise, professional briefing for the doctor.
 - **Requirements**:
   - Consolidate: (1) Patient's recent 14-day mood entries, (2) Pre-session question responses.
-  - Generate a professional 3-5 sentence paragraph summarizing:
-    - Current emotional trends and streaks.
-    - Key challenges highlighted by the patient.
-    - Suggested diagnostic routes or clinical focus areas for the session.
-  - Access is restricted exclusively to the assigned doctor.
+   - Generate a professional 3-5 sentence paragraph summarizing:
+     - Current emotional trends and streaks.
+     - Key challenges highlighted by the patient.
+     - Areas the patient has themselves raised as priorities.
+   - Access is restricted exclusively to the assigned doctor.
+   - **Revised.** This originally asked for "suggested diagnostic routes". That
+     contradicts the product's own disclaimer, which states that AI output is
+     not a diagnosis, and it asks a language model for a clinical judgement it
+     has no standing to make. The requirement is narrowed to surfacing what the
+     patient raised, which is useful, honest, and something the model is
+     actually qualified to summarise. If a clinician wants a diagnostic
+     impression, that is a conversation, not a generated paragraph.
+
 
 #### Feature 5.3: Personalized Wellness Resource Suggestion
 - **Description**: Patient dashboards suggest tailored activities based on mood history.
@@ -285,6 +293,16 @@ sequenceDiagram
 2. **Secure Key/ID Exposure Protection**:
    - Internal auto-increment database integer IDs (`BIGINT`) must **never** be exposed in public API routes or JSON payloads.
    - Use UUIDv7 for all external URL route parameters and JSON responses (e.g. `/api/appointments/018f7a83-b7ca-7650-8b1c-34ba7015cf01`).
+   - **Status: not met.** Every model uses an auto-increment `Int` primary key
+     and every response exposes it. Retrofitting UUIDv7 means 23 models, every
+     route handler, every cache key, the `.ics` export, the GDPR data export and
+     the e2e suite — a rewrite, not a change. It is recorded here and in
+     `ARCHITECTURE.md` as a known deviation rather than quietly dropped,
+     because a requirement that has been abandoned without saying so is worse
+     than one that was never met.
+   - What *is* enforced today is requirement 5.1: every read, update and
+     deletion is checked against the caller's identity in the service layer, and
+     there is a test for the ownership rules on the clinical endpoints.
 3. **Data Protection at Rest & In-Transit**:
    - All credentials hashed using Argon2id.
    - Session tokens passed via HTTP-only, Secure cookies with `SameSite=Lax` or `SameSite=Strict`.
