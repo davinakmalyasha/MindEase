@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import speakeasy from "speakeasy";
 import argon2 from "argon2";
@@ -8,7 +8,8 @@ import {
     createDoctor,
     createAdmin,
     setupClient,
-    grantPaidPackage,
+    pinTwoFactorClock,
+    unpinTwoFactorClock,
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
@@ -18,9 +19,6 @@ import { dayKey, startOfZonedDay, shiftDayKey, timeToMinutes, overlaps } from ".
 
 const localDay = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-const localHHMM = (d: Date) =>
-    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 /** Reads a cookie value out of a response's `Set-Cookie` headers. */
 const readCookie = (res: request.Response, name: string): string | undefined => {
@@ -95,6 +93,18 @@ describe("Token purpose separation", () => {
 });
 
 describe("Two-factor enforcement", () => {
+    // Pinned so a code minted with the real clock cannot fall outside the
+    // server's tolerance window while this test's Argon2 work runs. Without it
+    // the failure surfaced far from its cause: `2fa/enable` returned 400,
+    // `totpEnabled` stayed false, and the assertion below on `TOTP_REQUIRED`
+    // failed instead. See `pinTwoFactorClock`.
+    beforeEach(() => {
+        pinTwoFactorClock();
+    });
+    afterEach(() => {
+        unpinTwoFactorClock();
+    });
+
     it("never authenticates a request without a completed second factor", async () => {
         const user = await createUser("patient");
         const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
@@ -658,7 +668,8 @@ describe("Availability integrity", () => {
         const again = await patient.agent
             .post(`/api/doctors/${doctor.doctorId}/waitlist`)
             .set("X-CSRF-Token", patient.csrf);
-        expect(again.status).toBe(400);
+        // 409 Conflict: the patient is already on this waitlist.
+        expect(again.status).toBe(409);
         expect(await prisma.waitlistEntry.count({ where: { doctorId: doctor.doctorId, patientId: patient.id } })).toBe(1);
     });
 });

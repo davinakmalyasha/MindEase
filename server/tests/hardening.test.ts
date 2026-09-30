@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import speakeasy from "speakeasy";
 import {
     createUser,
@@ -6,6 +6,8 @@ import {
     setupClient,
     accessTokenFrom,
     grantPaidPackage,
+    pinTwoFactorClock,
+    unpinTwoFactorClock,
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
@@ -92,7 +94,12 @@ describe("Booking hardening", () => {
             .put(`/api/appointments/${app.id}/status`)
             .set("X-CSRF-Token", patient.csrf)
             .send({ status: "cancelled" });
-        expect(cancel.status).toBe(403);
+        // 400, not 403: the patient genuinely owns this appointment and is
+        // allowed to cancel it — the grace window has simply closed, which is a
+        // business-rule violation rather than an authorization failure. The 403
+        // here was an artifact of the controller hard-coding one status for the
+        // whole endpoint.
+        expect(cancel.status).toBe(400);
         expect(cancel.body.message).toContain("24 hours");
 
         // The doctor CAN still cancel it
@@ -229,6 +236,16 @@ describe("Therapy package reservation integrity", () => {
 });
 
 describe("2FA backup codes", () => {
+    // Pinned so a code minted with the real clock cannot fall outside the
+    // server's tolerance window while this test's Argon2 work runs. See
+    // `pinTwoFactorClock`.
+    beforeEach(() => {
+        pinTwoFactorClock();
+    });
+    afterEach(() => {
+        unpinTwoFactorClock();
+    });
+
     it("issues single-use recovery codes that work at sign-in exactly once", async () => {
         const user = await createUser("patient");
 
