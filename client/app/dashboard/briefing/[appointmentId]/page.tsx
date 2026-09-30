@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import MoodChart from "@/components/mood/MoodChart";
 import AIDisclaimer from "@/components/ui/AIDisclaimer";
+import AiSourceBadge, { type AiSource } from "@/components/ui/AiSourceBadge";
 import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
     const { toast } = useToast();
     const [appointmentId, setAppointmentId] = useState("");
     const [briefing, setBriefing] = useState<string | null>(null);
+    const [briefingSource, setBriefingSource] = useState<AiSource | undefined>(undefined);
     const [moodHistory, setMoodHistory] = useState<any[]>([]);
     const [assessments, setAssessments] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -37,6 +39,10 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
 
     const applyData = (data: any) => {
         setBriefing(data?.briefing || null);
+        // Read from the server rather than sniffing the text: the API stores the
+        // origin alongside the briefing, so this is still correct when reading a
+        // briefing generated days ago.
+        setBriefingSource(data?.ai?.source);
         if (Array.isArray(data?.moodHistory)) setMoodHistory(data.moodHistory);
         if (Array.isArray(data?.assessments)) setAssessments(data.assessments);
     };
@@ -129,13 +135,18 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                             </div>
 
                             {briefing ? (
-                                <motion.p
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    className="text-gray-700 leading-relaxed text-lg font-medium bg-violet-50/40 rounded-2xl p-6 border border-violet-100/50"
-                                >
-                                    {briefing}
-                                </motion.p>
+                                <div className="rounded-2xl bg-violet-50/40 border border-violet-100/50">
+                                    <div className="px-6 pt-5">
+                                        <AiSourceBadge source={briefingSource} />
+                                    </div>
+                                    <motion.p
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className="text-gray-700 leading-relaxed text-lg font-medium p-6 pt-4"
+                                    >
+                                        {briefing}
+                                    </motion.p>
+                                </div>
                             ) : (
                                 <div className="flex flex-col items-center py-12 text-center">
                                     <AlertCircle className="w-10 h-10 text-amber-400 mb-4" />

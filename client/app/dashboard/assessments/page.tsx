@@ -196,9 +196,7 @@ function AssessmentsContent() {
                         </div>
                     ) : (
                         <>
-                            <p className="text-xs text-gray-400 mb-6">
-                                <strong>Over the last two weeks</strong>, how often have you been bothered by the following?
-                            </p>
+                            <p className="text-sm text-gray-500 text-center mb-6">{t("questionHint")}</p>
                             <div className="space-y-5">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-bold text-gray-500">Question {step + 1} of {meta.questions.length}</p>
