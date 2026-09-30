@@ -44,8 +44,8 @@ export class AppointmentController {
                 }
             } catch (_) { /* non-critical */ }
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to book appointment.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to book appointment.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -113,8 +113,8 @@ export class AppointmentController {
                 }
             } catch (_) { /* non-critical */ }
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to update status.";
-            res.status(403).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to update status.", status: 403 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -149,8 +149,8 @@ export class AppointmentController {
                 }
             } catch (_) { /* non-critical */ }
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to reschedule appointment.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to reschedule appointment.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -162,14 +162,15 @@ export class AppointmentController {
             const room = await AppointmentService.joinRoom(id, req.user!);
             res.json({ status: "success", data: room });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to join room.";
-            // A rejected join is a client-visible, expected outcome, not a
-            // server fault. "no live room" was missing from this list, so
-            // trying to open a video room for a text-chat consultation
-            // returned 500 instead of 400.
-            const clientErrors = ["Forbidden", "not active", "opens in", "closed", "no live room"];
-            const status = clientErrors.some((fragment) => message.includes(fragment)) ? 400 : 500;
-            res.status(status === 400 && message.includes("Forbidden") ? 403 : status).json({ status: "error", message });
+            // The service throws typed errors, so the status travels with the
+            // error. This used to re-derive it by matching message fragments
+            // against an allowlist ("Forbidden", "no live room", …), which
+            // meant any new client-facing message silently became a 500.
+            const { message, status } = publicMessageFor(error) ?? {
+                message: "Failed to join room.",
+                status: 500,
+            };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -181,8 +182,10 @@ export class AppointmentController {
             const options = await AppointmentService.getRebookOptions(id, req.user!);
             res.json({ status: "success", data: options });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to fetch rebook options.";
-            const status = message.includes("Forbidden") ? 403 : 400;
+            const { message, status } = publicMessageFor(error) ?? {
+                message: "Failed to fetch rebook options.",
+                status: 400,
+            };
             res.status(status).json({ status: "error", message });
         }
     }
