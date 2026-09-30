@@ -44,6 +44,8 @@
     "welcomeBack": "Welcome back,",
     "quickActions": "Quick Actions",
     "explore": "Explore",
+    "subtitle": "Managing your mental wellness from one place.",
+    "manageBio": "Update your professional bio",
     "moodTracker": "Mood Tracker",
     "assessments": "Assessments",
     "journal": "Journal",
@@ -86,6 +88,7 @@
     "personalized": "Personalized Wellness",
     "suggestActivities": "Suggest Activities",
     "generateSuggestions": "Generate Suggestions",
+    "suggestionsHint": "Get AI-powered activity suggestions based on your recent mood history.",
     "last14": "Last 14 Days",
     "addNote": "Add a note about your day (optional)...",
     "veryLow": "Very Low",
@@ -148,8 +151,6 @@
       "peerJoined": "Your counterpart has joined the room!",
       "peerWillBeNotified": "Your counterpart will be notified when you join",
       "poweredBy": "Powered by Jitsi Meet. Sessions are private between you and your",
-      "joinVideo": "Join Video Call",
-      "joinVoice": "Join Voice Call",
       "opensIn": "The room opens in {{minutes}} minutes. You can join from 15 minutes before your session."
     },
     "moodFactors": {
