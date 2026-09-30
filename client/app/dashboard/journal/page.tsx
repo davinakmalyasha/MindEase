@@ -7,6 +7,7 @@ import { BookOpen, Sparkles, Send, Pencil, Trash2, X, Check } from "lucide-react
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Spinner from "@/components/ui/Spinner";
 import AIDisclaimer from "@/components/ui/AIDisclaimer";
+import AiSourceBadge from "@/components/ui/AiSourceBadge";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -23,6 +24,7 @@ export default function JournalPage() {
     const confirm = useConfirm();
     const [content, setContent] = useState("");
     const [aiSummary, setAiSummary] = useState<string | null>(null);
+    const [aiSummarySource, setAiSummarySource] = useState<"model" | "fallback" | undefined>(undefined);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [editText, setEditText] = useState("");
 
@@ -55,7 +57,10 @@ export default function JournalPage() {
 
     const generateSummary = () => {
         summarize.mutate(undefined, {
-            onSuccess: (data) => setAiSummary(data.summary),
+            onSuccess: (data) => {
+                setAiSummary(data.summary);
+                setAiSummarySource(data.source);
+            },
         });
     };
 
@@ -107,7 +112,12 @@ export default function JournalPage() {
                             </button>
                         </div>
                         {aiSummary ? (
-                            <p className="text-sm text-gray-600 leading-relaxed bg-violet-50/60 border border-violet-100 rounded-2xl p-4 italic">{aiSummary}</p>
+                            <>
+                                <div className="mb-2">
+                                    <AiSourceBadge source={aiSummarySource} />
+                                </div>
+                                <p className="text-sm text-gray-600 leading-relaxed bg-violet-50/60 border border-violet-100 rounded-2xl p-4 italic">{aiSummary}</p>
+                            </>
                         ) : (
                             <p className="text-xs text-gray-400">{t("summaryHint")}</p>
                         )}

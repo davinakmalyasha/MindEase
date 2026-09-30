@@ -37,10 +37,17 @@ export const useLogMood = () => {
     return useMutation({
         mutationFn: async ({ mood, notes, factors }: { mood: number; notes?: string; factors?: string[] }) => {
             const res = await api.post("/wellness/mood", { mood, notes, factors });
-            return res.data?.data;
+            return res.data?.data as { replaced?: boolean } | undefined;
         },
-        onSuccess: () => {
-            toast("Mood logged. Take care of yourself! 💙", "success");
+        onSuccess: (data) => {
+            // The server keeps one entry per calendar day, so a second log
+            // replaces the first. Say so, rather than claiming a fresh log.
+            toast(
+                data?.replaced
+                    ? "Today's entry was updated"
+                    : "Mood logged. Take care of yourself! 💙",
+                "success"
+            );
             queryClient.invalidateQueries({ queryKey: moodKeys.history });
             queryClient.invalidateQueries({ queryKey: moodKeys.stats });
         },
@@ -57,10 +64,14 @@ export const useWellnessSuggestions = () => {
     return useMutation({
         mutationFn: async () => {
             const res = await api.post("/ai/resources");
-            return (res.data?.data || []) as any[];
+            return {
+                suggestions: (res.data?.data || []) as any[],
+                // Whether these were personalised or picked from the fixed list.
+                source: res.data?.ai?.source as "model" | "fallback" | undefined,
+            };
         },
-        onSuccess: (suggestions) => {
-            queryClient.setQueryData(moodKeys.suggestions, suggestions);
+        onSuccess: ({ suggestions, source }) => {
+            queryClient.setQueryData(moodKeys.suggestions, { suggestions, source });
         },
         onError: (error: any) => {
             toast(getErrorMessage(error, "Failed to load suggestions"), "error");
@@ -140,11 +151,19 @@ export const useSummarizeJournal = () => {
     return useMutation({
         mutationFn: async () => {
             const res = await api.post("/wellness/journal/summarize");
-            return res.data?.data as { summary: string | null; count: number };
+            return {
+                summary: (res.data?.data?.summary ?? null) as string | null,
+                count: (res.data?.data?.count ?? 0) as number,
+                source: res.data?.data?.ai?.source as "model" | "fallback" | undefined,
+            };
         },
-        onSuccess: (data) => {
-            if (!data.summary) {
+        onSuccess: ({ summary, source }) => {
+            if (!summary) {
                 toast("Write at least one entry first", "error");
+            } else if (source === "fallback") {
+                // The summary is a fixed encouragement paragraph, not a reading
+                // of their entries — saying "here's your week" would misrepresent it.
+                toast("Our AI reflection is unavailable, so this is a standard note.", "info");
             }
             queryClient.invalidateQueries({ queryKey: moodKeys.journal });
         },
