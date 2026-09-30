@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { parseLocalDate, localDateKey, timeToMinutes, overlaps } from "../lib/date";
 import { cacheGet, cacheSet, cacheDel } from "../lib/cache";
 import { WaitlistService } from "./waitlist.service";
+import { badRequest, conflict, notFound } from "../utils/appError";
 
 const DIRECTORY_CACHE_KEY = "cache:doctors:directory";
 const doctorDetailKey = (id: number) => `cache:doctors:detail:${id}`;
@@ -10,6 +11,32 @@ const doctorDetailKey = (id: number) => `cache:doctors:detail:${id}`;
 // Cache invalidation hooks — call after any doctor profile change.
 export const invalidateDoctorCache = (doctorId?: number) =>
     cacheDel(DIRECTORY_CACHE_KEY, doctorId ? doctorDetailKey(doctorId) : "");
+
+/**
+ * Narrows a slot query to the dates a clinician is actually bookable on.
+ *
+ * "Away until X" means unavailable from now through the end of day X, so every
+ * slot up to and including that day is hidden and only later ones are offered.
+ * `awayUntil` is stored at local midnight, so the bound is the end of that day;
+ * an elapsed window is ignored rather than hiding everything.
+ *
+ * The original comparison was `gte: awayUntil`, which hid the slots *before* the
+ * away date and kept offering the ones inside the window — the exact opposite.
+ *
+ * Both the booking endpoint (`getSlots`) and the public profile
+ * (`getDoctorById`) must apply this identically, otherwise the profile
+ * advertises a slot that the booking endpoint then refuses.
+ */
+const applyAwayWindow = (
+    where: Prisma.ConsultationSlotWhereInput,
+    awayUntil: Date | null | undefined,
+    today: Date
+) => {
+    if (!awayUntil) return;
+    const awayEnd = new Date(awayUntil);
+    awayEnd.setHours(23, 59, 59, 999);
+    if (awayEnd >= today) where.date = { gt: awayEnd };
+};
 
 
 
@@ -117,6 +144,26 @@ export class DoctorService {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
+        // The advertised slots must obey the same away window as the booking
+        // endpoint. This nested query only filtered `isBooked: false`, so a
+        // clinician on leave still published their pre-created slots here — the
+        // one place an anonymous visitor sees them — and the patient only found
+        // out on submit that the slot was unavailable.
+        //
+        // The bound lives on the doctor row, so it has to be read before the
+        // query that filters on it. This mirrors `getSlots`; the two-minute
+        // cache below keeps the extra round trip off the hot path.
+        const doctorRow = await prisma.doctor.findUnique({
+            where: { id },
+            select: { awayUntil: true },
+        });
+
+        const slotWhere: Prisma.ConsultationSlotWhereInput = {
+            isBooked: false,
+            date: { gte: today },
+        };
+        applyAwayWindow(slotWhere, doctorRow?.awayUntil, today);
+
         const doctor = await prisma.doctor.findUnique({
             where: { id, verificationStatus: "approved" },
             select: {
@@ -159,7 +206,7 @@ export class DoctorService {
                     take: 50,
                 },
                 consultationSlots: {
-                    where: { isBooked: false, date: { gte: today } },
+                    where: slotWhere,
                     select: { id: true, date: true, startTime: true, endTime: true, isBooked: true },
                     orderBy: [{ date: "asc" }, { startTime: "asc" }],
                     take: 60,
@@ -224,7 +271,6 @@ export class DoctorService {
         const months: { key: string; label: string; revenue: number; bookings: number; avgRating: number | null }[] = [];
         for (let i = 5; i >= 0; i--) {
             const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
             const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`;
             months.push({ key, label: start.toLocaleDateString("en-GB", { month: "short" }), revenue: 0, bookings: 0, avgRating: null });
         }
@@ -297,23 +343,7 @@ export class DoctorService {
         // than returned in full — this endpoint previously returned every slot
         // the doctor had ever created, with no limit.
         const where: Prisma.ConsultationSlotWhereInput = { doctorId, date: { gte: today } };
-
-        // "Away until X" means the clinician is unavailable from now through the
-        // end of day X, so every slot up to and including that day must be
-        // hidden and only later ones offered.
-        //
-        // The original comparison was `gte: awayUntil`, which hid the slots
-        // *before* the away date and kept offering the ones inside the window —
-        // the exact opposite. `awayUntil` is stored at local midnight, so the
-        // bound is the end of that day.
-        if (doctor?.awayUntil) {
-            const awayEnd = new Date(doctor.awayUntil);
-            awayEnd.setHours(23, 59, 59, 999);
-            // An elapsed window is simply ignored rather than hiding everything.
-            if (awayEnd >= today) {
-                where.date = { gt: awayEnd };
-            }
-        }
+        applyAwayWindow(where, doctor?.awayUntil, today);
 
         return await prisma.consultationSlot.findMany({
             where,
@@ -326,10 +356,10 @@ export class DoctorService {
         let until: Date | null = null;
         if (awayUntil) {
             until = parseLocalDate(awayUntil);
-            if (isNaN(until.getTime())) throw new Error("Invalid away date");
+            if (isNaN(until.getTime())) throw badRequest("Invalid away date");
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            if (until < today) throw new Error("Away date must be in the future");
+            if (until < today) throw badRequest("Away date must be in the future");
         }
         await prisma.doctor.update({ where: { id: doctorId }, data: { awayUntil: until } });
         invalidateDoctorCache(doctorId);
@@ -340,7 +370,7 @@ export class DoctorService {
         const pattern = await prisma.availabilityPattern.findFirst({
             where: { id: patternId, doctorId },
         });
-        if (!pattern) throw new Error("Pattern not found");
+        if (!pattern) throw notFound("Pattern not found");
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -350,7 +380,7 @@ export class DoctorService {
         const created: { date: string; startTime: string; endTime: string }[] = [];
         const cursor = new Date(today);
         // Align to the pattern's weekday
-        let offset = (pattern.weekday - ((cursor.getDay() + 6) % 7) + 7) % 7;
+        const offset = (pattern.weekday - ((cursor.getDay() + 6) % 7) + 7) % 7;
         cursor.setDate(cursor.getDate() + offset);
         if (cursor < today) cursor.setDate(cursor.getDate() + 7);
 
@@ -388,16 +418,16 @@ export class DoctorService {
 
     static async createSlot(data: { doctorId: number; date: string; start_time: string; end_time: string }) {
         const slotDate = parseLocalDate(data.date);
-        if (isNaN(slotDate.getTime())) throw new Error("Invalid date");
+        if (isNaN(slotDate.getTime())) throw badRequest("Invalid date");
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        if (slotDate < today) throw new Error("Cannot create slots in the past");
+        if (slotDate < today) throw badRequest("Cannot create slots in the past");
 
         const start = timeToMinutes(data.start_time);
         const end = timeToMinutes(data.end_time);
-        if (isNaN(start) || isNaN(end)) throw new Error("Invalid time format (HH:MM)");
-        if (start >= end) throw new Error("End time must be after start time");
+        if (isNaN(start) || isNaN(end)) throw badRequest("Invalid time format (HH:MM)");
+        if (start >= end) throw badRequest("End time must be after start time");
 
         const dayStart = new Date(slotDate);
         dayStart.setHours(0, 0, 0, 0);
@@ -419,7 +449,7 @@ export class DoctorService {
         const conflicts = sameDay.some((existing) =>
             overlaps(start, end, timeToMinutes(existing.startTime ?? ""), timeToMinutes(existing.endTime ?? ""))
         );
-        if (conflicts) throw new Error("Slot overlaps with an existing slot");
+        if (conflicts) throw badRequest("Slot overlaps with an existing slot");
 
         // Uniqueness is also enforced by the database, so two concurrent
         // requests cannot both pass the check above and both insert.
@@ -434,7 +464,7 @@ export class DoctorService {
                 },
             })
             .catch(async (err: any) => {
-                if (err?.code === "P2002") throw new Error("This exact slot already exists");
+                if (err?.code === "P2002") throw conflict("This exact slot already exists");
                 throw err;
             });
 
@@ -447,8 +477,8 @@ export class DoctorService {
             where: { id: slotId, doctorId },
         });
 
-        if (!slot) throw new Error("Slot not found.");
-        if (slot.isBooked) throw new Error("Cannot delete a booked slot.");
+        if (!slot) throw notFound("Slot not found.");
+        if (slot.isBooked) throw badRequest("Cannot delete a booked slot.");
 
         const deleted = await prisma.consultationSlot.delete({
             where: { id: slotId },
@@ -466,29 +496,51 @@ export class DoctorService {
         data: { weekday: number; start_time: string; end_time: string; activeFrom?: string; weeks?: number }
     ) {
         if (!Number.isInteger(data.weekday) || data.weekday < 0 || data.weekday > 6) {
-            throw new Error("Weekday must be 0 (Monday) to 6 (Sunday)");
+            throw badRequest("Weekday must be 0 (Monday) to 6 (Sunday)");
         }
         const start = timeToMinutes(data.start_time);
         const end = timeToMinutes(data.end_time);
-        if (isNaN(start) || isNaN(end) || start >= end) throw new Error("Invalid time format (HH:MM)");
+        if (isNaN(start) || isNaN(end) || start >= end) throw badRequest("Invalid time format (HH:MM)");
 
         const weeks = Math.min(Math.max(parseInt(String(data.weeks || 8)), 1), 12);
         const activeFrom = data.activeFrom ? parseLocalDate(data.activeFrom) : new Date();
-        if (isNaN(activeFrom.getTime())) throw new Error("Invalid activeFrom date");
+        if (isNaN(activeFrom.getTime())) throw badRequest("Invalid activeFrom date");
 
-        // Reject overlapping patterns (same weekday + overlapping time range)
-        const overlap = await prisma.availabilityPattern.findFirst({
-            where: {
-                doctorId,
-                weekday: data.weekday,
-                OR: [
-                    { startTime: { lte: data.start_time }, endTime: { gt: data.start_time } },
-                    { startTime: { lt: data.end_time }, endTime: { gte: data.end_time } },
-                    { startTime: { gte: data.start_time }, endTime: { lte: data.end_time } },
-                ],
-            },
+        // Reject overlapping patterns (same weekday + overlapping time range).
+        //
+        // Overlap is computed in JavaScript, in minutes, and the database filter
+        // only narrows to the weekday. This query previously pushed the times
+        // into SQL `lte`/`lt`/`gte`/`gt` comparisons on VARCHAR columns, which
+        // compare lexicographically: `"10:00" <= "9:00"` is true, so a 09:00
+        // pattern was reported as overlapping an unrelated 10:00 one. The same
+        // bug class had already been found and fixed in `createSlot` and in the
+        // booking path; this was the third instance.
+        //
+        // It only looked correct because every caller sends zero-padded "HH:mm".
+        // Nothing in the schema enforces that, so it was one unpadded input away
+        // from breaking.
+        const startMinutes = timeToMinutes(data.start_time);
+        const endMinutes = timeToMinutes(data.end_time);
+        if (startMinutes === null || endMinutes === null) {
+            throw badRequest("Invalid time format; use HH:mm");
+        }
+        if (endMinutes <= startMinutes) {
+            throw badRequest("End time must be after start time");
+        }
+
+        const sameWeekday = await prisma.availabilityPattern.findMany({
+            where: { doctorId, weekday: data.weekday },
+            select: { id: true, startTime: true, endTime: true },
         });
-        if (overlap) throw new Error("Pattern overlaps with an existing pattern");
+        const clashes = sameWeekday.some((p) => {
+            const otherStart = timeToMinutes(p.startTime);
+            const otherEnd = timeToMinutes(p.endTime);
+            if (otherStart === null || otherEnd === null) return false;
+            // Half-open intervals [start, end): touching endpoints are not an
+            // overlap, so 09:00–12:00 and 12:00–15:00 can coexist.
+            return startMinutes < otherEnd && otherStart < endMinutes;
+        });
+        if (clashes) throw badRequest("Pattern overlaps with an existing pattern");
 
         const pattern = await prisma.availabilityPattern.create({
             data: {
@@ -569,7 +621,7 @@ export class DoctorService {
         const pattern = await prisma.availabilityPattern.findFirst({
             where: { id: patternId, doctorId },
         });
-        if (!pattern) throw new Error("Pattern not found");
+        if (!pattern) throw notFound("Pattern not found");
         await prisma.availabilityPattern.delete({ where: { id: patternId } });
         invalidateDoctorCache(doctorId);
         return { success: true };
@@ -586,17 +638,17 @@ export class DoctorService {
             where: { id: doctorId },
             select: { verificationStatus: true },
         });
-        if (!doctor) throw new Error("Doctor profile not found");
+        if (!doctor) throw notFound("Doctor profile not found");
         if (doctor.verificationStatus !== "approved") {
-            throw new Error("Your profile must be verified before you can offer packages");
+            throw badRequest("Your profile must be verified before you can offer packages");
         }
 
-        if (!data.name?.trim()) throw new Error("Package name is required");
+        if (!data.name?.trim()) throw badRequest("Package name is required");
         // A single-session plan is a legitimate product (a one-off consultation
         // at a bundled rate), so the floor is 1 rather than 2.
-        if (data.sessionCount < 1 || data.sessionCount > 20) throw new Error("Session count must be 1-20");
-        if (data.totalPrice <= 0) throw new Error("Total price must be positive");
-        if (data.totalPrice > 100_000_000) throw new Error("Total price is unrealistically high");
+        if (data.sessionCount < 1 || data.sessionCount > 20) throw badRequest("Session count must be 1-20");
+        if (data.totalPrice <= 0) throw badRequest("Total price must be positive");
+        if (data.totalPrice > 100_000_000) throw badRequest("Total price is unrealistically high");
 
         return await prisma.package.create({
             data: {
@@ -618,7 +670,7 @@ export class DoctorService {
 
     static async deletePackage(packageId: number, doctorId: number) {
         const pkg = await prisma.package.findFirst({ where: { id: packageId, doctorId } });
-        if (!pkg) throw new Error("Package not found");
+        if (!pkg) throw notFound("Package not found");
         await prisma.package.update({ where: { id: packageId }, data: { active: false } });
         return { success: true };
     }
@@ -646,16 +698,16 @@ export class DoctorService {
             where: { id: packageId, active: true },
             include: { doctor: { select: { verificationStatus: true, userId: true } } },
         });
-        if (!pkg) throw new Error("Package not found or inactive");
+        if (!pkg) throw notFound("Package not found or inactive");
 
         if (pkg.doctor.verificationStatus !== "approved") {
-            throw new Error("This package is not currently available");
+            throw badRequest("This package is not currently available");
         }
 
         // A self-service purchase is refused until payment is wired up. Callers
         // that represent a genuine administrative grant pass `grantedByUserId`.
         if (!options.paidAt && !options.grantedByUserId) {
-            throw new Error("This package requires payment before it can be added to your account");
+            throw badRequest("This package requires payment before it can be added to your account");
         }
 
         const purchase = await prisma.packagePurchase.create({
@@ -665,6 +717,10 @@ export class DoctorService {
                 sessionsLeft: pkg.sessionCount,
                 paidAt: options.paidAt ?? null,
                 grantedByUserId: options.grantedByUserId ?? null,
+                // Snapshot the commercial terms, so a later price change cannot
+                // retroactively alter what this grant was worth.
+                totalPrice: pkg.totalPrice,
+                sessionCount: pkg.sessionCount,
             },
         });
         return { ...purchase, package: pkg };
