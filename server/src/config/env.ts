@@ -54,13 +54,24 @@ function requireUrl(name: string, devFallback: string): string {
 const requiredInProd = ["GOOGLE_CLIENT_ID", "GEMINI_API_KEY", "REDIS_URL"] as const;
 for (const name of requiredInProd) {
     if (isProd && !(process.env[name] || "").trim()) {
-        // eslint-disable-next-line no-console
+         
         console.warn(`[config] ${name} is not set — dependent features will be disabled in production.`);
     }
 }
 
 const jwtSecret = requireSecret("JWT_SECRET", "dev_only_insecure_jwt_secret_change_me");
 const refreshSecret = requireSecret("REFRESH_SECRET", "dev_only_insecure_refresh_secret_change_me");
+
+// A refresh token is the longest-lived credential in the system (7 days). If it
+// shared a secret with the access token it could be presented to any endpoint
+// that verifies an access token — including the realtime WebSocket, where it
+// would become a 7-day session. Two-factor was already checked for this; refresh
+// was not, and copy-pasting one value into both is the obvious operator mistake.
+if (isProd && refreshSecret === jwtSecret) {
+    throw new Error(
+        "[config] REFRESH_SECRET must differ from JWT_SECRET in production."
+    );
+}
 
 /**
  * Purpose-scoped secret for pending two-factor tickets. Keeping it distinct
@@ -96,8 +107,96 @@ export const env = {
     googleClientId: process.env.GOOGLE_CLIENT_ID || "",
     geminiApiKey: process.env.GEMINI_API_KEY || "",
     redisUrl: process.env.REDIS_URL || "",
+
+    /**
+     * AI call resilience.
+     *
+     * `requestTimeoutMs` bounds a single Gemini call. Without it the SDK waits
+     * out its own default, during which the Express handler stays open and the
+     * caller is left staring at a spinner.
+     *
+     * The breaker stops every request from paying that timeout while the
+     * dependency is down: after `circuitThreshold` consecutive failures the
+     * circuit opens for `circuitCooldownMs` and calls short-circuit to their
+     * local fallback instead of hammering a struggling upstream.
+     *
+     * A non-numeric or non-positive value falls back to the default rather than
+     * disabling the protection, mirroring the realtime service's connection caps.
+     */
+    ai: (() => {
+        const positiveInt = (name: string, fallback: number) => {
+            const raw = (process.env[name] || "").trim();
+            if (!raw) return fallback;
+            const n = Number.parseInt(raw, 10);
+            return Number.isFinite(n) && n > 0 ? n : fallback;
+        };
+        return {
+            requestTimeoutMs: positiveInt("AI_REQUEST_TIMEOUT_MS", 20_000),
+            circuitThreshold: positiveInt("AI_CIRCUIT_THRESHOLD", 5),
+            circuitCooldownMs: positiveInt("AI_CIRCUIT_COOLDOWN_MS", 60_000),
+        };
+    })(),
+
     frontendUrl: requireUrl("FRONTEND_URL", "http://localhost:3000"),
     port: Number(process.env.PORT || 5000),
+
+    /**
+     * Payment provider credentials.
+     *
+     * When these are absent the platform falls back to an in-process simulator,
+     * which is what keeps `docker compose up` and a fresh clone working without
+     * anyone having to sign up for a merchant account. The simulator is refused
+     * in production unless `ALLOW_PAYMENT_SIMULATOR` is explicitly set, so a
+     * deployment can never quietly take money through a fake gateway or hand
+     * out free entitlements by accident.
+     *
+     * The provider name is validated against a known set rather than cast. It
+     * used to be `provider as "midtrans" | "simulator"`, and `getPaymentProvider`
+     * resolves anything that is not `midtrans` to the simulator — so a typo'd
+     * value like `PAYMENT_PROVIDER=midtranss` booted cleanly in production and
+     * silently served every checkout through the fake gateway.
+     */
+    payments: (() => {
+        const provider = (process.env.PAYMENT_PROVIDER || "").trim().toLowerCase();
+        const serverKey = (process.env.PAYMENT_SERVER_KEY || "").trim();
+        const clientKey = (process.env.PAYMENT_CLIENT_KEY || "").trim();
+        const baseUrl = (process.env.PAYMENT_BASE_URL || "").trim();
+        const allowSimulator = (process.env.ALLOW_PAYMENT_SIMULATOR || "").trim() === "true";
+
+        const KNOWN_PROVIDERS = ["midtrans", "simulator"] as const;
+        if (provider && !KNOWN_PROVIDERS.includes(provider as (typeof KNOWN_PROVIDERS)[number])) {
+            throw new Error(
+                `[config] PAYMENT_PROVIDER=${provider} is not a known provider ` +
+                    `(expected one of: ${KNOWN_PROVIDERS.join(", ")}).`
+            );
+        }
+
+        if (!provider || !serverKey) {
+            if (isProd && !allowSimulator) {
+                throw new Error(
+                    "[config] PAYMENT_PROVIDER and PAYMENT_SERVER_KEY are required in production. " +
+                        "Refusing to start with the payment simulator enabled. " +
+                        "Set real credentials, or set ALLOW_PAYMENT_SIMULATOR=true " +
+                        "if this is a local/demo deployment that must not take real payments."
+                );
+            }
+            return { mode: "simulator" as const, serverKey: "", clientKey: "", baseUrl: "" };
+        }
+
+        if (isProd && provider === "simulator" && !allowSimulator) {
+            throw new Error(
+                "[config] PAYMENT_PROVIDER=simulator is not permitted in production " +
+                    "(set ALLOW_PAYMENT_SIMULATOR=true to override for a local demo)."
+            );
+        }
+
+        return {
+            mode: provider as "midtrans" | "simulator",
+            serverKey,
+            clientKey,
+            baseUrl: baseUrl || (provider === "midtrans" ? "https://app.midtrans.com" : ""),
+        };
+    })(),
 
     /**
      * Allowed browser origins for CORS. Derived exclusively from explicit
