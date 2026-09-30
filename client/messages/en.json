@@ -74,7 +74,9 @@
     "clinicalSummaries": "Clinical summaries before sessions",
     "chatWithPatients": "Chat with your patients",
     "manageUsers": "Manage users and view system stats",
-    "riskQueue": "Risk queue"
+    "riskQueue": "Risk queue",
+    "carePlan": "My care plan",
+    "safetyPlan": "Safety plan"
   },
   "mood": {
     "title": "Mood Tracker",
@@ -232,6 +234,51 @@
       "newAlert": "A new risk disclosure needs your attention",
       "newUrgent": "An urgent risk disclosure needs your attention",
       "footerNote": "Matches are keyword or screening signals, not clinical judgements. They exist to prompt you to look, not to act on your behalf: nothing here contacts an emergency service, and every alert is resolved by a person. Acknowledging records that you have seen it; resolving records what you did. Both are kept on the record even after the alert leaves this list."
+    },
+    "safetyPlan": {
+      "title": "My safety plan",
+      "intro": "A document you write, for a moment when you may need it and cannot think clearly. Only you and the psychologist you are seeing can read it.",
+      "emptyHint": "You have not written one yet. It does not have to be complete - fill in what you can and come back.",
+      "lastReviewed": "Last reviewed with a psychologist:",
+      "warningSignsTitle": "Warning signs",
+      "warningSignsHint": "What you notice in yourself before things get bad. In your own words, not symptoms from a list.",
+      "copingTitle": "What helps",
+      "copingHint": "What has actually worked before, as opposed to what ought to.",
+      "reasonsTitle": "Reasons to stay",
+      "reasonsHint": "People, places, things to do. A plan that only lists problems is a hard thing to read.",
+      "contactsTitle": "People I can contact",
+      "contactsHint": "Names and numbers of people who are not clinicians. One line each.",
+      "professionalTitle": "Professional to call first",
+      "locationTitle": "Where to be, and what to have to hand",
+      "save": "Save",
+      "saved": "Safety plan saved",
+      "saveFailed": "Could not save. Try again.",
+      "loading": "Loading your safety plan",
+      "showPreview": "Preview",
+      "hidePreview": "Hide preview",
+      "previewLabel": "Preview",
+      "notWritten": "Not written yet",
+      "footerNote": "This plan is yours. Nothing here is written for you, and nothing here is sent to an AI model. Your psychologist can read it so you can go through it together, and a review is recorded when that happens."
+    },
+    "carePlan": {
+      "title": "My care plan",
+      "intro": "What you and your psychologist are working towards, kept between sessions so neither of you starts from scratch each time.",
+      "reviewDue": "Next review:",
+      "addGoal": "Add goal",
+      "newGoalPlaceholder": "A goal you are working towards",
+      "empty": "No goals yet",
+      "emptyHint": "Add the first one. Short and specific works better than ambitious.",
+      "addStep": "Add a step",
+      "newStepPlaceholder": "A small next action",
+      "target": "Target:",
+      "statusLabel": "Status",
+      "status_open": "Not started",
+      "status_in_progress": "In progress",
+      "status_achieved": "Achieved",
+      "status_dropped": "Dropped",
+      "loading": "Loading your care plan",
+      "actionFailed": "That did not work. Try again.",
+      "footerNote": "This plan is yours. A goal you decide is no longer right can be marked dropped rather than deleted - it is useful to be able to see that something was tried and changed course."
     }
   },
   "staticPages": {

@@ -74,7 +74,9 @@
     "clinicalSummaries": "Ringkasan klinis sebelum sesi",
     "chatWithPatients": "Chat dengan pasien Anda",
     "manageUsers": "Kelola pengguna dan statistik sistem",
-    "riskQueue": "Antrean risiko"
+    "riskQueue": "Antrean risiko",
+    "carePlan": "Rencana perawatan",
+    "safetyPlan": "Rencana keamanan"
   },
   "mood": {
     "title": "Pelacak Suasana Hati",
@@ -232,6 +234,51 @@
       "newAlert": "Ada pengungkapan risiko baru yang perlu perhatian Anda",
       "newUrgent": "Ada pengungkapan risiko mendesak yang perlu perhatian Anda",
       "footerNote": "Kecocokan adalah sinyal kata kunci atau skrining, bukan penilaian klinis. Sinyal ini ada untuk mengingatkan Anda untuk melihatnya, bukan untuk bertindak atas nama Anda: tidak ada apa pun di sini yang menghubungi layanan darurat, dan setiap peringatan diselesaikan oleh manusia. Menandai sebagai dilihat mencatat bahwa Anda sudah melihatnya; menyelesaikan mencatat apa yang Anda lakukan. Keduanya tetap tersimpan di rekaman meskipun peringatan tersebut tidak lagi muncul di daftar ini."
+    },
+    "safetyPlan": {
+      "title": "Rencana keamanan saya",
+      "intro": "Dokumen yang Anda tulis sendiri, untuk saat Anda mungkin membutuhkannya dan tidak dapat berpikir jernih. Hanya Anda dan psikolog yang Anda temui yang dapat membacanya.",
+      "emptyHint": "Anda belum menulisnya. Tidak harus lengkap - isi yang bisa Anda isi dan kembali lagi kapan saja.",
+      "lastReviewed": "Terakhir ditinjau bersama psikolog:",
+      "warningSignsTitle": "Tanda-tanda awal",
+      "warningSignsHint": "Apa yang Anda rasakan pada diri sendiri sebelum keadaan memburuk. Dengan kata-kata Anda sendiri, bukan daftar gejala.",
+      "copingTitle": "Apa yang membantu",
+      "copingHint": "Apa yang benar-benar pernah membantu, bukan apa yang seharusnya membantu.",
+      "reasonsTitle": "Alasan untuk tetap bertahan",
+      "reasonsHint": "Orang, tempat, hal yang harus dilakukan. Rencana yang hanya memuat masalah adalah hal yang sulit dibaca.",
+      "contactsTitle": "Orang yang bisa saya hubungi",
+      "contactsHint": "Nama dan nomor orang yang bukan klinisi. Satu baris untuk setiap orang.",
+      "professionalTitle": "Profesional yang dihubungi lebih dulu",
+      "locationTitle": "Tempat yang aman, dan barang yang disiapkan",
+      "save": "Simpan",
+      "saved": "Rencana keamanan disimpan",
+      "saveFailed": "Gagal menyimpan. Coba lagi.",
+      "loading": "Memuat rencana keamanan Anda",
+      "showPreview": "Pratinjau",
+      "hidePreview": "Sembunyikan pratinjau",
+      "previewLabel": "Pratinjau",
+      "notWritten": "Belum ditulis",
+      "footerNote": "Rencana ini milik Anda. Tidak ada bagian yang ditulis untuk Anda, dan tidak ada yang dikirim ke model AI. Psikolog Anda dapat membacanya agar Anda dapat bahas bersama, dan peninjauan tercatat ketika hal itu terjadi."
+    },
+    "carePlan": {
+      "title": "Rencana perawatan saya",
+      "intro": "Apa yang sedang Anda dan psikolog tuju, disimpan di antara sesi sehingga tidak ada yang perlu memulai dari nol setiap kali.",
+      "reviewDue": "Tinjauan berikutnya:",
+      "addGoal": "Tambah tujuan",
+      "newGoalPlaceholder": "Tujuan yang sedang Anda kejar",
+      "empty": "Belum ada tujuan",
+      "emptyHint": "Tambahkan yang pertama. Yang singkat dan spesifik lebih baik daripada yang ambisius.",
+      "addStep": "Tambah langkah",
+      "newStepPlaceholder": "Tindakan kecil berikutnya",
+      "target": "Target:",
+      "statusLabel": "Status",
+      "status_open": "Belum dimulai",
+      "status_in_progress": "Sedang berjalan",
+      "status_achieved": "Tercapai",
+      "status_dropped": "Dihentikan",
+      "loading": "Memuat rencana perawatan Anda",
+      "actionFailed": "Tidak berhasil. Coba lagi.",
+      "footerNote": "Rencana ini milik Anda. Tujuan yang Anda putuskan sudah tidak tepat dapat ditandai dihentikan, bukan dihapus - berguna untuk bisa melihat bahwa sesuatu pernah dicoba dan arahnya diubah."
     }
   },
   "staticPages": {

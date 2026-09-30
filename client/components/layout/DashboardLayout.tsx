@@ -11,6 +11,8 @@ import {
     User as UserIcon,
     ShieldCheck,
     ShieldAlert,
+    Target,
+    LifeBuoy,
     HeartPulse,
     MessageCircle,
     Bell,
@@ -48,6 +50,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             { label: t("moodTracker"), href: "/dashboard/mood", icon: HeartPulse, roles: ["patient"] },
             { label: t("assessments"), href: "/dashboard/assessments", icon: ClipboardCheck, roles: ["patient"] },
             { label: t("journal"), href: "/dashboard/journal", icon: BookOpen, roles: ["patient"] },
+    { label: t("carePlan"), href: "/dashboard/care-plan", icon: Target, roles: ["patient"] },
+    { label: t("safetyPlan"), href: "/dashboard/safety-plan", icon: LifeBuoy, roles: ["patient"] },
             { label: t("mySchedule"), href: "/dashboard/doctor/schedule", icon: CalendarClock, roles: ["doctor"] },
     // The triage queue. Placed first among the clinician entries because it is
     // the one page that can contain something time-critical.
