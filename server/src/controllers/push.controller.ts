@@ -9,8 +9,8 @@ export class PushController {
             const result = await PushService.subscribe(req.user!.id, subscription, req.headers["user-agent"]);
             res.status(201).json({ status: "success", data: { id: result.id } });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to subscribe.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to subscribe.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -20,8 +20,8 @@ export class PushController {
             const result = await PushService.unsubscribe(req.user!.id, endpoint);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to unsubscribe.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to unsubscribe.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 

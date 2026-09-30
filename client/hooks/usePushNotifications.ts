@@ -7,6 +7,38 @@ import { useAuth } from "@/context/AuthContext";
 const VAPID_KEY_URL = "/push/public-key";
 
 /**
+ * Decodes a base64url VAPID public key into bytes.
+ *
+ * The server returns `VAPID_PUBLIC_KEY` verbatim, which is the base64url form
+ * `web-push` expects. The Push API, however, requires
+ * `applicationServerKey` to be a `BufferSource` — passing the base64url *string*
+ * straight through, as this hook did, fails at the browser boundary, so push
+ * subscription silently never succeeded in a correctly configured deployment.
+ *
+ * Base64url uses `-` and `_` in place of `+` and `/` and drops `=` padding, so
+ * it must be normalised before `atob` will accept it.
+ *
+ * The `ArrayBuffer` is passed explicitly rather than relying on
+ * `new Uint8Array(length)`: the DOM types require an `ArrayBuffer`-backed view
+ * (`BufferSource`), and a bare `Uint8Array` widens to `Uint8Array<ArrayBufferLike>`,
+ * which is not assignable to it.
+ */
+export const urlBase64ToUint8Array = (base64String: string): Uint8Array<ArrayBuffer> => {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const output = new Uint8Array(new ArrayBuffer(raw.length));
+    for (let i = 0; i < raw.length; i += 1) {
+        output[i] = raw.charCodeAt(i);
+    }
+    return output;
+};
+
+/** Base64url-encodes a subscription key, which `getKey` may return as null. */
+const encodeSubscriptionKey = (key: ArrayBuffer | null): string =>
+    key ? btoa(String.fromCharCode(...new Uint8Array(key))) : "";
+
+/**
  * Registers the service worker and subscribes the user's device to web push
  * (once they accept the browser prompt). Exposes a dismissible banner state.
  */
@@ -59,11 +91,14 @@ export function usePushNotifications() {
 
             const sub = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
-                applicationServerKey: publicKey,
+                applicationServerKey: urlBase64ToUint8Array(publicKey),
             });
             await api.post("/push/subscribe", {
                 endpoint: sub.endpoint,
-                keys: { p256dh: btoa(String.fromCharCode(...new Uint8Array(sub.getKey("p256dh")))), auth: btoa(String.fromCharCode(...new Uint8Array(sub.getKey("auth")))) },
+                keys: {
+                    p256dh: encodeSubscriptionKey(sub.getKey("p256dh")),
+                    auth: encodeSubscriptionKey(sub.getKey("auth")),
+                },
             });
             setSubscribed(true);
         } catch { /* user denied or unsupported */ }
