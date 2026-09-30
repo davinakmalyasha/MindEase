@@ -170,4 +170,15 @@ CREATE INDEX `Message_receiverId_isRead_idx` ON `Message`(`receiverId`, `isRead`
 
 -- Never used by any query; pure write amplification on a hot table.
 DROP INDEX `FollowUp_status_idx` ON `FollowUp`;
-DROP INDEX `FollowUp_doctorId_idx` ON `FollowUp`;
+
+-- `FollowUp_doctorId_idx` is deliberately NOT dropped. It was created in
+-- `round3` alongside the `FollowUp_doctorId_fkey` foreign key, and MySQL refuses
+-- to drop an index a live foreign key depends on:
+--
+--   ERROR 1553: Cannot drop index 'FollowUp_doctorId_idx': needed in a foreign
+--   key constraint
+--
+-- An earlier revision of this migration dropped it anyway, which made
+-- `prisma migrate deploy` fail on every clean database. The quick start avoided
+-- the problem only because it used `db:push`, which never runs migrations, so
+-- the broken file was never executed until a fresh `migrate deploy` was tried.
