@@ -10,8 +10,13 @@ export class BriefingController {
             const result = await PreSessionService.getBriefing(Number(appointmentId), userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to generate briefing.";
-            const status = message.startsWith("Forbidden") ? 403 : 400;
+            // Was `message.startsWith("Forbidden") ? 403 : 400`, which broke as
+            // soon as the service stopped prefixing the message with the word
+            // "Forbidden" — the status now travels on the typed error itself.
+            const { message, status } = publicMessageFor(error) ?? {
+                message: "Failed to generate briefing.",
+                status: 400,
+            };
             res.status(status).json({ status: "error", message });
         }
     }
@@ -26,8 +31,10 @@ export class BriefingController {
             const result = await PreSessionService.getBriefing(appointmentId, userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to fetch briefing.";
-            const status = message.startsWith("Forbidden") ? 403 : 400;
+            const { message, status } = publicMessageFor(error) ?? {
+                message: "Failed to fetch briefing.",
+                status: 400,
+            };
             res.status(status).json({ status: "error", message });
         }
     }
