@@ -484,12 +484,18 @@ model PushSubscription {
   id        Int      @id @default(autoincrement())
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint  String   @unique @db.VarChar(500)
+  // Unique per (user, endpoint), not globally unique. A globally unique
+  // endpoint with an upsert that never wrote `userId` let a second user on a
+  // shared device overwrite the first user's key pair, silently breaking their
+  // notifications. Browsers also rotate keys for an unchanged endpoint, which
+  // the per-user key handles in place.
+  endpoint  String   @db.VarChar(500)
   p256dh    String   @db.VarChar(500)
   auth      String   @db.VarChar(500)
   userAgent String?
   createdAt DateTime @default(now())
 
+  @@unique([userId, endpoint])
   @@index([userId])
 }
 
