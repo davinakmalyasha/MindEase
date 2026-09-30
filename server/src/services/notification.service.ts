@@ -54,14 +54,13 @@ export class NotificationService {
         const wantsEmail = data.email === true;
 
         let prefs: NotificationPrefs = { ...DEFAULT_PREFS };
-        let recipientEmail: string | null = null;
         if (PREFS_TYPES.includes(type)) {
             const user = await prisma.user.findUnique({
                 where: { id: data.userId },
                 select: { notificationPrefs: true, email: true },
             });
             prefs = parsePrefs(user?.notificationPrefs ?? null);
-            recipientEmail = user?.email ?? null;
+            const recipientEmail = user?.email ?? null;
 
             // Channels are independent. The previous `if (!prefs[type].inApp)
             // return null;` sat *above* the email branch, so a patient who

@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { AIService } from "./ai.service";
 import { detectAssessmentRisk, raiseRiskAlert, NO_RISK } from "./clinicalSafety.service";
 import { dayKey, resolveTimezone, shiftDayKey, startOfZonedDay, todayKey } from "../lib/date";
+import { badRequest, notFound } from "../utils/appError";
 
 export const MOOD_FACTORS = ["sleep", "exercise", "social", "work", "stress"] as const;
 export type MoodFactor = (typeof MOOD_FACTORS)[number];
@@ -40,7 +41,7 @@ const parseFactors = (raw: string | null): MoodFactor[] => {
 
 export class WellnessService {
     static async logMood(userId: number, mood: number, notes?: string, factors?: string[]) {
-        if (mood < 1 || mood > 5) throw new Error("Mood must be between 1 and 5.");
+        if (mood < 1 || mood > 5) throw badRequest("Mood must be between 1 and 5.");
 
         const validFactors = (factors || []).filter((f) => (MOOD_FACTORS as readonly string[]).includes(f));
         const data = {
@@ -60,11 +61,24 @@ export class WellnessService {
         const timezone = await this.getUserTimezone(userId);
         const moodDate = todayKey(timezone);
 
-        return await prisma.moodEntry.upsert({
+        // Read-before-upsert purely to tell the caller whether it created or
+        // replaced today's entry. The unique constraint is what actually
+        // guarantees the invariant; this pre-read is a display hint and a lost
+        // race only ever mislabels the toast, never duplicates a row.
+        const existing = await prisma.moodEntry.findUnique({
+            where: { userId_moodDate: { userId, moodDate } },
+            select: { id: true },
+        });
+
+        const entry = await prisma.moodEntry.upsert({
             where: { userId_moodDate: { userId, moodDate } },
             create: { userId, moodDate, ...data },
             update: data,
         });
+
+        // Surfaced so the UI can be honest about the fact that a same-day
+        // re-log overwrites the earlier entry instead of silently discarding it.
+        return { ...entry, replaced: existing !== null };
     }
 
     static async getMoodHistory(userId: number, days = 14) {
@@ -187,7 +201,7 @@ export class WellnessService {
     // Owner-checked edit/delete for journal entries
     static async updateJournalEntry(userId: number, entryId: number, content: string) {
         const entry = await prisma.journalEntry.findUnique({ where: { id: entryId } });
-        if (!entry || entry.userId !== userId) throw new Error("Journal entry not found");
+        if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         return await prisma.journalEntry.update({
             where: { id: entryId },
             data: { content },
@@ -196,7 +210,7 @@ export class WellnessService {
 
     static async deleteJournalEntry(userId: number, entryId: number) {
         const entry = await prisma.journalEntry.findUnique({ where: { id: entryId } });
-        if (!entry || entry.userId !== userId) throw new Error("Journal entry not found");
+        if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         await prisma.journalEntry.delete({ where: { id: entryId } });
         return { success: true };
     }
@@ -223,19 +237,23 @@ export class WellnessService {
             new Date(entries[0].createdAt)
         );
 
-        return { summary, count: entries.length };
+        return {
+            summary: summary.data,
+            count: entries.length,
+            ai: { source: summary.source, degradedReason: summary.degradedReason },
+        };
     }
 
     static async submitAssessment(userId: number, type: string, answers: number[]) {
         if (!(ASSESSMENT_TYPES as readonly string[]).includes(type)) {
-            throw new Error("Assessment type must be phq9 or gad7");
+            throw badRequest("Assessment type must be phq9 or gad7");
         }
         const questionCount = ASSESSMENT_QUESTION_COUNTS[type as AssessmentType];
         if (!Array.isArray(answers) || answers.length !== questionCount) {
-            throw new Error(`Assessment requires exactly ${questionCount} answers`);
+            throw badRequest(`Assessment requires exactly ${questionCount} answers`);
         }
         if (!answers.every((a) => Number.isInteger(a) && a >= 0 && a <= 3)) {
-            throw new Error("Each answer must be an integer between 0 and 3");
+            throw badRequest("Each answer must be an integer between 0 and 3");
         }
 
         const score = answers.reduce((s, a) => s + a, 0);

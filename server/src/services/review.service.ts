@@ -2,6 +2,7 @@
 import { sanitize } from "../utils/sanitize";
 import { invalidateDoctorCache } from "./doctor.service";
 import { AuditService } from "./audit.service";
+import { badRequest, conflict, forbidden, notFound } from "../utils/appError";
 
 
 
@@ -26,7 +27,7 @@ export class ReviewService {
         });
 
         if (!appointment) {
-            throw new Error("Invalid appointment or not eligible for review.");
+            throw badRequest("Invalid appointment or not eligible for review.");
         }
 
         // Enforce one review per appointment
@@ -34,7 +35,7 @@ export class ReviewService {
             where: { appointmentId: data.appointmentId },
         });
         if (existing) {
-            throw new Error("You have already reviewed this appointment.");
+            throw conflict("You have already reviewed this appointment.");
         }
 
         const review = await prisma.review.create({
@@ -52,21 +53,24 @@ export class ReviewService {
             },
         });
 
-        // Recalculate doctor's average rating (hidden reviews don't count)
+        // Recalculate the doctor's public aggregate.
+        //
+        // This used to inline a second, divergent aggregation here: it wrote
+        // only `rating`, never `totalReviews`, and fell back to `|| 5` — which
+        // is precisely the fabricated-perfect-rating policy that
+        // `recalcDoctorRating` and the `Doctor.rating` column comment exist to
+        // prevent. Two writers with different semantics meant `totalReviews`
+        // stayed 0 forever on the create path, and a clinician whose only review
+        // was hidden was shown to patients as a 5.0.
+        //
+        // There is now exactly one writer.
+        await this.recalcDoctorRating(data.doctorId);
+
         const aggregation = await prisma.review.aggregate({
             where: { doctorId: data.doctorId, hidden: false },
             _avg: { rating: true },
             _count: { rating: true },
         });
-
-        await prisma.doctor.update({
-            where: { id: data.doctorId },
-            data: {
-                rating: Math.round((aggregation._avg.rating || 5) * 10) / 10,
-            },
-        });
-
-        invalidateDoctorCache(data.doctorId);
 
         return {
             review,
@@ -75,16 +79,34 @@ export class ReviewService {
         };
     }
 
-    static async getReviewsByDoctor(doctorId: number) {
-        return await prisma.review.findMany({
-            where: { doctorId, hidden: false },
-            include: {
-                user: {
-                    select: { id: true, name: true, avatar: true },
+    /**
+     * Public review listing for a doctor.
+     *
+     * Bounded. This route is unauthenticated, so an unbounded `findMany` let
+     * anyone pull a clinician's entire review history in one request — every
+     * review author name and avatar included. The count is returned alongside so
+     * the client can show "showing 50 of N".
+     */
+    static async getReviewsByDoctor(doctorId: number, limit = 20, offset = 0) {
+        const take = Math.min(Math.max(limit, 1), 50);
+        const skip = Math.max(offset, 0);
+
+        const [reviews, total] = await Promise.all([
+            prisma.review.findMany({
+                where: { doctorId, hidden: false },
+                include: {
+                    user: {
+                        select: { id: true, name: true, avatar: true },
+                    },
                 },
-            },
-            orderBy: { createdAt: "desc" },
-        });
+                orderBy: { createdAt: "desc" },
+                take,
+                skip,
+            }),
+            prisma.review.count({ where: { doctorId, hidden: false } }),
+        ]);
+
+        return { reviews, total, limit: take, offset: skip };
     }
 
     // Doctors may report reviews on their own profile (one open report per review)
@@ -93,15 +115,15 @@ export class ReviewService {
             where: { id: reviewId },
             include: { doctor: { select: { userId: true } } },
         });
-        if (!review) throw new Error("Review not found");
+        if (!review) throw notFound("Review not found");
         if (review.doctor.userId !== doctorUserId) {
-            throw new Error("Forbidden: you can only report reviews on your own profile");
+            throw forbidden("you can only report reviews on your own profile");
         }
 
         const open = await prisma.reviewReport.findFirst({
             where: { reviewId, status: "open" },
         });
-        if (open) throw new Error("This review already has an open report");
+        if (open) throw conflict("This review already has an open report");
 
         const report = await prisma.reviewReport.create({
             data: { reviewId, reporterId: doctorUserId, reason: sanitize(reason).slice(0, 2000) },
@@ -169,13 +191,13 @@ export class ReviewService {
             where: { id: reviewId },
             include: { doctor: { select: { userId: true } } },
         });
-        if (!review) throw new Error("Review not found");
+        if (!review) throw notFound("Review not found");
         if (review.doctor.userId !== doctorUserId) {
-            throw new Error("Forbidden: you can only reply to reviews on your own profile");
+            throw forbidden("you can only reply to reviews on your own profile");
         }
 
         const cleaned = sanitize(reply.trim());
-        if (!cleaned) throw new Error("Reply cannot be empty");
+        if (!cleaned) throw badRequest("Reply cannot be empty");
 
         const updated = await prisma.review.update({
             where: { id: reviewId },

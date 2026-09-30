@@ -43,17 +43,11 @@ export const JournalListSchema = z.object({
  * zero, negatives and junk strings — previously these reached Prisma as `NaN`
  * and surfaced as a 500 carrying an internal error string.
  */
-export const idObject = z.object({
-    id: z.coerce.number().int().positive("Invalid id").max(2_147_483_647),
-});
+import { idObject, idParam } from "./params.schema";
 
-/**
- * Route-level schema for a path that is only an `:id`. Every schema in this
- * project is wrapped as `{ body?, query?, params? }`, so this must nest under
- * `params` too — validating the bare `{ id }` shape silently matched nothing
- * and rejected every request.
- */
-export const idParam = z.object({ params: idObject });
+// Re-exported so existing imports keep working; the definitions now live in one
+// place rather than being duplicated per schema file.
+export { idObject, idParam };
 
 /**
  * `days` is bounded. It was previously an unconstrained numeric string, so
