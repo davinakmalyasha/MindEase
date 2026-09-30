@@ -20,15 +20,6 @@ const sessionStart = (appointmentDate: Date, startTime: string | null) => {
 const REMINDER_WINDOW_HOURS = 24;
 
 const sendReminder = async (appointmentId: number) => {
-    // Claim first: only one runner (e.g. one replica of many) wins the
-    // updateMany and sends emails. Prevents duplicate reminders when the API
-    // runs with multiple instances.
-    const claim = await prisma.appointment.updateMany({
-        where: { id: appointmentId, reminderSentAt: null },
-        data: { reminderSentAt: new Date() },
-    });
-    if (claim.count !== 1) return;
-
     const appointment = await prisma.appointment.findUnique({
         where: { id: appointmentId },
         include: {
@@ -38,9 +29,32 @@ const sendReminder = async (appointmentId: number) => {
     });
     if (!appointment || appointment.status !== "confirmed") return;
 
+    // Eligibility is checked BEFORE the claim.
+    //
+    // The claim used to be taken first and the window verified afterwards, so
+    // any session whose calendar *date* fell inside the 24h horizon but whose
+    // actual start did not — a late-evening session the next day, for
+    // instance — burned `reminderSentAt` and was then skipped on every future
+    // run. The patient was never reminded and nothing ever reported the loss.
     const start = sessionStart(appointment.appointmentDate, appointment.startTime);
     const hoursUntil = (start.getTime() - Date.now()) / 3_600_000;
     if (hoursUntil <= 0 || hoursUntil > REMINDER_WINDOW_HOURS) return;
+
+    // Claim now that the session is known to be due: only one runner (e.g. one
+    // replica of many) wins the updateMany and sends. Prevents duplicate
+    // reminders when the API runs with multiple instances.
+    const claim = await prisma.appointment.updateMany({
+        where: { id: appointmentId, reminderSentAt: null },
+        data: { reminderSentAt: new Date() },
+    });
+    if (claim.count !== 1) return;
+
+    // Belt and braces: if anything below returns early, hand the claim back so
+    // the next run can retry rather than stranding the reminder.
+    const releaseClaim = () =>
+        prisma.appointment
+            .updateMany({ where: { id: appointmentId }, data: { reminderSentAt: null } })
+            .catch(() => {});
 
     const patient = appointment.user;
     const doctor = appointment.doctor.user;
@@ -93,9 +107,7 @@ const sendReminder = async (appointmentId: number) => {
     // claim so the next run retries instead of silently consuming it.
     const results = await Promise.allSettled(jobs);
     if (jobs.length > 0 && results.every((r) => r.status === "rejected")) {
-        await prisma.appointment
-            .updateMany({ where: { id: appointmentId }, data: { reminderSentAt: null } })
-            .catch(() => {});
+        await releaseClaim();
     }
 };
 
@@ -151,11 +163,19 @@ export const runWeeklyReports = async () => {
 
             let summary: string | null = null;
             if (journal.length > 0) {
-                summary = await AIService.summarizeJournal(
+                const generated = await AIService.summarizeJournal(
                     journal.map((j) => j.content),
-                    journal[journal.length - 1].createdAt,
-                    journal[0].createdAt
+                    new Date(journal[journal.length - 1].createdAt),
+                    new Date(journal[0].createdAt)
                 );
+                summary = generated.data;
+                // An emailed report is the one place the reader cannot inspect a
+                // response body, so a fallback has to be visible in the prose
+                // itself — otherwise "your week in reflection" reads as a
+                // considered personal synthesis when it was a fixed paragraph.
+                if (generated.source === "fallback") {
+                    summary = `${generated.data}\n\n(Automated — our AI reflection was unavailable, so this is a standard note rather than a personal summary.)`;
+                }
             }
 
             const { subject, html } = MailerService.buildWeeklyReportEmail({
