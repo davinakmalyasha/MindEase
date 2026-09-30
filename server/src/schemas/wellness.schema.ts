@@ -98,6 +98,39 @@ export const AssessmentListSchema = z.object({
     }),
 });
 
+/**
+ * Closes a risk alert.
+ *
+ * The note is optional and short. It is not required because sometimes the
+ * honest entry is "spoke to them by phone"; it is bounded because this is a
+ * triage field, not a clinical record, and an unbounded free-text box on the
+ * highest-consequence screen in the product is an invitation to paste anything.
+ */
+export const ResolveRiskAlertSchema = z.object({
+    body: z
+        .object({
+            note: z.string().max(1000, "Note too long").optional(),
+        })
+        .strict(),
+});
+
+/**
+ * Longitudinal screening trajectory.
+ *
+ * `type` is required rather than optional: returning both instruments in one
+ * response invites a client to plot two incompatible scales on one axis, since
+ * PHQ-9 tops out at 27 and GAD-7 at 21.
+ */
+export const TrajectorySchema = z.object({
+    query: z.object({
+        type: z.enum(["phq9", "gad7"]),
+        // Bounded so a chart cannot be asked to render a decade of points, and
+        // so the query cannot be used to pull a patient's whole screening
+        // history by walking the window.
+        limit: z.coerce.number().int().min(2).max(100).default(24),
+    }),
+});
+
 export const ReplyReviewSchema = z.object({
     body: z.object({
         reply: z.string().min(1, "Reply cannot be empty").max(2000, "Reply too long"),
