@@ -123,7 +123,17 @@
       "historyEmpty": "No results yet. Complete the screening to get started.",
       "severeHint": "This score suggests significant symptoms. Please consider booking a session soon — your doctor can see this result and prepare for your visit.",
       "savedHint": "Your latest score has been saved and will appear in your doctor's pre-session briefing.",
-      "disclaimer": "Screening tools are indicators, not diagnoses. Always discuss results with a qualified professional."
+      "disclaimer": "Screening tools are indicators, not diagnoses. Always discuss results with a qualified professional.",
+      "trajectoryTitle": "Over time",
+      "trajectoryHint": "How your screening score has moved between sittings.",
+      "trajectoryDisclaimer": "This is a screening score, not a diagnosis or a measurement of recovery. A falling line means fewer symptoms were reported on that sitting; it is not proof that anything has been cured, and it does not replace a clinical assessment.",
+      "sittings": "Sittings",
+      "latestScore": "Latest",
+      "change": "Change overall",
+      "direction_improving": "Moving down",
+      "direction_worsening": "Moving up",
+      "direction_stable": "Broadly steady",
+      "direction_insufficient_data": "Not enough sittings yet"
     },
     "analytics": {
       "title": "Practice Analytics",
