@@ -14,8 +14,62 @@
   --foreground: #e2e8f0;
 }
 
-@media (min-width: 768px) {
-  /* Removed custom cursor styles */
+/* ------------------------------------------------------------------ */
+/* Accessibility                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Respect the OS "reduce motion" setting.
+ *
+ * 42 of the app's components animate through framer-motion and another 66
+ * use Tailwind's `animate-*` utilities, none of which consulted this setting.
+ * Motion is a genuine accessibility concern, not only a comfort one: it is a
+ * documented trigger for migraine and nausea, and sustained parallax or
+ * scale transitions make it hard to hold a fixed point on screen.
+ *
+ * This is applied globally rather than per component. A per-component
+ * `useReducedMotion()` would be more precise but has to be remembered in every
+ * future component, and a single global rule also neutralises motion from
+ * third-party libraries. The rule is deliberately blunt: it removes the
+ * animation, keeping the end state, rather than shortening it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* framer-motion animates inline styles on transformed elements, which a
+     class-based rule cannot reach, so reset the properties it writes. */
+  [style*="transform"] {
+    transform: none !important;
+  }
+}
+
+/**
+ * A visible, high-contrast focus ring.
+ *
+ * The app had no focus styling of its own and relied entirely on the browser
+ * default, which is inconsistent across platforms and can be near-invisible
+ * against the app's pastel surfaces. Keyboard users need to know where they
+ * are; `:focus-visible` keeps the ring off for pointer users, who get hover
+ * and active states instead.
+ *
+ * `outline-offset` separates the ring from the element so it stays legible on
+ * both the white and dark surfaces this app uses.
+ */
+:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.dark :focus-visible {
+  outline-color: #a5b4fc;
 }
 
 body {
