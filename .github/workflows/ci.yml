@@ -5,8 +5,34 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The end-to-end step is opt-in. See the `docker` job for why.
+  workflow_dispatch:
 
 jobs:
+  # --------------------------------------------------------------------
+  # Compose file validation
+  #
+  # Runs first, costs about ten seconds, and needs nothing but the
+  # checkout. It exists because a single mis-indented key in
+  # docker-compose.yml made the file unparseable, which made
+  # `docker compose build` fail on the first step of the `docker` job and
+  # left every later step - four health checks, the database seed, all
+  # nine Playwright journeys - permanently unreachable. Nothing in the
+  # pipeline noticed, because a job whose first step fails simply reports
+  # red and the unreachable steps are never examined.
+  #
+  # A schema error in the compose file should cost ten seconds, not a full
+  # three-job test run.
+  compose:
+    name: Compose (validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `-q` validates and exits non-zero on any error without printing the
+      # resolved config, so a failure shows the parse error and nothing else.
+      - name: Validate docker-compose.yml
+        run: docker compose config -q
+
   server:
     name: Server (lint, typecheck, test)
     runs-on: ubuntu-latest
@@ -113,9 +139,48 @@ jobs:
   docker:
     name: Docker build
     runs-on: ubuntu-latest
-    needs: [server, client, realtime]
+    # `compose` first: a malformed compose file should fail here rather than
+    # after the server, client and realtime suites have all run.
+    needs: [compose, server, client, realtime]
     steps:
       - uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------
+      # Opt-in for the end-to-end step
+      #
+      # The Playwright suite had never been executed by any automated
+      # process: the `docker` job's first step was `docker compose build`,
+      # and it failed, so every later step was unreachable.
+      #
+      # It therefore runs now for the first time, on selectors that have
+      # never been exercised. Making that a required check on the first
+      # run would report a selector failure as though it were a
+      # regression, which is exactly the wrong signal to send. So the
+      # step runs on demand - dispatch this workflow, or label a PR `e2e` -
+      # and gets promoted to required once it is green.
+      #
+      # Everything above it (build, boot, four health checks, seed) is not
+      # gated: that is the part with a known-good expectation, and a red
+      # there is always a real defect.
+      - name: Decide whether to run end-to-end journeys
+        id: e2e
+        env:
+          # `contains(github.event.pull_request.labels.*.name, 'e2e')` is
+          # empty for a push, which `contains` would otherwise treat as a
+          # match, so the event type is checked first.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "reason=workflow_dispatch" >> "$GITHUB_OUTPUT"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_LABELS" != "[]" ] && echo "$PR_LABELS" | grep -q '"e2e"'; then
+            echo "reason=pr-label" >> "$GITHUB_OUTPUT"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reason=not-requested" >> "$GITHUB_OUTPUT"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build images
         run: docker compose build
       # `build` alone never proved the stack works: the API refused to boot
@@ -135,21 +200,19 @@ jobs:
       # ----------------------------------------------------------------
       # End-to-end journeys
       #
-      # The 187-line Playwright suite had never been executed by any
-      # automated process — CI only ever linted, unit-tested and booted the
-      # stack. 187 lines of unrun test code is a liability, not coverage, so
-      # it is now actually run here, against the stack this job already has
-      # booted (`reuseExistingServer: true` in playwright.config.ts means it
-      # will not try to start its own).
-      #
-      # The suite requires seeded data — it hardcodes `doctorId = 2` and expects
-      # reviews to exist — and nothing in compose or CI ever seeded the
-      # database, so that gap is closed first.
+      # The suite requires seeded data and nothing in compose or CI ever
+      # seeded the database, so the seed is closed first.
       #
       # Seeding runs from the runner rather than inside the API container: the
       # production image installs `--omit=dev` (so no `ts-node`) and copies only
       # `scripts/start.sh`, not `scripts/seed.ts`. The runner has the full
       # checkout with devDependencies, and compose publishes MySQL on 3306.
+      #
+      # Note the seed creates zero reviews. It used to invent a 4.2-4.9 rating
+      # for every clinician with zero reviews, which made "Top Rated" rank
+      # the most-liked-looking profiles first; that data was removed because
+      # demo data should not model the bug. One journey depends on a review
+      # existing and builds its own by completing a consultation.
       - name: Install server dependencies (for the seed)
         working-directory: server
         run: npm ci
@@ -159,13 +222,15 @@ jobs:
           DATABASE_URL: mysql://root:mindease_secure_root@127.0.0.1:3306/mindease_db
         run: npx prisma migrate deploy && npm run db:seed
       - name: Install Playwright browser
+        if: steps.e2e.outputs.run == 'true'
         working-directory: client
         run: npx playwright install --with-deps chromium
       - name: Run end-to-end journeys
+        if: steps.e2e.outputs.run == 'true'
         working-directory: client
         run: npx playwright test
       - name: Upload Playwright traces on failure
-        if: failure()
+        if: failure() && steps.e2e.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
