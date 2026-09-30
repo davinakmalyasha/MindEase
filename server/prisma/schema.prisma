@@ -264,6 +264,19 @@ model PreSessionData {
   answersJson   String?  @db.Text
   briefingText  String?  @db.Text
 
+  /**
+   * Where `briefingText` came from: "model" or "fallback".
+   *
+   * A clinical briefing is read asynchronously, sometimes days after it was
+   * written, so a provenance flag that only lived on the HTTP response would
+   * have been lost by the time anyone looked. Storing the origin alongside
+   * the text is what lets a clinician reading a cached briefing still see
+   * that it was a deterministic platform summary rather than a model's
+   * synthesis. Defaults to "model" because every row written before this
+   * column existed was produced by a live model.
+   */
+  briefingSource String  @default("model")
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
