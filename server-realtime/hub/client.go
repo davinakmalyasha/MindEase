@@ -56,20 +56,25 @@ func checkOrigin(r *http.Request) bool {
 	return false
 }
 
-// ServeWS upgrades the connection, authenticates via token (cookie or query),
-// and registers the client with the hub.
+// ServeWS authenticates, then upgrades the connection and registers the client
+// with the hub.
+//
+// Authentication deliberately happens *before* the upgrade. The previous order
+// completed a 101 handshake first and only then validated the token, so an
+// unauthenticated caller held a live socket for the duration of the auth check
+// and the client could not tell a rejected handshake from a normal disconnect —
+// its reconnect loop would retry a bad ticket indefinitely.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	claims, err := authenticateRequest(r)
 	if err != nil {
-		log.Printf("upgrade error: %v", err)
+		log.Printf("auth rejected: %v", err)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	claims, err := authenticateRequest(r)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("auth error: %v", err)
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()))
-		conn.Close()
+		log.Printf("upgrade error: %v", err)
 		return
 	}
 
@@ -77,7 +82,15 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		ID:   claims.UserID,
 		Send: make(chan Event, 64),
 	}
-	h.Register(claims.UserID, client)
+	if err := h.Register(claims.UserID, client); err != nil {
+		log.Printf("connection limit reached for user %d: %v", claims.UserID, err)
+		conn.WriteMessage(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"),
+		)
+		conn.Close()
+		return
+	}
 
 	log.Printf("user %d connected (role=%s)", claims.UserID, claims.Role)
 
