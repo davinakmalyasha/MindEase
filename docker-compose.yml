@@ -82,15 +82,15 @@ services:
     build: ./server-realtime
     container_name: mindease-realtime
     restart: unless-stopped
-      environment:
-        PORT: 8080
-        REDIS_URL: redis://redis:6379
-        JWT_SECRET: ${JWT_SECRET}
-        NODE_ENV: production
-        FRONTEND_URL: http://localhost:3000
-        # Connection caps: per-user (multi-tab) and process-wide.
-        MAX_CONNECTIONS_PER_USER: ${MAX_CONNECTIONS_PER_USER:-5}
-        MAX_TOTAL_CONNECTIONS: ${MAX_TOTAL_CONNECTIONS:-10000}
+    environment:
+      PORT: 8080
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:3000
+      # Connection caps: per-user (multi-tab) and process-wide.
+      MAX_CONNECTIONS_PER_USER: ${MAX_CONNECTIONS_PER_USER:-5}
+      MAX_TOTAL_CONNECTIONS: ${MAX_TOTAL_CONNECTIONS:-10000}
     depends_on:
       redis:
         condition: service_healthy
@@ -123,6 +123,16 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    # Without this the `web` service is the last one `docker compose up --wait`
+    # stops waiting on, so compose reports the stack ready while Next.js is
+    # still compiling or has already crashed. The other four services all
+    # declare one; this one was the gap.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   mysql_data:
