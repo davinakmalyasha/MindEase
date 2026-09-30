@@ -6,9 +6,15 @@ import {
     ChangePasswordSchema,
     ForgotPasswordSchema,
     ResetPasswordSchema,
-    RescheduleSchema,
 } from "../schemas/auth.schema";
-import { BookAppointmentSchema, UpdateStatusSchema, CreateSlotSchema, CreatePatternSchema, SuggestFollowUpSchema } from "../schemas/appointment.schema";
+import {
+    BookAppointmentSchema,
+    UpdateStatusSchema,
+    CreateSlotSchema,
+    CreatePatternSchema,
+    SuggestFollowUpSchema,
+    RescheduleSchema,
+} from "../schemas/appointment.schema";
 import { CreateReviewSchema, LogMoodSchema, JournalEntrySchema, SubmitAssessmentSchema, ReplyReviewSchema, ReportReviewSchema } from "../schemas/wellness.schema";
 import { SendMessageSchema, TypingSchema } from "../schemas/message.schema";
 import { GenerateQuestionsSchema, SubmitAnswersSchema, GenerateBriefingSchema, MatchDoctorsSchema } from "../schemas/ai.schema";
