@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# MindEase — web client
 
-## Getting Started
+Next.js 16 (App Router) front end for MindEase. TypeScript, React Query,
+Tailwind, next-intl for English and Indonesian.
 
-First, run the development server:
+For the architecture, the design decisions and the known limitations, see the
+[repository README](../README.md) and [ARCHITECTURE.md](../ARCHITECTURE.md).
+This file is only about running the client.
+
+## Getting started
+
+The API has to be running too — see the repository README for the full stack.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local     # or export the variables below
+npm run dev                   # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+`NEXT_PUBLIC_*` values are **inlined into the browser bundle at build time**.
+Declaring them in a container's runtime environment has no effect on an
+already-built bundle, which is why they are docker *build args* in
+`docker-compose.yml` rather than under `environment:`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | API base URL, e.g. `http://localhost:5000/api` |
+| `NEXT_PUBLIC_REALTIME_URL` | WebSocket URL, e.g. `ws://localhost:8080/ws` |
+| `NEXT_PUBLIC_SITE_URL` | Canonical site URL, used for SEO and OG metadata |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google SSO. The button is hidden when unset |
+| `NEXT_PUBLIC_SENTRY_DSN` | Client error tracking. No-op when unset |
 
-## Learn More
+`JWT_SECRET` is read at **runtime**, not build time, by the edge proxy that
+checks session cookies. It must be byte-identical to the API's.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Script | What it does |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint. 0 errors, warnings only |
+| `npm test` | Vitest + jsdom — session, notification store, locale parity, JSON-LD escaping |
+| `npx playwright test` | End-to-end journeys. Needs the full stack running |
+| `npm run check:deps` | Unused dependency report. Advisory; has false positives |
+| `npm run check:encoding` | Repo-wide mojibake guard |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Layout
 
-## Deploy on Vercel
+```
+app/            routes. dashboard/ is the app, the rest is marketing and legal
+components/     by domain: ui/ for primitives, the rest by feature
+hooks/          React Query hooks, plus useRealtime and useNotifications
+lib/            api.ts (the axios instance), format, and domain mappers
+messages/       en.json and id.json — key parity is enforced by a test
+proxy.ts        session gate for protected route prefixes
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Adding a string
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Add it to **both** `messages/en.json` and `messages/id.json`.
+`tests/locales.test.ts` fails on key drift, empty values, mismatched ICU
+placeholders, and English left untranslated.
+
+The one exception is deliberate: crisis hotline numbers and the official names
+of the organisations behind them are byte-identical across locales, because a
+translated emergency number is a wrong emergency number. They are allowlisted in
+that test by path.
