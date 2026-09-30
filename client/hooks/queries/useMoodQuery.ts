@@ -182,9 +182,45 @@ export const useAssessments = (type?: string, limit = 10) =>
         },
     });
 
+/**
+ * Longitudinal screening trajectory.
+ *
+ * Separate from `useAssessments`, which returns the raw history newest-first.
+ * The trajectory is oldest-first, scored against the instrument's own range,
+ * and carries the severity bands and a direction the chart would otherwise
+ * have to derive - and a chart that derives the bands itself is how the two
+ * instruments end up plotted on one wrong axis.
+ */
+export interface TrajectoryResponse {
+    type: string;
+    instrument: { label: string; max: number; bands: { upTo: number; severity: string }[] };
+    points: {
+        id: number;
+        score: number;
+        severity: string;
+        createdAt: string;
+        changeFromPrevious: number | null;
+    }[];
+    summary: {
+        sittings: number;
+        first: number | null;
+        latest: number | null;
+        totalChange: number | null;
+        direction: "improving" | "worsening" | "stable" | "insufficient-data";
+    };
+}
+
+export const useAssessmentTrajectory = (type: "phq9" | "gad7") =>
+    useQuery({
+        queryKey: [...moodKeys.assessments, "trajectory", type],
+        queryFn: async () => {
+            const res = await api.get(`/wellness/assessments/trajectory?type=${type}`);
+            return res.data?.data as TrajectoryResponse;
+        },
+    });
+
 export const useSubmitAssessment = () => {
-    const queryClient = useQueryClient();
-    const { toast } = useToast();
+    const queryClient = useQueryClient();    const { toast } = useToast();
 
     return useMutation({
         mutationFn: async ({ type, answers }: { type: string; answers: number[] }) => {
