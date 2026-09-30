@@ -141,7 +141,12 @@ model Appointment {
   consultationType String   @default("video") // video, voice, chat
   status          String   @default("pending") // pending, confirmed, cancelled, completed
   notes           String?  @db.Text
-  meetingLink     String?
+  meetingLink String?
+  /// Per-appointment random component of the video room name. Persisted so the
+  /// two participants, who join independently, land in the same room. Created
+  /// when the appointment is confirmed and cleared on reschedule, because a new
+  /// slot is a new session and must not inherit the old room.
+  roomSeed String?
   idempotencyKey  String?  @unique
   reminderSentAt  DateTime?
   checkinSentAt   DateTime?

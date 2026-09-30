@@ -199,6 +199,26 @@ export const env = {
     })(),
 
     /**
+     * Which video transport is in force.
+     *
+     * `jitsi` is retained only as a degraded path and is the default so that a
+     * deployment which has not configured LiveKit still works. That is a real
+     * downgrade - the jitsi path has no authentication - so the API reports it
+     * on every join via `degraded`, and the client says so on screen. Making
+     * livekit the default would instead fail closed with no video at all, which
+     * is worse for a consultation that is minutes from starting.
+     */
+    videoProvider: ((process.env.VIDEO_PROVIDER || "jitsi").trim().toLowerCase() || "jitsi") as
+        | "livekit"
+        | "jitsi",
+
+    livekit: {
+        url: (process.env.LIVEKIT_URL || "").trim(),
+        apiKey: (process.env.LIVEKIT_API_KEY || "").trim(),
+        apiSecret: (process.env.LIVEKIT_API_SECRET || "").trim(),
+    },
+
+    /**
      * Allowed browser origins for CORS. Derived exclusively from explicit
      * configuration — never a hard-coded localhost fallback, which would
      * otherwise silently widen the allowlist in production.
