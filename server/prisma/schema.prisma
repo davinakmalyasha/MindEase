@@ -65,6 +65,14 @@ model User {
   doctorProfile Doctor?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+
+  // Cron scan indexes. The mood-nudge and decline-nudge jobs look for patients
+  // past a per-user timestamp within a role, and the weekly report looks for
+  // opted-in patients by role. All three were full table scans on every run, on
+  // every replica, before these existed.
+  @@index([role, lastMoodNudgeAt])
+  @@index([role, lastDeclineNudgeAt])
+  @@index([weeklyReportEnabled, role])
 }
 
 model Doctor {
@@ -99,6 +107,15 @@ model Doctor {
   awayUntil     DateTime?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
+
+  // Directory indexes. Every directory query filters on `verificationStatus`
+  // (unapproved clinicians are hidden) and then filters or sorts on one of
+  // specialty / price / rating / experience, optionally excluding clinicians
+  // inside an `awayUntil` window.
+  @@index([verificationStatus, rating])
+  @@index([specialty, price])
+  @@index([experience])
+  @@index([verificationStatus, awayUntil])
 }
 
 model Appointment {
@@ -130,6 +147,13 @@ model Appointment {
 
   @@index([doctorId, appointmentDate, status])
   @@index([userId, status])
+  // The reminder and post-session check-in jobs claim work with a conditional
+  // update on these column sets (sent-timestamp IS NULL, date in window, status
+  // in set). Without them each claim scanned the whole appointments table, on
+  // every replica, every ten minutes.
+  @@index([reminderSentAt, appointmentDate, status])
+  @@index([checkinSentAt, appointmentDate, status])
+  @@index([userId, appointmentDate])
 }
 
 model Review {
@@ -147,6 +171,9 @@ model Review {
   hidden        Boolean  @default(false)
   reports       ReviewReport[]
   createdAt     DateTime @default(now())
+
+  // Public review listings filter on `hidden` and order by date.
+  @@index([doctorId, hidden, createdAt])
 }
 
 model ReviewReport {
@@ -180,6 +207,8 @@ model Message {
 
   @@index([senderId, receiverId, createdAt])
   @@index([receiverId, senderId])
+  // Unread-badge and conversation-list queries.
+  @@index([receiverId, isRead])
 }
 
 model Notification {
@@ -193,6 +222,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
 }
 
 model ConsultationSlot {
@@ -233,6 +263,7 @@ model PreSessionData {
   questionsJson String?  @db.Text
   answersJson   String?  @db.Text
   briefingText  String?  @db.Text
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -303,7 +334,7 @@ model JournalEntry {
   aiSummary String?  @db.Text
   createdAt DateTime @default(now())
 
-  @@index([userId])
+  @@index([userId, createdAt])
 }
 
 model Assessment {
@@ -316,7 +347,9 @@ model Assessment {
   severity   String // minimal, mild, moderate, moderately-severe, severe
   createdAt  DateTime @default(now())
 
+  // Per-instrument history, and the ordered "your results over time" list.
   @@index([userId, type])
+  @@index([userId, createdAt])
 }
 
 model AuditLog {
@@ -331,6 +364,7 @@ model AuditLog {
 
   @@index([actorId])
   @@index([targetType, targetId])
+  @@index([createdAt])
 }
 
 model FollowUp {
@@ -347,8 +381,10 @@ model FollowUp {
   status    String   @default("pending") // pending, accepted, declined, expired
   createdAt DateTime @default(now())
 
-  // `status` and `doctorId` indexes were dropped: follow-ups are only ever
-  // fetched by `appointmentId` or `id`, so both were pure write amplification.
+  // `status` is not indexed: follow-ups are only ever fetched by
+  // `appointmentId` or `id`, so it was pure write amplification on a hot table.
+  // `doctorId` *is* indexed, and cannot be otherwise — MySQL requires an index
+  // backing `FollowUp_doctorId_fkey` and rejects the ALTER without one.
 }
 
 model WaitlistEntry {
@@ -399,7 +435,7 @@ model PackagePurchase {
   grantedByUserId  Int?
   appointments Appointment[]
   createdAt    DateTime @default(now())
-
+  
   @@index([userId, createdAt])
   @@index([userId, status])
 }
