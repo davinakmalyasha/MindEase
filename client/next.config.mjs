@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import createNextIntlPlugin from "next-intl/plugin";
 
 /**
  * @typedef {import('next').NextConfig} NextConfig
@@ -177,4 +178,12 @@ const nextConfig = {
 
 stampServiceWorker();
 
-export default nextConfig;
+/**
+ * `createNextIntlPlugin` is what makes `getTranslations()` resolve on the
+ * server. Without it the client half of next-intl still works (the root layout
+ * imports `messages/*.json` directly), which is why the missing plugin was not
+ * obvious: every Server Component calling `getTranslations` threw instead.
+ */
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+
+export default withNextIntl(nextConfig);
