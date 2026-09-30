@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUser, createDoctor, createAdmin } from "./helpers";
+import { createUser, createDoctor } from "./helpers";
 import { prisma } from "../src/app";
 
 const futureDate = (days = 3) => {
@@ -97,7 +97,9 @@ describe("Appointments", () => {
         expect(first.status).toBe(201);
 
         const second = await other.agent.post("/api/appointments/book").set("X-CSRF-Token", other.csrf).send(payload);
-        expect(second.status).toBe(400);
+        // 409 Conflict: the slot is taken. This used to be 400 only because the
+        // controller hard-coded a status instead of reading the typed error.
+        expect(second.status).toBe(409);
         expect(second.body.message).toContain("already booked");
     });
 
@@ -132,7 +134,8 @@ describe("Appointments", () => {
             .post("/api/appointments/book")
             .set("X-CSRF-Token", patient.csrf)
             .send({ doctorId: doctor.doctorId, appointmentDate: date, startTime: "10:30", endTime: "11:30", consultationType: "video" });
-        expect(overlap.status).toBe(400);
+        // 409 Conflict: the clinician is already booked for an overlapping hour.
+        expect(overlap.status).toBe(409);
     });
 
     it("confirms on doctor approval and creates a meeting link", async () => {
