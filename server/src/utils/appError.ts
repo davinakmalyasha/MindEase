@@ -76,6 +76,20 @@ const MAX_PUBLIC_MESSAGE_LENGTH = 200;
 /** Characters that suggest a path, a query or a raw identifier. */
 const SUSPICIOUS = /[{}<>]|\b[a-z]+[A-Z][a-z]+\(/;
 
+/**
+ * Backstop status for a legacy plain `Error` that is safe to show a client.
+ *
+ * Every service now throws a typed `AppError` (see the `badRequest` /
+ * `unauthorized` / `forbidden` / `notFound` / `conflict` factories), so an
+ * `AppError` never reaches this function — `publicMessageFor` returns its
+ * status directly. This only classifies messages from `throw new Error(...)`
+ * that slipped through, so it must not be treated as the primary mechanism.
+ *
+ * The reason it exists at all: a plain `Error` reaching this path can still be
+ * a *client* error, and returning 500 for e.g. "not found" is a lie the client
+ * can't distinguish from a real outage. New code must throw a typed error
+ * rather than rely on a phrase matching here.
+ */
 const statusFor = (message: string): number => {
     const lower = message.toLowerCase();
     if (lower.includes("forbidden") || lower.includes("not a participant")) return 403;
