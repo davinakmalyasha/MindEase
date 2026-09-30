@@ -58,6 +58,42 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - run: npx prisma generate
+
+      # The encoding guard is the one that is wired as a required check. It
+      # catches real damage that has happened here before: a bulk text repair
+      # left mojibake in user-facing strings, and it is cheap and currently
+      # green.
+      - name: Encoding guard (whole repo)
+        working-directory: .
+        run: node scripts/check-encoding.js
+
+      # The other two guards are advisory, and that is a known gap rather than a
+      # judgement that they are unimportant.
+      #
+      # `check-dependencies.js` exits 0 without `--write`, so it reports and
+      # never fails - but it has false positives today: it does not scan
+      # `eslint.config.mjs`, so it calls `@eslint/js` and `typescript-eslint`
+      # unused, and it does not know that jsdom and testing-library are pulled in
+      # by vitest's config rather than imported.
+      #
+      # `check-operators.js` is genuinely broken and reports 190 false positives.
+      # It declares a `CODE_POSITION` regex and never uses it; what it actually
+      # checks is "does any typographic dash survive stripping", and it only
+      # strips `//` comments, not `/* */` block comments. Every one of the 190
+      # findings is prose in a doc comment, JSX text, or an email template. It
+      # has never been run in any automated process, which is why nobody has seen
+      # that. Making it a required check would redden main on the first run for
+      # no real finding.
+      #
+      # Both need fixing before they can gate anything; they are tracked in the
+      # README's known limitations.
+      - name: Unused dependency check (advisory)
+        continue-on-error: true
+        run: node scripts/check-dependencies.js
+      - name: Dashed-operator check (advisory, known false positives)
+        continue-on-error: true
+        run: node scripts/check-operators.js
+
       - name: Lint
         run: npm run lint
       - run: npx tsc --noEmit
@@ -106,6 +142,12 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
+      - name: Encoding guard (whole repo)
+        working-directory: .
+        run: node scripts/check-encoding.js
+      - name: Unused dependency check (advisory, known false positives)
+        continue-on-error: true
+        run: node scripts/check-dependencies.js
       - run: npm run lint
       # The vitest suite was never run in CI, so the api-session and
       # notifications-store regression tests only ever ran locally.
