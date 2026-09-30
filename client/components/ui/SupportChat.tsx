@@ -11,6 +11,17 @@ interface ChatMessage {
     content: string;
     crisis?: boolean;
     escalated?: boolean;
+    /**
+     * Whether a live model wrote this reply. When false the text came from the
+     * fixed help-topic list, and the bubble says so — someone reaching out in
+     * distress should not have to guess whether a model actually read them.
+     *
+     * Crisis and escalation replies are always `fallback`: they are fixed
+     * safety instructions carrying emergency numbers, and are deliberately
+     * *not* marked as canned in the UI, so this flag must not be used to style
+     * them as anything but urgent.
+     */
+    source?: "model" | "fallback";
 }
 
 const QUICK_REPLIES = [
@@ -66,7 +77,13 @@ export default function SupportChat() {
             const data = res.data?.data;
             setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: data?.reply || "Sorry, I couldn't process that — try again or email support@mindease.id.", crisis: !!data?.crisis, escalated: !!data?.escalated },
+                {
+                    role: "assistant",
+                    content: data?.reply || "Sorry, I couldn't process that — try again or email support@mindease.id.",
+                    crisis: !!data?.crisis,
+                    escalated: !!data?.escalated,
+                    source: data?.source,
+                },
             ]);
         } catch (error) {
             setMessages((prev) => [
@@ -105,7 +122,7 @@ export default function SupportChat() {
 
                     <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
                         {messages.map((m, i) => (
-                            <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                            <div key={i} className={cn("flex flex-col gap-1", m.role === "user" ? "items-end" : "items-start")}>
                                 <div
                                     className={cn(
                                         "max-w-[85%] px-4 py-2.5 text-sm leading-relaxed rounded-2xl",
@@ -117,6 +134,11 @@ export default function SupportChat() {
                                     )}
                                     dangerouslySetInnerHTML={{ __html: formatReply(m.content) }}
                                 />
+                                {m.role === "assistant" && m.source === "fallback" && !m.crisis && !m.escalated && (
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1">
+                                        Standard reply
+                                    </span>
+                                )}
                             </div>
                         ))}
                         {isTyping && (

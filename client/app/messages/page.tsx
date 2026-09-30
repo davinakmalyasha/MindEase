@@ -131,19 +131,33 @@ function MessagesContent() {
         return () => window.removeEventListener("realtime:read", handler);
     }, [activeUser]);
 
-    // Peer typing indicator
+    // Peer typing indicator. `typing:stop` clears the indicator immediately;
+    // previously both frames were the same event, so stopping left it showing
+    // for the full 2.5s timeout.
     useEffect(() => {
-        const handler = (e: Event) => {
+        const clear = () => {
+            if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+            setTypingPeer(false);
+        };
+        const onStart = (e: Event) => {
             const detail = (e as CustomEvent).detail;
             if (activeUser && detail?.userId === activeUser.id) {
                 setTypingPeer(true);
-                clearTimeout(typingTimerRef.current || undefined);
+                if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                // A peer that never sends `typing:stop` (closed tab, dropped
+                // socket) must not leave the indicator stuck.
                 typingTimerRef.current = setTimeout(() => setTypingPeer(false), 2500);
             }
         };
-        window.addEventListener("realtime:typing", handler);
+        const onStop = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (activeUser && detail?.userId === activeUser.id) clear();
+        };
+        window.addEventListener("realtime:typing-start", onStart);
+        window.addEventListener("realtime:typing-stop", onStop);
         return () => {
-            window.removeEventListener("realtime:typing", handler);
+            window.removeEventListener("realtime:typing-start", onStart);
+            window.removeEventListener("realtime:typing-stop", onStop);
             if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
         };
     }, [activeUser]);
