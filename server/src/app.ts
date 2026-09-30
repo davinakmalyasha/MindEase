@@ -30,6 +30,7 @@ import followUpRoutes from "./routes/followUp.routes";
 import pushRoutes from "./routes/push.routes";
 import realtimeRoutes from "./routes/realtime.routes";
 import paymentRoutes from "./routes/payment.routes";
+import carePlanRoutes from "./routes/carePlan.routes";
 import { csrfProtect, csrfTokenHandler } from "./middleware/csrf.middleware";
 import { openApiDocument } from "./docs/openapi";
 import { captureError } from "./utils/sentry";
@@ -176,9 +177,10 @@ export const createApp = () => {
     app.use("/api/messages", messageRoutes);
     app.use("/api/support", supportRoutes);
     app.use("/api", followUpRoutes);
-    app.use("/api/push", pushRoutes);
-    app.use("/api/realtime", realtimeRoutes);
-    app.use("/api/payments", paymentRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/realtime", realtimeRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api", carePlanRoutes);
 
     // 404 handler
     app.use((req, res) => {
