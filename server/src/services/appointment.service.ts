@@ -13,6 +13,7 @@ import { MailerService } from "./mailer.service";
 import { publishEvent } from "./realtime.service";
 import { WaitlistService } from "./waitlist.service";
 import { NotificationService } from "./notification.service";
+import { activeProvider, buildGrant } from "./video.service";
 import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/appError";
 
 const formatDate = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
@@ -487,11 +488,24 @@ export class AppointmentService {
             data: { status },
         });
 
-        // Attach a meeting link when confirmed (video and voice calls both use a Jitsi room)
-        if (status === "confirmed" && !updated.meetingLink && ["video", "voice"].includes(updated.consultationType)) {
-            const link = generateMeetingLink(id);
-            await prisma.appointment.update({ where: { id }, data: { meetingLink: link } });
-            updated.meetingLink = link;
+        // A confirmed live appointment needs a stable room identity before either
+        // party joins, so the seed is created here. It is provider-agnostic: the
+        // livekit room name is derived from it, and the jitsi URL is not used at
+        // all when livekit is configured.
+        if (status === "confirmed" && !updated.roomSeed && ["video", "voice"].includes(updated.consultationType)) {
+            const roomSeed = crypto.randomBytes(8).toString("hex");
+            await prisma.appointment.update({ where: { id }, data: { roomSeed } });
+            updated.roomSeed = roomSeed;
+
+            // Only mint the persistent URL on the degraded jitsi path. On livekit
+            // there is no URL: a stored, unauthenticated room link is exactly the
+            // artefact this migration removes, and pre-creating one would leave
+            // it in the database, the .ics export and the GDPR data export.
+            if (activeProvider().provider === "jitsi" && !updated.meetingLink) {
+                const link = generateMeetingLink(id);
+                await prisma.appointment.update({ where: { id }, data: { meetingLink: link } });
+                updated.meetingLink = link;
+            }
         }
 
         // Audit every lifecycle transition (who changed what, from which state)
@@ -684,6 +698,11 @@ export class AppointmentService {
                         slotId: slotId ?? null,
                         status: "pending",
                         meetingLink: null,
+                        // A new slot is a new session, so it must not inherit the
+                        // previous room. Leaving the old seed would let anyone
+                        // holding a token from before the reschedule still reach
+                        // the room for the new time.
+                        roomSeed: null,
                         // The reminder and check-in claims are keyed on the old
                         // date. Without clearing them the rescheduled session
                         // would never be reminded about its new time.
@@ -764,11 +783,11 @@ export class AppointmentService {
             throw badRequest("This consultation room has closed");
         }
 
-        let meetingLink = appointment.meetingLink;
-        if (!meetingLink) {
-            meetingLink = generateMeetingLink(id);
-            await prisma.appointment.update({ where: { id }, data: { meetingLink } });
-        }
+        // `meetingLink` is no longer generated here. A persistent, guessable-
+        // only-by-luck URL was the unauthenticated artefact the video migration
+        // removes; on the livekit path there is no URL at all, only a short-lived
+        // scoped token. The column is kept and still populated on the jitsi
+        // fallback path for clients that have not been updated.
 
         const counterpartId = isPatient ? appointment.doctor.userId : appointment.userId;
         await publishEvent(counterpartId, {
@@ -780,8 +799,37 @@ export class AppointmentService {
             },
         });
 
+        // The room seed is generated once and persisted, because the two
+        // participants arrive at this method independently and must land in the
+        // same room. Deriving it per request would put each of them somewhere
+        // different, which presents as "the other person never joined".
+        let roomSeed = appointment.roomSeed;
+        if (!roomSeed) {
+            roomSeed = crypto.randomBytes(8).toString("hex");
+            await prisma.appointment.update({ where: { id }, data: { roomSeed } });
+        }
+
+        // The token is scoped to the end of the window, not to a constant, so a
+        // token captured from a proxy log is useless once the session is over.
+        const grant = buildGrant({
+            appointmentId: id,
+            userId: actor.id,
+            displayName: actor.name || "Participant",
+            roomSeed,
+            validUntilMs: end.getTime() + CLOSE_LATE_MS,
+        });
+
         return {
-            meetingLink,
+            // `provider`, `room` and `token` are the new contract. `meetingLink`
+            // is still returned for the jitsi path and for any client that has
+            // not been updated; it is `null` on livekit, where a persistent URL
+            // would be the unauthenticated artefact this change exists to
+            // remove.
+            provider: grant.provider,
+            room: grant.room,
+            token: grant.token ?? null,
+            identity: grant.identity,
+            meetingLink: grant.provider === "jitsi" ? grant.room : null,
             consultationType: appointment.consultationType,
             startTime: appointment.startTime,
             endTime: appointment.endTime,
