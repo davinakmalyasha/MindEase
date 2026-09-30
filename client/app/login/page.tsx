@@ -15,8 +15,10 @@ import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
 import {
     RegisterSchema,
     LoginSchema,
+    toRegisterPayload,
+    type LoginFormInput,
     type LoginFormData,
-    type RegisterFormData,
+    type RegisterFormInput,
 } from "@/lib/validations/auth";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
@@ -95,7 +97,7 @@ function AuthForm() {
         register: loginRegister,
         handleSubmit: handleLoginSubmit,
         formState: { errors: loginErrors },
-    } = useForm<LoginFormData>({ resolver: zodResolver(LoginSchema) });
+    } = useForm<LoginFormInput>({ resolver: zodResolver(LoginSchema) });
 
     const {
         register: registerRegister,
@@ -103,7 +105,7 @@ function AuthForm() {
         setValue,
         watch,
         formState: { errors: registerErrors },
-    } = useForm<RegisterFormData>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
+    } = useForm<RegisterFormInput>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
 
     const selectedRole = watch("role");
 
@@ -124,13 +126,14 @@ function AuthForm() {
         }
     };
 
-    const onRegister = async (data: RegisterFormData) => {
+    const onRegister = async (data: RegisterFormInput) => {
         setIsLoading(true);
         setError(null);
         try {
             // Preserve referral attribution from invite links (?ref=CODE)
             const refCode = searchParams.get("ref");
-            const user = await register({ ...data, referralCode: refCode || undefined });
+            // Applies the schema's transforms (empty phone -> undefined).
+            const user = await register({ ...toRegisterPayload(data), referralCode: refCode || undefined });
             redirectByRole(user.role);
         } catch (err: any) {
             setError(getErrorMessage(err, "Registration failed"));
