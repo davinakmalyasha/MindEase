@@ -2,9 +2,6 @@
   "name": "client",
   "version": "0.1.0",
   "private": true,
-  "i18n": {
-    "requestConfig": "./i18n/request.ts"
-  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
