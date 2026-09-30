@@ -1,15 +1,27 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import speakeasy from "speakeasy";
-import { app, createUser, createDoctor, accessTokenFrom, PASSWORD } from "./helpers";
-
-const futureDate = (days = 3) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split("T")[0];
-};
+import {
+    app,
+    createUser,
+    createDoctor,
+    accessTokenFrom,
+    pinTwoFactorClock,
+    unpinTwoFactorClock,
+    PASSWORD,
+} from "./helpers";
 
 describe("2FA (TOTP)", () => {
+    // Every test here mints a real-clock TOTP code and then makes an HTTP
+    // request whose Argon2 work can outlast a 30-second time step. Pinning
+    // keeps the whole file deterministic. See `pinTwoFactorClock`.
+    beforeEach(() => {
+        pinTwoFactorClock();
+    });
+    afterEach(() => {
+        unpinTwoFactorClock();
+    });
+
     it("setup returns a secret and QR code", async () => {
         const doctor = await createDoctor();
         const res = await doctor.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", doctor.csrf);
