@@ -427,18 +427,58 @@ model PackagePurchase {
   package      Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
   userId       Int
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessionsLeft Int
-  status       String   @default("active") // active, completed
-  // Set when a payment has been verified. A grant with no `paidAt` and no
-  // `grantedByUserId` is not a legitimate entitlement.
-  paidAt           DateTime?
-  grantedByUserId  Int?
-  appointments Appointment[]
-  createdAt    DateTime @default(now())
+    sessionsLeft Int
+    status       String   @default("active") // pending, active, completed
+    // Set when a payment has been verified. A grant with no `paidAt` and no
+    // `grantedByUserId` is not a legitimate entitlement.
+    paidAt           DateTime?
+    grantedByUserId  Int?
+    // Price snapshot, so a later edit to `Package.totalPrice` cannot change what
+    // a patient is credited against, and so a callback's amount can be re-checked
+    // against what was actually ordered.
+    totalPrice       Int      @default(0)
+    sessionCount     Int      @default(0)
+    // Provider transaction reference, retained for reconciliation.
+    reference        String?
+    appointments Appointment[]
+    paymentOrder PaymentOrder?
+    createdAt    DateTime @default(now())
   
-  @@index([userId, createdAt])
-  @@index([userId, status])
-}
+    @@index([userId, createdAt])
+    @@index([userId, status])
+    // Serves the fallback lookup for callbacks whose order mapping predates
+    // `PaymentOrder`.
+    @@index([reference])
+  }
+
+  /**
+   * A checkout in flight.
+   *
+   * The provider is told an `orderId` before the patient is redirected, and that
+   * same id comes back on the callback. Holding the mapping explicitly — rather
+   * than overloading a purchase column — keeps the callback path a single indexed
+   * lookup and leaves room to record provider status transitions for
+   * reconciliation.
+   */
+  model PaymentOrder {
+    id         Int      @id @default(autoincrement())
+    orderId    String   @unique @db.VarChar(64)
+    purchaseId Int      @unique
+    purchase   PackagePurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+    amount     Int
+    currency   String   @default("IDR")
+    // pending, paid, failed, expired
+    status     String   @default("pending")
+    // Provider transaction id, once known.
+    reference  String?  @db.VarChar(128)
+    // Present only when the simulator settled the order.
+    simulated  Boolean  @default(false)
+    createdAt  DateTime @default(now())
+    settledAt  DateTime?
+
+    @@index([status])
+    @@index([createdAt])
+  }
 
 model PushSubscription {
   id        Int      @id @default(autoincrement())
