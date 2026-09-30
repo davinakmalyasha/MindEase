@@ -75,8 +75,29 @@ const getPublisher = async (): Promise<RedisClient | null> => {
     return result;
 };
 
+/**
+ * The complete vocabulary of events pushed to a connected client.
+ *
+ * This was a bare `string`, so nothing stopped a new call site inventing a
+ * typo'd type that silently never reached a handler. Every value below is
+ * published from at least one `publishEvent` call; `tests/realtime-contract.test.ts`
+ * asserts that correspondence, so adding a type here without a publisher (or
+ * publishing a type absent here) fails the suite.
+ */
+export type RealtimeEventType =
+    | "message:new"
+    | "message:read"
+    | "message:deleted"
+    | "message:reacted"
+    | "typing:start"
+    | "typing:stop"
+    | "appointment:join"
+    | "notification:new"
+    | "sos:alert"
+    | "risk:alert";
+
 export interface RealtimeEvent {
-    type: string;
+    type: RealtimeEventType;
     payload?: Record<string, any>;
 }
 
