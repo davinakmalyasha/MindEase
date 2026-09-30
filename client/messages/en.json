@@ -73,7 +73,8 @@
     "approveSessions": "Approve, complete & view sessions",
     "clinicalSummaries": "Clinical summaries before sessions",
     "chatWithPatients": "Chat with your patients",
-    "manageUsers": "Manage users and view system stats"
+    "manageUsers": "Manage users and view system stats",
+    "riskQueue": "Risk queue"
   },
   "mood": {
     "title": "Mood Tracker",
@@ -194,6 +195,33 @@
       "credentialsDisclaimer": "A reviewed profile means an administrator at MindEase has checked the information a clinician submitted. It is not a check against a licensing board, and MindEase is not connected to one. Where a licence number is shown, it is the clinician's own statement and has not been independently confirmed. If you need a registration confirmed, ask the clinician for their registration details.",
       "scheduleNotPublished": "This clinician has not published a regular schedule. Available times are shown on the booking page.",
       "scheduleMayChange": "Availability may change at any time."
+    },
+    "riskQueue": {
+      "title": "Risk queue",
+      "intro": "Disclosures from your patients that may need a response today.",
+      "includeResolved": "Show resolved",
+      "statUnresolved": "Unresolved",
+      "statUnacknowledged": "Not yet seen",
+      "statUrgent": "Urgent, unseen",
+      "loading": "Loading the queue",
+      "empty": "Nothing outstanding",
+      "emptyHint": "No unresolved risk disclosures for the patients you are treating.",
+      "urgent": "Urgent",
+      "elevated": "Elevated",
+      "acknowledged": "Seen",
+      "unnamedPatient": "Unnamed patient",
+      "latestScreening": "Latest screening:",
+      "noteLabel": "Outcome recorded:",
+      "acknowledge": "Mark as seen",
+      "resolve": "Resolve",
+      "confirmResolve": "Confirm",
+      "notePlaceholder": "What did you do? (optional)",
+      "openConversation": "Open conversation",
+      "resolvedToast": "Alert resolved",
+      "actionFailed": "That did not work. Try again.",
+      "newAlert": "A new risk disclosure needs your attention",
+      "newUrgent": "An urgent risk disclosure needs your attention",
+      "footerNote": "Matches are keyword or screening signals, not clinical judgements. They exist to prompt you to look, not to act on your behalf: nothing here contacts an emergency service, and every alert is resolved by a person. Acknowledging records that you have seen it; resolving records what you did. Both are kept on the record even after the alert leaves this list."
     }
   },
   "staticPages": {
