@@ -1,5 +1,6 @@
 ﻿import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import { logger } from "../utils/logger";
 
 dotenv.config();
 
@@ -66,8 +67,13 @@ export const MailerService = {
                         "Password reset and email verification are disabled."
                 );
             }
-            // Dev fallback: no SMTP configured — log the email body
-            console.log(`\n[MAIL:${to}] ${subject}\n${html.replace(/<[^>]+>/g, "")}\n`);
+            // Dev fallback: no SMTP configured. Log the body so a developer can
+            // copy the OTP out of the terminal, and tag it so a real log search
+            // never mistakes a preview for a delivered message.
+            logger.warn(
+                { to, subject, devFallback: true },
+                `[MAIL] SMTP not configured; body follows:\n${html.replace(/<[^>]+>/g, "")}`
+            );
             return { devFallback: true };
         }
         return await transport.sendMail({

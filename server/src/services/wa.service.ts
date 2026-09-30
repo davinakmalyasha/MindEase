@@ -24,7 +24,10 @@ export const WhatsAppService = {
         const token = process.env.WA_GATEWAY_TOKEN;
         if (!url || !token) {
             if (!IS_PROD) {
-                console.log(`\n[WA:${to}] ${message}\n`);
+                // Development preview only. Never log message bodies in
+                // production: these can contain appointment details and
+                // counterpart phone numbers.
+                logger.info({ to }, `[WA] ${message}`);
             }
             return false;
         }

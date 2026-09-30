@@ -4,7 +4,7 @@ import { authenticate } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import multer from "multer";
 import path from "path";
-import { SendMessageSchema, GetMessagesSchema, TypingSchema } from "../schemas/message.schema";
+import { SendMessageSchema, GetMessagesSchema, TypingSchema, ReactionSchema, MessageIdSchema } from "../schemas/message.schema";
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -29,7 +29,7 @@ router.post("/upload", upload.single("file"), MessageController.uploadAttachment
 router.get("/:userId/messages", validate(GetMessagesSchema), MessageController.getMessages);
 router.post("/:userId/typing", validate(TypingSchema), MessageController.typingIndicator);
 router.post("/:userId", validate(SendMessageSchema), MessageController.sendMessage);
-router.delete("/:id", MessageController.deleteMessage);
-router.put("/:id/reaction", MessageController.setReaction);
+router.delete("/:id", validate(MessageIdSchema), MessageController.deleteMessage);
+router.put("/:id/reaction", validate(ReactionSchema), MessageController.setReaction);
 
 export default router;
