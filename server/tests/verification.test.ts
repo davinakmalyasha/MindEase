@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app, createUser, createDoctor, createAdmin } from "./helpers";
-import { prisma } from "../src/app";
 
 describe("Doctor verification workflow", () => {
     it("keeps newly registered doctors hidden from the public directory", async () => {

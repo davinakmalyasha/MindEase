@@ -4,7 +4,8 @@ import { authenticate } from "../middleware/auth.middleware";
 import { requireDoctor } from "../middleware/role.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { CreateSlotSchema, CreatePatternSchema } from "../schemas/appointment.schema";
-import { idParam } from "../schemas/auth.schema";
+import { idParam } from "../schemas/params.schema";
+import { SetAwaySchema } from "../schemas/doctor.schema";
 
 const router = Router();
 
@@ -53,6 +54,6 @@ router.post("/patterns", authenticate, requireDoctor, validate(CreatePatternSche
 router.delete("/patterns/:id", authenticate, requireDoctor, validate(idParam), DoctorController.deletePattern);
 router.post("/patterns/:id/regenerate", authenticate, requireDoctor, validate(idParam), DoctorController.regeneratePattern);
 
-router.post("/away", authenticate, requireDoctor, DoctorController.setAway);
+router.post("/away", authenticate, requireDoctor, validate(SetAwaySchema), DoctorController.setAway);
 
 export default router;
