@@ -44,6 +44,8 @@
     "welcomeBack": "Selamat Datang,",
     "quickActions": "Aksi Cepat",
     "explore": "Jelajahi",
+    "subtitle": "Kelola kesehatan mental Anda dari satu tempat.",
+    "manageBio": "Perbarui bio profesional Anda",
     "moodTracker": "Pelacak Suasana Hati",
     "assessments": "Penilaian Kesehatan",
     "journal": "Jurnal",
@@ -86,6 +88,7 @@
     "personalized": "Kesehatan Personal",
     "suggestActivities": "Sarankan Aktivitas",
     "generateSuggestions": "Buat Saran",
+    "suggestionsHint": "Dapatkan saran aktivitas bertenaga AI berdasarkan riwayat suasana hati Anda.",
     "last14": "14 Hari Terakhir",
     "addNote": "Tambahkan catatan tentang hari Anda (opsional)...",
     "veryLow": "Sangat Rendah",
@@ -148,8 +151,6 @@
       "peerJoined": "Lawan bicara Anda telah bergabung ke ruangan!",
       "peerWillBeNotified": "Lawan bicara Anda akan diberi tahu saat Anda bergabung",
       "poweredBy": "Didukung oleh Jitsi Meet. Sesi bersifat pribadi antara Anda dan",
-      "joinVideo": "Gabung Panggilan Video",
-      "joinVoice": "Gabung Panggilan Suara",
       "opensIn": "Ruangan dibuka dalam {{minutes}} menit. Anda dapat bergabung 15 menit sebelum sesi dimulai."
     },
     "moodFactors": {
