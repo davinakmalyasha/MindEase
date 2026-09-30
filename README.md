@@ -268,6 +268,14 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
   are each over 600 lines. Low value relative to the regression risk.
 - **The e2e suite is opt-in** and has not been run in CI. One journey is
   effectively a smoke test.
+- **Two repo guard scripts do not work.** `server/scripts/check-operators.js`
+  declares a `CODE_POSITION` regex it never uses and strips only `//` comments,
+  so it reports 190 false positives — all of them prose in a doc comment, JSX
+  text, or an email template. `check-dependencies.js` does not scan
+  `eslint.config.mjs` and so calls the eslint packages unused. Both are wired
+  into CI as advisory rather than required, because a required check that fails
+  on its first run is worse than an unwired one. Only `check-encoding.js` is
+  green and gating.
 
 ## CI/CD
 
