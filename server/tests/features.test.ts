@@ -47,6 +47,28 @@ const confirmAppointment = async (appId: number, doctor: any) => {
         .send({ status: "confirmed" });
 };
 
+/**
+ * A consultation window that starts shortly from now and stays on one calendar
+ * day.
+ *
+ * `startTime`/`endTime` are wall-clock `HH:mm` strings paired with a single
+ * `appointmentDate`, so a window computed as "now + 70 minutes" silently wraps
+ * once it passes local midnight: at 23:10 it produced start "23:20" against
+ * end "00:20", which the API correctly rejects as `start >= end`. The test then
+ * failed for a reason that had nothing to do with what it was checking, once
+ * per day, in the last hour. Clamping the end to the last minute of the same
+ * day keeps the window inside today and the assertion meaningful.
+ */
+const imminentWindow = () => {
+    const fmt = (d: Date) =>
+        `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const start = new Date(Date.now() + 10 * 60_000);
+    const proposedEnd = new Date(Date.now() + 70 * 60_000);
+    // If the end would land on the next calendar day, stop at 23:59 instead.
+    const end = proposedEnd.getDate() === start.getDate() ? proposedEnd : new Date(new Date().setHours(23, 59, 0, 0));
+    return { start, date: localDay(start), startTime: fmt(start), endTime: fmt(end) };
+};
+
 describe("Journal", () => {
     it("creates, lists and summarizes journal entries", async () => {
         const user = await createUser("patient");
@@ -243,20 +265,19 @@ describe("Consultation rooms (video/voice join)", () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();
 
-        const start = new Date(Date.now() + 10 * 60000);
-        const end = new Date(Date.now() + 70 * 60000);
-        const fmt = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        const win = imminentWindow();
 
         const book = await patient.agent
             .post("/api/appointments/book")
             .set("X-CSRF-Token", patient.csrf)
             .send({
                 doctorId: doctor.doctorId,
-                appointmentDate: localDay(start),
-                startTime: fmt(start),
-                endTime: fmt(end),
+                appointmentDate: win.date,
+                startTime: win.startTime,
+                endTime: win.endTime,
                 consultationType: "voice",
             });
+        expect(book.status).toBe(201);
         const appId = book.body.data.id;
         await confirmAppointment(appId, doctor);
 
@@ -573,7 +594,9 @@ describe("Rebook assist", () => {
 
 describe("AI doctor matching", () => {
     it("matches doctors from a natural-language query (fallback mode)", async () => {
-        const doctor = await createDoctor();
+        // Seed a doctor so the directory is not empty; the fallback matcher
+        // scores against real profiles rather than returning a fixed list.
+        await createDoctor();
         const patient = await createUser("patient");
         const res = await patient.agent
             .post("/api/ai/match-doctors")
