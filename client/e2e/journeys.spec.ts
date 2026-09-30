@@ -179,8 +179,12 @@ test.describe("Journey 6: Review reply + report (round 3)", () => {
         // ratings the seed used to invent, since a real doctor's review count
         // must not be populated with fake entries. With an empty seed this
         // journey asserts the page loads and passes without exercising the
-        // reply/report path — see the note in README about covering it with a
-        // self-contained booking -> complete -> review flow.
+        // reply/report path.
+        //
+        // Journey 10 at the end of this file is the real test: it builds the
+        // booking, the completion and the review itself, so the reply and report
+        // paths genuinely execute. This one is left as the cheap smoke test of
+        // the reviews section rendering.
         const replyAction = page.getByRole("button", { name: /^Reply$/ }).first();
         const reportAction = page.getByRole("button", { name: /Report/ }).first();
         if (await replyAction.isVisible().catch(() => false)) {
@@ -226,5 +230,137 @@ test.describe("Journey 9: Chat smoke (round 3)", () => {
         await expect(page.getByText(/Messages/).first()).toBeVisible({ timeout: 15_000 });
         await expect(page.getByPlaceholder(/Search\.\.\./)).toBeVisible();
         await expect(page.getByPlaceholder(/Type a message/)).toBeVisible();
+    });
+});
+
+/**
+ * The review lifecycle, end to end, building the review it needs.
+ *
+ * Journey 6 above is a smoke test and says so: a review can only be written
+ * against a *completed* appointment, the seed deliberately creates zero reviews
+ * (it used to invent 4.2-4.9 ratings for clinicians with no reviews, which made
+ * "Top Rated" rank the most-liked-looking profiles first), and so the reply and
+ * report paths never executed.
+ *
+ * This journey creates the whole chain itself. The split between UI and API is
+ * deliberate and worth stating:
+ *
+ *  - **UI** for booking, writing the review, replying, and reporting - that is
+ *    the surface under test, and it is what would break on a refactor.
+ *  - **API** for the clinician accepting and completing the appointment. Those
+ *    are two state transitions that are already covered by the server suite,
+ *    they need three more unverified selectors, and they are not what this
+ *    journey is about. Driving them over HTTP keeps the test about reviews and
+ *    makes it far likelier to pass on a first run.
+ *
+ * Seeded doctor 2 is `dr2@mindease.app` on a fresh seed: the seed creates users
+ * in order, so doctorId 2 is the second clinician it made. It is referenced by
+ * account rather than by display name, because the name list is shuffled.
+ */
+test.describe("Journey 10: review lifecycle", () => {
+    const DOCTOR_ID = 2;
+    const DOCTOR_EMAIL = "dr2@mindease.app";
+    const DOCTOR_PASSWORD = "Doctor@123";
+
+    test("a completed session produces a review the clinician can reply to and report", async ({
+        page,
+    }) => {
+        // --- Patient books -----------------------------------------------------
+        const patient = await registerUser(page, "patient");
+
+        await page.goto("/appointments");
+        await expect(page.getByText(/Book an/)).toBeVisible({ timeout: 15_000 });
+
+        const docRes = await page.request.get(`${API}/doctors/${DOCTOR_ID}`);
+        expect(docRes.ok()).toBeTruthy();
+        const docData = (await docRes.json()).data;
+        const freeSlot = (docData.consultationSlots || []).find(
+            (s: { isBooked: boolean }) => !s.isBooked
+        );
+        // Journey 1 books from the same pool. 21 slots exist and the suite runs
+        // serially, so this only fires if someone starts booking them by hand.
+        expect(freeSlot).toBeTruthy();
+
+        const slotDate = new Date(freeSlot.date);
+        const chipLabel = `${slotDate.toLocaleDateString("en-US", { weekday: "short" })}${String(
+            slotDate.getDate()
+        ).padStart(2, "0")}${slotDate.toLocaleDateString("en-US", { month: "short" })}`;
+
+        await page.getByRole("button", { name: /Book Now/ }).nth(1).click();
+        await expect(page.getByText("Select Consultation Date")).toBeVisible({ timeout: 15_000 });
+
+        await page.locator("button", { hasText: new RegExp(`^${chipLabel}$`) }).click();
+        await page.locator("button", { hasText: /Continue/ }).first().click();
+
+        await expect(page.getByText(/Available Time Slots/)).toBeVisible({ timeout: 10_000 });
+        await page.locator("button", { hasText: new RegExp(`^${freeSlot.startTime}$`) }).click();
+        await page.locator("button", { hasText: /Continue/ }).first().click();
+
+        await page.getByLabel(/Patient Full Name/).fill("E2E Reviewer");
+        await page.locator("button", { hasText: /Continue/ }).first().click();
+        await page.getByRole("button", { name: /Confirm & Schedule/ }).click();
+        await expect(page.getByText(/Booking Confirmed/)).toBeVisible({ timeout: 20_000 });
+
+        // --- Clinician accepts and completes ---------------------------------
+        // Over HTTP rather than the UI: see the note above. Both transitions
+        // require a CSRF token, which the logged-in session supplies.
+        await login(page, DOCTOR_EMAIL, DOCTOR_PASSWORD);
+        await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
+
+        const csrfRes = await page.request.get(`${API}/csrf-token`);
+        const csrf = (await csrfRes.json()).data.csrfToken;
+
+        const listRes = await page.request.get(`${API}/appointments/my`);
+        const mine = (await listRes.json()).data as { id: number; status: string }[];
+        const appointment = mine.find((a) => a.status === "pending");
+        expect(appointment, "the seeded clinician should have a pending booking").toBeTruthy();
+
+        const confirm = await page.request.put(`${API}/appointments/${appointment!.id}/status`, {
+            headers: { "X-CSRF-Token": csrf },
+            data: { status: "confirmed" },
+        });
+        expect(confirm.status()).toBeLessThan(300);
+
+        const complete = await page.request.put(`${API}/appointments/${appointment!.id}/status`, {
+            headers: { "X-CSRF-Token": csrf },
+            data: { status: "completed" },
+        });
+        expect(complete.status()).toBeLessThan(300);
+
+        // --- Patient reviews --------------------------------------------------
+        await login(page, patient.email, patient.password);
+        await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
+
+        await page.goto("/dashboard/appointments");
+        const reviewButton = page.getByRole("button", { name: /Review|Leave.*Review/i }).first();
+        await expect(reviewButton).toBeVisible({ timeout: 20_000 });
+        await reviewButton.click();
+
+        const comment = "E2E review: the session was genuinely helpful.";
+        await page.getByRole("dialog").getByRole("radio").nth(4).click();
+        await page.getByPlaceholder(/review|comment|share/i).first().fill(comment);
+        await page.getByRole("button", { name: /Submit|Send Review|Post/i }).first().click();
+        await expect(page.getByText(/Review submitted|Thank you/i)).toBeVisible({ timeout: 15_000 });
+
+        // --- Clinician replies and reports ------------------------------------
+        await login(page, DOCTOR_EMAIL, DOCTOR_PASSWORD);
+        await page.goto(`/doctors/${DOCTOR_ID}`);
+
+        const reply = page.getByRole("button", { name: /^Reply$/ }).first();
+        // No conditional guard. If the review is missing, this test has failed
+        // for a real reason and must say so rather than passing vacuously the way
+        // the seed-dependent version did.
+        await expect(reply).toBeVisible({ timeout: 20_000 });
+        await reply.click();
+
+        await page.getByRole("dialog").getByPlaceholder(/reply/i).fill("Thank you for the kind words.");
+        await page.getByRole("button", { name: /Post Reply|Send Reply/i }).first().click();
+        await expect(page.getByText(/Thank you for the kind words/)).toBeVisible({ timeout: 15_000 });
+
+        const report = page.getByRole("button", { name: /Report/ }).first();
+        await expect(report).toBeVisible({ timeout: 10_000 });
+        await report.click();
+        page.on("dialog", (dialog) => dialog.accept("E2E: exercising the moderation path."));
+        await expect(page.getByText(/Review reported/i)).toBeVisible({ timeout: 15_000 });
     });
 });
