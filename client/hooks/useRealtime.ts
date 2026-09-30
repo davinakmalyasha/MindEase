@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { fetchRealtimeTicket } from "@/lib/api";
 
 export const REALTIME_URL = process.env.NEXT_PUBLIC_REALTIME_URL || "ws://localhost:8080/ws";
 
@@ -18,9 +19,16 @@ const FANOUT: Record<string, string> = {
     "message:deleted": "realtime:message-update",
     "message:reacted": "realtime:message-update",
     "message:read": "realtime:read",
-    "typing:start": "realtime:typing",
-    "typing:stop": "realtime:typing",
+    // Distinct event names. These previously both mapped to "realtime:typing",
+    // so a peer's `typing:stop` re-triggered the indicator for its full timeout
+    // after they had already stopped.
+    "typing:start": "realtime:typing-start",
+    "typing:stop": "realtime:typing-stop",
     "sos:alert": "realtime:sos-alert",
+    // The API publishes this when a patient discloses self-harm on a screening
+    // questionnaire. It had no entry here, so the frame arrived and was
+    // discarded, and a clinician's only signal was a passive notification row.
+    "risk:alert": "realtime:risk-alert",
     "appointment:join": "realtime:appointment-join",
 };
 
@@ -32,6 +40,8 @@ let refCount = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let attempt = 0;
 let connected = false;
+/** True while a ticket is being fetched, so only one socket is ever opened. */
+let opening = false;
 let unsubscribeBrowserEvents: (() => void) | null = null;
 
 const setConnected = (value: boolean) => {
@@ -93,8 +103,18 @@ const detachBrowserListeners = () => {
     unsubscribeBrowserEvents = null;
 };
 
-function open() {
+/**
+ * Obtain a short-lived ticket the socket can authenticate with.
+ *
+ * A WebSocket handshake cannot carry an `Authorization` header, and the
+ * `accessToken` cookie is host-only for the API origin, so on any deployed
+ * setup the browser has no way to present its session to the realtime service.
+ * The ticket is valid for 30 seconds and can do exactly one thing: open a
+ * socket.
+ */
+async function open() {
     if (refCount === 0) return;
+    if (opening) return;
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         return;
     }
@@ -102,9 +122,32 @@ function open() {
     // listener will start us.
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
 
+    // Fetching a ticket is asynchronous, so without this flag two callers (a
+    // retry timer and an `online` event, say) could both pass the checks above
+    // and each open a socket.
+    opening = true;
+    let ticket: string | null;
+    try {
+        ticket = await fetchRealtimeTicket();
+    } finally {
+        opening = false;
+    }
+
+    // The socket may have been abandoned while the request was in flight.
+    if (refCount === 0) return;
+    if (!ticket) {
+        // Without a ticket the handshake would be rejected anyway. Back off the
+        // same way, so a signed-out or expired session does not spin.
+        scheduleRetry();
+        return;
+    }
+
+    const url = new URL(REALTIME_URL);
+    url.searchParams.set("token", ticket);
+
     let ws: WebSocket;
     try {
-        ws = new WebSocket(REALTIME_URL);
+        ws = new WebSocket(url.toString());
     } catch {
         scheduleRetry();
         return;
