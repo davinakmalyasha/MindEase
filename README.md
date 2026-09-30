@@ -83,12 +83,15 @@ docker compose up --build
 | Variable | Where | Purpose |
 |---|---|---|
 | `DATABASE_URL` | server/.env | MySQL connection |
-| `JWT_SECRET` / `REFRESH_SECRET` | server/.env, client/.env.local, compose | Token signing (shared with realtime + middleware) |
+| `JWT_SECRET` | server/.env, client/.env.local, compose | Access tokens **and** WebSocket tickets |
+| `REFRESH_SECRET` | server/.env | Refresh tokens (7d) — **must differ from `JWT_SECRET`** |
+| `TWO_FACTOR_SECRET` | server/.env, compose | Pending 2FA tickets (5m) — **required in production**, must differ from `JWT_SECRET` |
 | `GEMINI_API_KEY` | server/.env | AI features (falls back to local generation) |
 | `GOOGLE_CLIENT_ID` | server/.env | Google SSO |
 | `SMTP_HOST/PORT/USER/PASS` | server/.env | Reset/verification/booking/reminder emails (dev: printed to console) |
 | `REDIS_URL` | server/.env, compose | Realtime event bus + caching (silently disabled when down) |
 | `WA_GATEWAY_URL` / `WA_GATEWAY_TOKEN` | server/.env | Optional WhatsApp appointment reminders (graceful fallback when unset) |
+| `PAYMENT_PROVIDER` / `PAYMENT_SERVER_KEY` | server/.env | Package checkout. Unset → in-process simulator (refused in production) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | server/.env | Optional web push (PWA notifications; no-op when unset) |
 | `CORS_ORIGINS` / `FRONTEND_URL` | server/.env | Allowed browser origins (defaults to localhost:3000) |
 | `S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/PUBLIC_URL` | server/.env | Avatar storage (S3-compatible; local disk fallback in dev) |
@@ -105,14 +108,14 @@ docker compose up --build
 **API + realtime + MySQL + Redis (Railway)**:
 1. Create projects from `server/` and `server-realtime/` (Dockerfiles included; `server/railway.json` runs migrations on start via `scripts/start.sh`).
 2. Add Railway MySQL + Redis plugins.
-3. API env: `DATABASE_URL`, `JWT_SECRET`, `REFRESH_SECRET`, `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, `REDIS_URL`, `CORS_ORIGINS=https://<vercel-domain>`, `FRONTEND_URL`, `S3_*` (see below), `SMTP_*`, `SENTRY_DSN` (optional).
-4. Realtime env: `JWT_SECRET` (same value), `FRONTEND_URL`/`ALLOWED_ORIGINS` (comma-separated WebSocket origins), `REDIS_URL`.
+3. API env: `DATABASE_URL`, `JWT_SECRET`, `REFRESH_SECRET`, `TWO_FACTOR_SECRET`, `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, `REDIS_URL`, `CORS_ORIGINS=https://<vercel-domain>`, `FRONTEND_URL`, `S3_*` (see below), `SMTP_*`, `SENTRY_DSN` (optional).
+4. Realtime env: `JWT_SECRET` (same value), `FRONTEND_URL`/`ALLOWED_ORIGINS` (comma-separated WebSocket origins), `REDIS_URL` (a `redis://` URL, not a bare `host:port`).
 
 **Production checklist**
 - [ ] Real SMTP configured (email flows fail loudly without it)
 - [ ] Redis reachable (realtime push + cache active)
 - [ ] S3-compatible storage configured (avatars persist across redeploys; Railway filesystem is ephemeral)
-- [ ] Strong, unique `JWT_SECRET`/`REFRESH_SECRET` (server refuses weak values in production)
+- [ ] Strong, unique `JWT_SECRET` / `REFRESH_SECRET` / `TWO_FACTOR_SECRET` — all three must differ (the server refuses to start in production if any is weak or if they collide, because a shared secret lets a credential minted for one flow verify as another)
 - [ ] Google OAuth client configured with the production domain
 - [ ] Backups: Railway MySQL plugin (managed backups) or `server/scripts/backup.ps1`
 - [ ] Reminder job runs inside the API process — keep a single replica, or accept duplicate-email risk is handled via claim-then-send (safe with N replicas)
