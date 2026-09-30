@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Doctor } from "@/lib/types/doctor";
 import ReviewCard from "@/components/doctors/ReviewCard";
 import Spinner from "@/components/ui/Spinner";
 import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { formatIDR } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import {
     Star,
@@ -92,6 +94,8 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
     const tr = useTranslations("features.reviewReply");
     const { toast } = useToast();
     const { user } = useAuth();
+    const confirm = useConfirm();
+    const locale = useLocale();
     const [waitlistState, setWaitlistState] = useState<"idle" | "checking" | "on" | "off">("idle");
     const [waitlistBusy, setWaitlistBusy] = useState(false);
     const [showAllReviews, setShowAllReviews] = useState(false);
@@ -204,30 +208,54 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
         }
     };
 
+    /**
+     * Opens a checkout for a package and follows the provider redirect.
+     *
+     * This used to call `POST /api/packages/:id/purchase` — a path that was
+     * never mounted, and whose only real implementation refused every
+     * self-service purchase anyway. The growth feature the README advertised
+     * could not be completed by any user.
+     */
     const purchasePackage = async (pkg: any) => {
         if (!user) {
             toast("Please sign in to purchase a package", "error");
             return;
         }
-        if (!confirm(`Purchase "${pkg.name}" (${pkg.sessionCount} sessions, Rp ${pkg.totalPrice.toLocaleString("id-ID")})?`)) return;
+        const ok = await confirm({
+            title: "Purchase this package?",
+            message: `${pkg.name} — ${pkg.sessionCount} session${pkg.sessionCount === 1 ? "" : "s"} with ${doctor.name} for ${formatIDR(pkg.totalPrice, locale)}.`,
+            confirmLabel: "Continue to payment",
+            danger: false,
+        });
+        if (!ok) return;
+
         setPackageBusy(true);
         try {
-            await api.post(`/packages/${pkg.id}/purchase`);
-            toast("Package purchased — use a session when booking!", "success");
+            const res = await api.post(`/payments/packages/${pkg.id}/checkout`);
+            const checkoutUrl = res.data?.data?.checkoutUrl;
+            if (!checkoutUrl) {
+                toast("Checkout is unavailable right now.", "error");
+                return;
+            }
+            // With the simulator configured, settlement is immediate, so the
+            // checkout URL is a local redirect. Following it lands the patient
+            // back on their profile with the entitlement already granted.
+            window.location.href = checkoutUrl;
         } catch (err: any) {
-            toast(getErrorMessage(err, "Failed to purchase package"), "error");
+            toast(getErrorMessage(err, "Failed to start checkout"), "error");
         } finally {
             setPackageBusy(false);
         }
     };
-    const treatments = [
-        "Anxiety Disorder",
-        "Depression",
-        "Stress Management",
-        "Personal Development",
-        "Work-Life Balance",
-        "Relationship Issues"
-    ];
+
+    /**
+     * Removed: a hardcoded list of six clinical focus areas rendered on every
+     * profile as though it described that specific clinician. It was a
+     * site-wide constant, so it told a patient that every psychologist in the
+     * directory specialises in trauma, depression and relationships — a claim
+     * about a real person's clinical scope that nothing in the data supported.
+     * A clinician's stated focus has to come from their own profile.
+     */
 
     return (
         <motion.div
@@ -367,17 +395,42 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                     >
                         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
                             <HeartPulse className="w-7 h-7 text-rose-500" />
-                            Specialization & Focus
+                            Clinical Background
                         </h2>
-                        <div className="flex flex-wrap gap-3">
-                            {treatments.map((t, idx) => (
-                                <span
-                                    key={idx}
-                                    className="px-6 py-3 bg-white border border-gray-100 rounded-2xl text-gray-700 font-bold text-sm hover:border-indigo-200 hover:bg-indigo-50/30 transition-all cursor-default"
-                                >
-                                    {t}
+                        {/* Renders only what the clinician actually entered. A
+                            previous version listed six fixed focus areas on
+                            every profile, which asserted a clinical scope for
+                            every psychologist in the directory regardless of
+                            their stated specialisation. */}
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-baseline gap-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                    Speciality
                                 </span>
-                            ))}
+                                <span className="text-lg font-extrabold text-gray-900">
+                                    {doctor.specialty}
+                                </span>
+                            </div>
+                            {doctor.languages && (
+                                <div className="flex flex-wrap items-baseline gap-3">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        Languages
+                                    </span>
+                                    <span className="text-sm font-semibold text-gray-700">
+                                        {doctor.languages}
+                                    </span>
+                                </div>
+                            )}
+                            {doctor.education && (
+                                <div>
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        Education &amp; training
+                                    </span>
+                                    <p className="mt-1.5 text-sm leading-relaxed text-gray-700">
+                                        {doctor.education}
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </motion.section>
 
