@@ -28,6 +28,8 @@ import messageRoutes from "./routes/message.routes";
 import supportRoutes from "./routes/support.routes";
 import followUpRoutes from "./routes/followUp.routes";
 import pushRoutes from "./routes/push.routes";
+import realtimeRoutes from "./routes/realtime.routes";
+import paymentRoutes from "./routes/payment.routes";
 import { csrfProtect, csrfTokenHandler } from "./middleware/csrf.middleware";
 import { openApiDocument } from "./docs/openapi";
 import { captureError } from "./utils/sentry";
@@ -71,7 +73,22 @@ export const createApp = () => {
             credentials: true,
         })
     );
-    app.use(express.json({ limit: "1mb" }));
+    app.use(
+        express.json({
+            limit: "1mb",
+            // Keep the byte-for-byte payload on the request. Payment provider
+            // signatures (Midtrans included) are computed over the exact bytes
+            // they sent; a parsed-then-re-serialised body reorders keys and
+            // changes whitespace, so signature verification against
+            // `req.body` fails on legitimate callbacks. The cost is a string
+            // copy per JSON request, which only the webhook route reads.
+            verify: (req, _res, buf) => {
+                if (buf && buf.length) {
+                    (req as unknown as { rawBody?: string }).rawBody = buf.toString("utf8");
+                }
+            },
+        })
+    );
     app.use(cookieParser());
     // Structured access logging, so a request can be joined to its log lines
     // and its Sentry event by `requestId`. The previous `morgan("dev")` wrote a
@@ -113,8 +130,17 @@ export const createApp = () => {
         });
     }
 
-    // CSRF protection for all mutating API routes (double-submit token)
-    app.use("/api", csrfProtect);
+    // CSRF protection for all mutating API routes (double-submit token).
+    //
+    // The payment provider's callback is exempt: the caller is a payment
+    // gateway with no cookie and no header, and CSRF is a defence against a
+    // browser being induced to issue an authenticated request. That threat does
+    // not apply here — the route is authenticated by the provider's own
+    // signature, verified in the provider implementation.
+    app.use("/api", (req, res, next) => {
+        if (req.path === "/payments/notification") return next();
+        return csrfProtect(req, res, next);
+    });
     app.get("/api/csrf-token", csrfTokenHandler);
 
     app.use("/uploads", express.static(path.join(__dirname, "../public/uploads")));
@@ -151,6 +177,8 @@ export const createApp = () => {
     app.use("/api/support", supportRoutes);
     app.use("/api", followUpRoutes);
     app.use("/api/push", pushRoutes);
+    app.use("/api/realtime", realtimeRoutes);
+    app.use("/api/payments", paymentRoutes);
 
     // 404 handler
     app.use((req, res) => {
@@ -160,7 +188,9 @@ export const createApp = () => {
     });
 
     // Global Error Handler
-    app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    // Express identifies an error handler by its four-parameter arity, so `next`
+    // has to stay even though this handler always terminates the response.
+    app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
         const requestId = (req as express.Request & { requestId?: string }).requestId;
         logger.error({ err: err?.stack || String(err), path: req.path, requestId }, "Unhandled error");
         captureError(err, { path: req.path, method: req.method, requestId });
