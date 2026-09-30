@@ -1,5 +1,6 @@
 import { AIService, type AiSource } from "./ai.service";
 import { sanitize } from "../utils/sanitize";
+import { detectFreeTextRisk } from "./crisisText.service";
 
 export interface ChatMessage {
     role: "user" | "assistant";
@@ -21,9 +22,6 @@ export interface SupportReply {
    */
   source: AiSource;
 }
-
-const CRISIS_PATTERNS =
-    /(suicide|suicidal|kill\s*myself|end\s*my\s*life|want\s*to\s*die|don'?t\s*want\s*to\s*live|self[- ]harm|hurt\s*myself|harm\s*myself|overdose|bunuh\s*diri|mengakhiri\s*hidup|menyakiti\s*diri|ingin\s*mati|akhiri\s*hidup)/i;
 
 const ESCALATION_PATTERNS =
     /(human|agent|customer\s*service|real\s*person|talk\s*to\s*someone|support\s*team|contact\s*support|orang\s*asli|petugas|manusia|tim\s*dukung|hubungi\s*cs)/i;
@@ -145,7 +143,10 @@ export class SupportService {
     static async chat(message: string, history: ChatMessage[] = []): Promise<SupportReply> {
         const clean = sanitize(message);
 
-        if (CRISIS_PATTERNS.test(clean)) {
+        // Shared with the message path so the support bot and a patient-to-
+        // clinician message cannot disagree about what counts as a crisis. This
+        // used to be a second, separately maintained copy of the same patterns.
+        if (detectFreeTextRisk(clean)) {
             return { reply: CRISIS_REPLY, crisis: true, escalated: false, source: "fallback" };
         }
         if (ESCALATION_PATTERNS.test(clean)) {
