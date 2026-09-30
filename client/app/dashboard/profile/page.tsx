@@ -38,6 +38,7 @@ export default function ProfilePage() {
 
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
     const [name, setName] = useState("");
@@ -60,6 +61,12 @@ export default function ProfilePage() {
     const [licenseNumber, setLicenseNumber] = useState("");
     const [licenseIssuer, setLicenseIssuer] = useState("");
     const [experienceYears, setExperienceYears] = useState<string | number>("");
+    // The API has always returned and accepted these; the form simply had no
+    // inputs for them, so a clinician could never state the languages they
+    // practise in or where they trained — both of which a patient needs in order
+    // to verify them.
+    const [languages, setLanguages] = useState("");
+    const [education, setEducation] = useState("");
 
     // Security form
     const [currentPassword, setCurrentPassword] = useState("");
@@ -100,6 +107,8 @@ export default function ProfilePage() {
                     setLicenseNumber(doctorProfile?.licenseNumber || "");
                     setLicenseIssuer(doctorProfile?.licenseIssuer || "");
                     setExperienceYears(doctorProfile?.experience ?? "");
+                    setLanguages(doctorProfile?.languages || "");
+                    setEducation(doctorProfile?.education || "");
                 }
             } catch (err) {
                 toast(getErrorMessage(err, "Failed to load profile"), "error");
@@ -128,17 +137,26 @@ export default function ProfilePage() {
         formData.append("phone_number", phone);
         if (file) formData.append("avatar", file);
 
+        // Field names must match `UpdateProfileSchema` exactly. The schema is
+        // `.strict()`, so an unrecognised key rejects the whole request — this
+        // form used to send `specialization` / `consultation_fee` /
+        // `license_number` / `license_issuer` / `experience_years` against a
+        // schema expecting `specialty` / `price` / `licenseNumber` /
+        // `licenseIssuer` / `experience`, which made every doctor profile save
+        // return 400 while looking completely normal.
         if (user?.role === "doctor") {
             formData.append("bio", bio);
-            formData.append("specialization", specialization);
-            formData.append("consultation_fee", String(fee));
-            formData.append("license_number", licenseNumber);
-            formData.append("license_issuer", licenseIssuer);
-            formData.append("experience_years", String(experienceYears || 0));
+            formData.append("specialty", specialization);
+            formData.append("price", String(fee));
+            formData.append("licenseNumber", licenseNumber);
+            formData.append("licenseIssuer", licenseIssuer);
+            formData.append("experience", String(experienceYears || 0));
+            if (languages.trim()) formData.append("languages", languages);
+            if (education.trim()) formData.append("education", education);
         }
 
         if (user?.role === "patient") {
-            formData.append("weekly_report_enabled", String(weeklyReport));
+            formData.append("weeklyReportEnabled", String(weeklyReport));
         }
 
         try {
@@ -150,8 +168,11 @@ export default function ProfilePage() {
             toast("Profile updated", "success");
 
             if (updated) {
+                // `setUser` already persists through AuthContext under its own
+                // storage key. This line wrote a second copy under "user", which
+                // nothing ever reads — a leftover from a key rename that left an
+                // extra, unowned copy of the user's PII in localStorage.
                 setUser(updated);
-                localStorage.setItem("user", JSON.stringify(updated));
             }
             setFile(null);
         } catch (err: any) {
@@ -205,27 +226,65 @@ export default function ProfilePage() {
     };
 
     const handleDeleteAccount = async () => {
+        // Deletion is the single most destructive request in the product: it
+        // destroys a patient's treatment history irreversibly. The server
+        // requires the credential to be re-entered (and a TOTP code when 2FA is
+        // on) precisely so a live session is not enough. This flow previously
+        // sent no body at all, so the endpoint returned 400 every time and the
+        // best-implemented feature in the product was unreachable.
         const ok1 = await confirm({
             title: "Delete your account?",
-            message: "This permanently deletes your account and all your data. Your past appointments are anonymized.",
+            message:
+                "This permanently deletes your account and everything attached to it — mood logs, journal entries, screening results, messages and session notes. Appointments are anonymized rather than removed.",
             confirmLabel: "Continue",
             danger: true,
         });
         if (!ok1) return;
-        const ok2 = await confirm({
-            title: "Are you absolutely sure?",
-            message: "This cannot be undone.",
-            confirmLabel: "Delete forever",
+
+        const password = await confirm({
+            title: "Confirm your password",
+            message: "For your protection, re-enter your password to confirm this is you.",
+            field: {
+                name: "password",
+                label: "Password",
+                type: "password",
+                autoComplete: "current-password",
+                required: true,
+            },
+            confirmLabel: "Delete my account",
             danger: true,
         });
-        if (!ok2) return;
+        if (typeof password !== "string" || !password) return;
+
+        let code: string | undefined;
+        if (user?.totpEnabled) {
+            const entered = await confirm({
+                title: "Two-factor code",
+                message: "Enter the current code from your authenticator app.",
+                field: {
+                    name: "code",
+                    label: "6-digit code",
+                    placeholder: "000000",
+                    autoComplete: "one-time-code",
+                    required: true,
+                },
+                confirmLabel: "Delete my account",
+                danger: true,
+            });
+            if (typeof entered !== "string" || !entered) return;
+            code = entered;
+        }
+
         try {
-            await api.delete("/account/me");
-            toast("Account deleted. We're sorry to see you go.", "success");
+            setIsDeleting(true);
+            await api.delete("/account/me", { data: { password, ...(code ? { code } : {}) } });
+            toast("Account deleted.", "success");
             await logout();
             window.location.href = "/";
         } catch (err) {
             toast(getErrorMessage(err, "Failed to delete account"), "error");
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -392,16 +451,27 @@ export default function ProfilePage() {
                                     )}
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div className="space-y-1.5">
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">License Number</label>
-                                            <input type="text" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="e.g. PSI-123456" className={inputClass} />
+                                            <label htmlFor="licenseNumber" className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">License Number</label>
+                                            <input id="licenseNumber" type="text" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="e.g. PSI-123456" className={inputClass} />
                                         </div>
                                         <div className="space-y-1.5">
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">License Issuer</label>
-                                            <input type="text" value={licenseIssuer} onChange={(e) => setLicenseIssuer(e.target.value)} placeholder="e.g. HIMPSI" className={inputClass} />
+                                            <label htmlFor="licenseIssuer" className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">License Issuer</label>
+                                            <input id="licenseIssuer" type="text" value={licenseIssuer} onChange={(e) => setLicenseIssuer(e.target.value)} placeholder="e.g. HIMPSI" className={inputClass} />
                                         </div>
                                         <div className="space-y-1.5">
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Years of Experience</label>
-                                            <input type="number" min={0} value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} placeholder="8" className={inputClass} />
+                                            <label htmlFor="experienceYears" className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">Years of Experience</label>
+                                            <input id="experienceYears" type="number" min={0} max={60} value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} placeholder="8" className={inputClass} />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                        <div className="space-y-1.5">
+                                            <label htmlFor="languages" className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">Languages You Practise In</label>
+                                            <input id="languages" type="text" value={languages} onChange={(e) => setLanguages(e.target.value)} placeholder="e.g. Bahasa Indonesia, English" className={inputClass} />
+                                            <p className="text-[11px] text-gray-500 dark:text-gray-400">Shown to patients so they can find a clinician who speaks their language.</p>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label htmlFor="education" className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">Education &amp; Training</label>
+                                            <textarea id="education" value={education} onChange={(e) => setEducation(e.target.value)} rows={3} placeholder="e.g. M.Psych, Universitas Indonesia; CBT certification, Beck Institute" className={inputClass} />
                                         </div>
                                     </div>
                                 </div>
@@ -590,9 +660,15 @@ export default function ProfilePage() {
                         </a>
                         <button
                             onClick={handleDeleteAccount}
-                            className="flex items-center gap-2 text-rose-500 font-bold text-sm hover:text-rose-700 transition-colors"
+                            disabled={isDeleting}
+                            className="flex items-center gap-2 text-rose-600 font-bold text-sm hover:text-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <Trash2 className="w-4 h-4" /> Delete my account permanently
+                            {isDeleting ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <Trash2 className="w-4 h-4" />
+                            )}{" "}
+                            {isDeleting ? "Deleting…" : "Delete my account permanently"}
                         </button>
                     </div>
                 </div>
