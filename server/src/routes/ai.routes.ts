@@ -5,6 +5,7 @@ import { authenticate } from "../middleware/auth.middleware";
 import { requireDoctor } from "../middleware/role.middleware";
 import { aiLimiter, skipInTest } from "../middleware/rateLimit.middleware";
 import { validate } from "../middleware/validate.middleware";
+import { appointmentIdParam } from "../schemas/params.schema";
 import {
     GenerateQuestionsSchema,
     SubmitAnswersSchema,
@@ -25,12 +26,12 @@ router.use(authenticate);
 // *and* regenerates the briefing from scratch when the cache is empty. Together
 // they were a repeatable, unthrottled way to spend against a metered key.
 router.post("/pre-session", skipInTest(aiLimiter), validate(GenerateQuestionsSchema), AIController.getPreSessionQuestions);
-router.get("/pre-session/:appointmentId", AIController.getPreSessionData);
+router.get("/pre-session/:appointmentId", validate(appointmentIdParam), AIController.getPreSessionData);
 router.post("/pre-session/answers", skipInTest(aiLimiter), validate(SubmitAnswersSchema), AIController.submitAnswers);
 
 // Doctor clinical briefing (restricted)
 router.post("/briefing", requireDoctor, skipInTest(aiLimiter), validate(GenerateBriefingSchema), BriefingController.generate);
-router.get("/briefing/:appointmentId", requireDoctor, skipInTest(aiLimiter), BriefingController.get);
+router.get("/briefing/:appointmentId", validate(appointmentIdParam), requireDoctor, skipInTest(aiLimiter), BriefingController.get);
 
 // Patient wellness suggestions
 router.post("/resources", skipInTest(aiLimiter), AIController.getWellnessSuggestions);

@@ -17,6 +17,25 @@ export const idObject = z.object({
 export const idParam = z.object({ params: idObject });
 
 /**
+ * Route-level schema for a path that is only an `:appointmentId`.
+ *
+ * Exists because `idParam` validates a param literally named `id`, so applying
+ * it to `/ai/pre-session/:appointmentId` rejects every valid request with a
+ * 400 - a shape mismatch that reads exactly like a broken endpoint. Two routes
+ * had this gap the other way and no schema at all, so a non-numeric
+ * `appointmentId` reached `parseInt` and became a 500.
+ */
+export const appointmentIdParam = z.object({
+    params: z.object({
+        appointmentId: z.coerce
+            .number()
+            .int()
+            .positive("Invalid appointment id")
+            .max(2_147_483_647, "Invalid appointment id"),
+    }),
+});
+
+/**
  * A wall-clock time as `HH:mm`, zero-padded.
  *
  * Times are stored in VARCHAR columns. Every overlap check in this codebase
