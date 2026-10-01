@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
 import jwt from "jsonwebtoken";
-import { mintLiveKitToken, buildGrant, roomNameForTest } from "../src/services/video.service";
-import { env } from "../src/config/env";
 
 /**
  * Video session credentials.
@@ -10,12 +8,16 @@ import { env } from "../src/config/env";
  * short-lived, participant-bound, and never exposing the signing secret. These
  * are the properties that make a consultation private; the provider itself is
  * replaceable, the invariants are not.
+ *
+ * The LiveKit configuration is not repeated here. It lives in
+ * `tests/global-setup.ts`, which is the only place in the suite where
+ * `config/env.ts` can still see it: `tests/setup.ts` imports `../src/app`, so
+ * it - and any test file - has its `process.env` assignments hoisted above the
+ * moment `env.ts` snapshots them. Every case in this file was failing against
+ * an empty API secret before that moved.
  */
-
-// The test process sets these before any module import; `env` reads them once.
-process.env.LIVEKIT_URL = "wss://livekit.example.com";
-process.env.LIVEKIT_API_KEY = "APItestkey";
-process.env.LIVEKIT_API_SECRET = "test-livekit-secret-value-0000";
+import { mintLiveKitToken, buildGrant, roomNameForTest } from "../src/services/video.service";
+import { env } from "../src/config/env";
 
 const decode = (token: string) => jwt.decode(token) as Record<string, never>;
 const minute = 60_000;

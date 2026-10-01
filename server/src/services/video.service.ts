@@ -48,6 +48,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { env } from "../config/env";
 import { logger } from "../utils/logger";
+import { badRequest } from "../utils/appError";
 
 export type VideoProviderName = "livekit" | "jitsi";
 
@@ -124,7 +125,14 @@ export const mintLiveKitToken = (input: MintInput): string => {
         // Refusing rather than clamping: a caller reaching this has a bug in its
         // window arithmetic, and silently issuing a token that expires
         // immediately would fail confusingly at the client instead.
-        throw new Error("Video token window has already closed");
+        //
+        // `badRequest` rather than `new Error`, so the 400 travels on the type
+        // rather than being inferred from this string. `error-status.test.ts`
+        // enforces that distinction across the whole tree, and
+        // `publicMessageFor` only forwards a plain `Error`'s text when it looks
+        // harmless - which is exactly the wrong thing to rely on for a message
+        // that will reach a client.
+        throw badRequest("Video token window has already closed");
     }
 
     return jwt.sign(

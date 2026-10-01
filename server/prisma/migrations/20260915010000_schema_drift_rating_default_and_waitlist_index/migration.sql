@@ -11,14 +11,23 @@
 --    every insert goes through Prisma, which sent the default explicitly, so the
 --    bad SQL default stayed latent — but any insert that omitted the column
 --    would have produced a 5.0-rated doctor with zero reviews.
-ALTER TABLE `doctor` MODIFY `rating` DOUBLE NOT NULL DEFAULT 0;
+--
+-- The table names here were originally unquoted and lowercase. That works on
+-- Windows, where `lower_case_table_names = 1` folds case, and it fails on Linux
+-- with `ER_NO_SUCH_TABLE`, because the baseline created the tables as
+-- backticked `Doctor` and `WaitlistEntry` and MySQL 8.4 on Ubuntu compares
+-- identifiers case-sensitively. Every statement in this repository now
+-- backticks and matches the created casing exactly. The failure was invisible
+-- locally and would have taken out the `migrate deploy` step in CI - and with
+-- it every later step, since they sit behind it in the same job.
+ALTER TABLE `Doctor` MODIFY `rating` DOUBLE NOT NULL DEFAULT 0;
 
 -- 2. The corrected waitlist unique key `(doctorId, patientId)` was created in
 --    the datamodel but the original three-column key
 --    `(doctorId, patientId, status)` was never dropped, so both were live. The
---    two-column key is the one the code relies on; the three-column one is pure
+--    two-column key is the one the code relies on; the three-column key is pure
 --    write amplification on a table written on every join and leave.
 --
 --    Note `WaitlistEntry_doctorId_fkey` is deliberately left in place. Prisma's
 --    diff proposes dropping it, which would remove real referential integrity.
-DROP INDEX `WaitlistEntry_doctorId_patientId_status_key` ON `waitlistentry`;
+DROP INDEX `WaitlistEntry_doctorId_patientId_status_key` ON `WaitlistEntry`;

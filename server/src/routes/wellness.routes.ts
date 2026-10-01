@@ -2,7 +2,7 @@ import { Router } from "express";
 import { WellnessController } from "../controllers/wellness.controller";
 import { ClinicalSafetyController } from "../controllers/clinicalSafety.controller";
 import { authenticate } from "../middleware/auth.middleware";
-import { requireDoctor } from "../middleware/role.middleware";
+import { requireDoctor, requireClinicalStaff } from "../middleware/role.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { aiLimiter, skipInTest } from "../middleware/rateLimit.middleware";
 import {
@@ -47,7 +47,11 @@ router.get("/assessments", validate(AssessmentListSchema), WellnessController.ge
 // self-harm, so they are the highest-consequence surface in the API: every one
 // of them filters server-side, and none of them trusts a client-supplied
 // patient id.
-router.get("/risk-alerts", requireDoctor, ClinicalSafetyController.listForDoctor);
+// Clinician or admin, not `requireDoctor`: an admin is paged for out-of-hours
+// disclosures and the service has an explicit admin branch for reading the whole
+// queue. Acknowledging and resolving stay doctor-only, because a clinician
+// signing off that they have dealt with a disclosure is a clinical act.
+router.get("/risk-alerts", requireClinicalStaff, ClinicalSafetyController.listForDoctor);
 router.post("/risk-alerts/:id/acknowledge", requireDoctor, validate(idParam), ClinicalSafetyController.acknowledge);
 router.post("/risk-alerts/:id/resolve", requireDoctor, validate(idParam), validate(ResolveRiskAlertSchema), ClinicalSafetyController.resolve);
 

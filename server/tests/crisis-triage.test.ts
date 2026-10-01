@@ -74,17 +74,20 @@ describe("detectFreeTextRisk", () => {
 
 describe("crisis triage on a patient-to-clinician message", () => {
     const connect = async (patientId: number, doctorUserId: number) =>
-        prisma.appointment.create({
-            data: {
-                userId: patientId,
-                doctor: { connect: { userId: doctorUserId } },
-                appointmentDate: new Date(),
-                startTime: "10:00",
-                endTime: "11:00",
-                status: "confirmed",
-                consultationType: "chat",
-            },
-        });
+    prisma.appointment.create({
+        data: {
+            // Both relations connected rather than given as bare scalar ids:
+            // Prisma rejects a `data` that mixes the two forms and reports the
+            // nested relation as missing.
+            user: { connect: { id: patientId } },
+            doctor: { connect: { userId: doctorUserId } },
+            appointmentDate: new Date(),
+            startTime: "10:00",
+            endTime: "11:00",
+            status: "confirmed",
+            consultationType: "chat",
+        },
+    });
 
     it("raises a queue item addressed to the treating clinician", async () => {
         const patient = await createUser("patient");
