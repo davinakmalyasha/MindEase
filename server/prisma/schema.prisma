@@ -663,7 +663,7 @@ model PackagePurchase {
    * lookup and leaves room to record provider status transitions for
    * reconciliation.
    */
-  model PaymentOrder {
+model PaymentOrder {
     id         Int      @id @default(autoincrement())
     orderId    String   @unique @db.VarChar(64)
     purchaseId Int      @unique

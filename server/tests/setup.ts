@@ -12,7 +12,7 @@ import { Prisma } from "@prisma/client";
 /**
  * Every model, read from the generated Prisma client rather than listed by hand.
  *
- * This was a hand-maintained array of 22 names and it had already fallen behind
+ * This was a hand-maintained array of 27 names and it had already fallen behind
  * the schema: `PaymentOrder` was added and never added here. The failure is
  * quiet - foreign key checks are disabled for the wipe, so a table that is
  * skipped is not an error, it is an orphan row that survives into the next test

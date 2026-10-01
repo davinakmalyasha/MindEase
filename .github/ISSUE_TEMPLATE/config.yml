@@ -1,0 +1,38 @@
+# Blank issues are off on purpose. Every issue filed here describes a mental
+# health platform, and a free-form box is the one place somebody can paste a
+# patient's screening score or a journal entry into public. The forms below
+# steer that into fields, and a form can also be routed by a dropdown — which
+# is how a report gets to the right service without anybody assigning it.
+#
+# A blank issue would also skip the "which of the four services" question,
+# which is the first thing needed to look at anything.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/davinakmalyasha/MindEase/security/advisories/new
+    about: >-
+      Private, for a real vulnerability. Do not open a public issue for one —
+      this project holds screening scores, disclosures of thoughts of self-harm
+      and journal entries, and a public description of how to read any of that
+      is itself the breach. See SECURITY.md.
+
+  - name: Feature request
+    url: https://github.com/davinakmalyasha/MindEase/issues/new?labels=enhancement&template=feature_request.yml
+    about: >-
+      The problem before the proposal. Reads the same conventions as
+      CONTRIBUTING.md, and asks the clinical questions up front.
+
+  - name: Bug report
+    url: https://github.com/davinakmalyasha/MindEase/issues/new?labels=bug&template=bug_report.yml
+    about: >-
+      Asks which of the four services the problem is in, because API, web,
+      realtime and infrastructure fail in different ways and are deployed
+      separately.
+
+# `locked: false` is the default and is stated anyway because a reviewer reading
+# this file for the first time will otherwise wonder whether locking is a
+# deliberate omission. It is: there is no support SLA, so an issue is not
+# closed on a timer — it is closed when it is fixed, when it is a duplicate, or
+# when it turns out to be a known limitation with a reasoning attached.
+locked: false

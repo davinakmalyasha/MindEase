@@ -17,7 +17,7 @@ jobs:
   # docker-compose.yml made the file unparseable, which made
   # `docker compose build` fail on the first step of the `docker` job and
   # left every later step - four health checks, the database seed, all
-  # nine Playwright journeys - permanently unreachable. Nothing in the
+  # 12 Playwright tests - permanently unreachable. Nothing in the
   # pipeline noticed, because a job whose first step fails simply reports
   # red and the unreachable steps are never examined.
   #
@@ -76,7 +76,7 @@ jobs:
       # unused, and it does not know that jsdom and testing-library are pulled in
       # by vitest's config rather than imported.
       #
-      # `check-operators.js` is genuinely broken and reports 190 false positives.
+      # `check-operators.js` is genuinely broken and reports 195 false positives.
       # It declares a `CODE_POSITION` regex and never uses it; what it actually
       # checks is "does any typographic dash survive stripping", and it only
       # strips `//` comments, not `/* */` block comments. Every one of the 190

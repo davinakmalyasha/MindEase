@@ -12,7 +12,7 @@ export default defineConfig({
          * These are integration tests against a real MySQL, with no mocking of
          * the database or the service layer — deliberately, so auth is exercised
          * through real Argon2 and real cookies. Several tests perform six or more
-         * password hashes plus a full 22-table wipe in `beforeEach` *and*
+         * password hashes plus a full 27-table wipe in `beforeEach` *and*
          * `afterEach`.
          *
          * Vitest's 30s default is sized for unit tests and is simply too small

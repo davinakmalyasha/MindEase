@@ -1,0 +1,105 @@
+name: Feature request
+description: A problem somebody actually has, before the solution that would address it.
+title: "[feat] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Describe the problem, not the feature
+
+        The convention in this repository is to write down what is wrong
+        before what to build, and the issue form enforces it by asking about
+        the problem first. That is not bureaucracy: several things here were
+        built and then had to be taken back because nobody recorded who they
+        were for.
+
+        Concretely, the two largest post-hoc corrections were the "verified"
+        badge — which says what it actually is (an administrative review of
+        submitted information, not a licensing-board check) — and the removal
+        of an invented 4.2–4.9 clinician rating for doctors with zero
+        reviews. Both came from skipping this step.
+
+        If you arrive at the end having described a solution and no problem,
+        that is worth knowing before anyone writes code.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+      description: >-
+        Who has it, and what does it cost them today? Name the role — patient,
+        clinician, admin — rather than "the user".
+      placeholder: |
+        A patient who books a follow-up has to discover the follow-up window
+        from a confirmation email; there is no way to see from the dashboard
+        that a clinician has proposed one, so most proposed follow-ups are
+        never answered.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: Whose problem is it?
+      options:
+        - Patient
+        - Clinician
+        - Admin
+        - Operator (deployment, configuration)
+        - Developer working on this repo
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: What do they do instead today?
+      description: >-
+        The workaround is the real requirement. If there is no workaround,
+        say so — that is different information.
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you propose?
+      description: >-
+        Optional, and welcome to be rough. If you skip this, that is fine —
+        the sections above are enough to discuss.
+    validations:
+      required: false
+
+  - type: textarea
+    id: clinical
+    attributes:
+      label: If this touches patient data or a clinical decision
+      description: >-
+        Answer these, or say why they do not apply. This product holds
+        screening scores, disclosures of thoughts of self-harm, and clinical
+        notes, so the questions are not generic.
+      value: |
+        - [ ] Does not touch patient data or clinical decisions
+        - [ ] A human is still the decision-maker; nothing auto-escalates
+        - [ ] Any model output is advisory and labelled as such when degraded
+        - [ ] Free text rendered to another person goes through `utils/sanitize`
+        - [ ] Ownership is checked in the service, not only in the route
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: >-
+            I have checked the "Known limitations" section of the README — this
+            is not already listed as a deliberate decision or a known gap.
+          required: true
+        - label: >-
+            I understand that changing clinical behaviour needs a stated answer
+            to "what would a clinician or a patient notice?", and that a model
+            is not the right place to make that call.

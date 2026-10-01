@@ -294,7 +294,7 @@ sequenceDiagram
    - Internal auto-increment database integer IDs (`BIGINT`) must **never** be exposed in public API routes or JSON payloads.
    - Use UUIDv7 for all external URL route parameters and JSON responses (e.g. `/api/appointments/018f7a83-b7ca-7650-8b1c-34ba7015cf01`).
    - **Status: not met.** Every model uses an auto-increment `Int` primary key
-     and every response exposes it. Retrofitting UUIDv7 means 23 models, every
+     and every response exposes it. Retrofitting UUIDv7 means 27 models, every
      route handler, every cache key, the `.ics` export, the GDPR data export and
      the e2e suite — a rewrite, not a change. It is recorded here and in
      `ARCHITECTURE.md` as a known deviation rather than quietly dropped,
