@@ -102,6 +102,56 @@ describe("GET /api/wellness/risk-alerts", () => {
         expect(res.body.data.map((a: { id: number }) => a.id)).not.toContain(alert.id);
     });
 
+    it("keeps an alert visible after the clinical relationship has lapsed", async () => {
+        // The regression this file exists for. The list query used to AND the
+        // relationship filter with the assignment filter, so an alert assigned to
+        // a clinician disappeared the moment the appointment that created the
+        // relationship stopped being confirmed or completed - while
+        // `assertCanTriage` still let them acknowledge and resolve it by id. An
+        // open disclosure, invisible in the queue and in the nav badge, but
+        // still actionable. Silent loss on a triage queue.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        await confirmAppointment(patient.id, doctor.id);
+        const alert = await raiseAlert({ userId: patient.id, assignedDoctorUserId: doctor.id });
+
+        // The relationship lapses. Not deleted - cancelled, which is what a
+        // patient cancelling actually does.
+        await prisma.appointment.updateMany({
+            where: { user: { id: patient.id }, doctor: { userId: doctor.id } },
+            data: { status: "cancelled" },
+        });
+
+        const res = await doctor.agent.get("/api/wellness/risk-alerts");
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((a: { id: number }) => a.id)).toContain(alert.id);
+        // And it still counts, so the badge tells the clinician there is work.
+        expect(res.body.counts.unresolved).toBe(1);
+        expect(res.body.counts.urgentUnacknowledged).toBe(1);
+    });
+
+    it("still hides an unassigned alert once the relationship has lapsed", async () => {
+        // The other half of the fix. Assignment is what survives a lapsed
+        // relationship; without it, "visible to the clinician who treats you"
+        // still has to hold, or the queue leaks a patient's disclosure to a
+        // clinician who no longer has any relationship with them.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        await confirmAppointment(patient.id, doctor.id);
+        const alert = await raiseAlert({ userId: patient.id, assignedDoctorUserId: null });
+
+        await prisma.appointment.updateMany({
+            where: { user: { id: patient.id }, doctor: { userId: doctor.id } },
+            data: { status: "cancelled" },
+        });
+
+        const res = await doctor.agent.get("/api/wellness/risk-alerts");
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((a: { id: number }) => a.id)).not.toContain(alert.id);
+    });
+
     it("keeps an alert visible after it is acknowledged", async () => {
         // The previous default filtered on acknowledgedAt: null, so clicking
         // acknowledge made the alert disappear from the list. Acknowledging is
