@@ -101,13 +101,18 @@ describe("locale files", () => {
         //    leaked through: they are the Indonesian words as well, identically
         //    spelt. Translating them would mean inventing a synonym to satisfy
         //    a test, which makes the check less meaningful, not more.
-        const allowIdentical = new Set([
-            "common.appName",
-            "auth.email",
-            "features.doctorProfile.credentialsStatusLabel",
-            "features.carePlan.statusLabel",
-            "features.carePlan.target",
-        ]);
+const allowIdentical = new Set([
+    "common.appName",
+    "auth.email",
+    "features.doctorProfile.credentialsStatusLabel",
+    "features.carePlan.statusLabel",
+    "features.carePlan.target",
+    // "Minimal" is a clinical severity band on the triage screen, and it is the
+    // Indonesian word too - the PHQ-9 and GAD-7 severity labels are borrowed
+    // into Indonesian clinical usage unchanged. Same category as "Status" and
+    // "Target" above, for the same reason.
+    "features.riskQueue.severity_minimal",
+]);
         const isHotlineData = (path: string) =>
             /^staticPages\.(crisis|offline)\.hotlines\.\d+\.(number|dial|contact|name)$/.test(path);
 
