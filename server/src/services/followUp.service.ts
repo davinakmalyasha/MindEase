@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { parseLocalDate, timeToMinutes, overlaps } from "../lib/date";
 import { NotificationService } from "./notification.service";
 import { badRequest, conflict, forbidden, notFound } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 export class FollowUpService {
     static async suggest(
@@ -36,7 +37,9 @@ export class FollowUpService {
                 startTime: data.startTime,
                 endTime: data.endTime,
                 consultationType: data.consultationType || appointment.consultationType,
-                notes: data.notes ? data.notes.slice(0, 1000) : null,
+                // Doctor-authored, read back by the patient. Stripped like every other
+    // free-text field rather than length-limited only.
+    notes: data.notes ? sanitize(data.notes).slice(0, 1000) : null,
             },
         });
 
