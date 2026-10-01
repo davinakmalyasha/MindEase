@@ -4,6 +4,7 @@ import { parseLocalDate, localDateKey, timeToMinutes, overlaps } from "../lib/da
 import { cacheGet, cacheSet, cacheDel, singleFlight } from "../lib/cache";
 import { WaitlistService } from "./waitlist.service";
 import { badRequest, conflict, notFound } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 const DIRECTORY_CACHE_KEY = "cache:doctors:directory";
 const doctorDetailKey = (id: number) => `cache:doctors:detail:${id}`;
@@ -761,7 +762,8 @@ export class DoctorService {
             data: {
                 doctorId,
                 name: data.name.trim(),
-                description: data.description?.trim() || null,
+                // Served by the public `GET /api/doctors/:id/packages`, so stripped.
+        description: data.description ? sanitize(data.description.trim()) || null : null,
                 sessionCount: data.sessionCount,
                 totalPrice: data.totalPrice,
             },
