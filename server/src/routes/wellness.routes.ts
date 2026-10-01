@@ -41,7 +41,9 @@ router.get("/assessments", validate(AssessmentListSchema), WellnessController.ge
 
 // The clinician triage queue. Scoped to patients the requesting clinician
 // actually has a clinical relationship with, or alerts explicitly assigned to
-// them.
+// them. The two are a disjunction, not a conjunction: an assignment survives a
+// lapsed relationship, an unassigned alert does not. `RiskQueueService.listQueue`
+// carries the reasoning.
 //
 // These three endpoints return the disclosure a patient made about thoughts of
 // self-harm, so they are the highest-consequence surface in the API: every one

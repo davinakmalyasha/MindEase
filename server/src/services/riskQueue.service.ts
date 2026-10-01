@@ -154,14 +154,31 @@ export class RiskQueueService {
 
         const rows = await prisma.riskAlert.findMany({
             where: {
-                ...(isAdmin ? {} : treatsOnly),
-                // An alert assigned to me stays mine even if the clinical
-                // relationship has since lapsed - otherwise a transfer would
-                // silently drop an open disclosure on the floor.
+                ...(options.includeResolved ? {} : { resolvedAt: null }),
+                // One `OR`, not `treatsOnly AND (assigned OR unassigned)`.
+                //
+                // The previous shape ANDed the patient-relationship filter with
+                // the assignment filter, so an alert *explicitly assigned* to a
+                // clinician was still filtered out once the relationship that
+                // created it lapsed - the appointment was cancelled, expired, or
+                // simply fell outside the window. The comment above claimed the
+                // opposite of what the code did, and `assertCanTriage` (which
+                // uses a disjunction) disagreed with the list, so the alert was
+                // invisible in the queue and in the nav badge, yet fully
+                // acknowledge-able and resolvable by direct id. On a triage queue
+                // that is silent loss of an open disclosure, which is the one
+                // failure this feature exists to prevent.
+                //
+                // Each branch is now self-contained: assigned to me means mine
+                // outright, and unassigned means mine only if I treat them.
                 ...(isAdmin
                     ? {}
-                    : { OR: [{ assignedDoctorUserId: actor.id }, { assignedDoctorUserId: null }] }),
-                ...(options.includeResolved ? {} : { resolvedAt: null }),
+                    : {
+                          OR: [
+                              { assignedDoctorUserId: actor.id },
+                              { assignedDoctorUserId: null, ...treatsOnly },
+                          ],
+                      }),
             },
             orderBy: [{ createdAt: "desc" }],
             take: QUEUE_TAKE,
