@@ -1,11 +1,37 @@
 import { z } from "zod";
 
+/**
+ * An attachment must reference a file this deployment actually issued.
+ *
+ * This was `z.string().max(500)` with no format or host restriction, and the
+ * value was stored verbatim and returned to the *counterpart*. So a patient
+ * with a confirmed appointment could send
+ * `{content:"", attachment:{url:"https://evil.example/session-expired",
+ * type:"file"}}` and the clinician's client would render an
+ * attacker-controlled remote URL: a phishing page impersonating the platform,
+ * or a tracking pixel confirming the clinician opened the message.
+ *
+ * Both prefixes are what `lib/storage.ts` actually produces - a local
+ * `/uploads/<key>` path, or an S3 URL under the configured public base - so
+ * requiring one of them costs nothing legitimate and removes the entire class.
+ * Length is kept as a backstop for a pathological S3 base URL.
+ */
+const attachmentUrl = z
+    .string()
+    .max(500)
+    .refine(
+        (v) =>
+            v.startsWith("/uploads/") ||
+            /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/avatars\//i.test(v),
+        "Attachment must reference a file uploaded through this platform"
+    );
+
 export const SendMessageSchema = z.object({
     body: z.object({
         content: z.string().max(4000, "Message too long").optional().default(""),
         attachment: z
             .object({
-                url: z.string().max(500),
+                url: attachmentUrl,
                 type: z.enum(["image", "file"]),
             })
             .optional(),
