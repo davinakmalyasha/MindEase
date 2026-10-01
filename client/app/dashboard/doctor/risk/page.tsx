@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
-import { ShieldAlert, Loader2, Check, CircleCheck, Clock } from "lucide-react";
+import Link from "next/link";
+import { useFormatter, useTranslations } from "next-intl";
+import { ShieldAlert, Loader2, Check, CircleCheck, Clock, AlertTriangle, RotateCcw } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import {
     useRiskQueue,
     useAcknowledgeRisk,
     useResolveRisk,
     useRiskAlertListener,
-    SOURCE_LABEL,
+    riskErrorMessage,
+    SOURCE_KEY,
+    SEVERITY_KEY,
 } from "@/hooks/queries/useRiskQueueQuery";
 import { useToast } from "@/components/ui/Toast";
 
@@ -31,12 +34,13 @@ import { useToast } from "@/components/ui/Toast";
  */
 export default function RiskQueuePage() {
     const t = useTranslations("features.riskQueue");
+    const format = useFormatter();
     const { toast } = useToast();
     const [includeResolved, setIncludeResolved] = useState(false);
     const [resolving, setResolving] = useState<number | null>(null);
     const [note, setNote] = useState("");
 
-    const { data, isLoading } = useRiskQueue(includeResolved);
+    const { data, isLoading, isError, error, refetch } = useRiskQueue(includeResolved);
     const acknowledge = useAcknowledgeRisk();
     const resolve = useResolveRisk();
 
@@ -103,9 +107,37 @@ export default function RiskQueuePage() {
             )}
 
             {isLoading ? (
-                <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400">
-                    <Loader2 className="h-5 w-5 animate-spin" />
+                <div
+                    className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
                     {t("loading")}
+                </div>
+            ) : isError ? (
+                // A clinician who cannot load the queue must never be told it is
+                // empty. `items` is `data?.items ?? []`, so before this branch
+                // existed a 403, a 500 and a dropped connection all rendered the
+                // green "nothing outstanding" state below - the one screen in the
+                // product where a false negative can hide an open disclosure of
+                // thoughts of self-harm. Reachable by a patient who typed the
+                // URL, and by any clinician whose session expired.
+                <div
+                    className="rounded-3xl border border-amber-200 bg-amber-50 p-10 text-center"
+                    role="alert"
+                >
+                    <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-amber-600" aria-hidden="true" />
+                    <p className="font-bold text-amber-900">{t("loadFailed")}</p>
+                    <p className="mt-1 text-sm text-amber-800">{riskErrorMessage(error, t("loadFailed"))}</p>
+                    <button
+                        type="button"
+                        onClick={() => refetch()}
+                        className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-amber-900 px-5 py-3 text-sm font-bold text-white"
+                    >
+                        <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                        {t("retry")}
+                    </button>
                 </div>
             ) : items.length === 0 ? (
                 <div className="rounded-3xl border border-gray-100 bg-white p-10 text-center">
@@ -140,7 +172,10 @@ export default function RiskQueuePage() {
                                                 {urgent ? t("urgent") : t("elevated")}
                                             </span>
                                             <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
-                                                {SOURCE_LABEL[item.sourceType] ?? item.sourceType}
+                                                {(() => {
+                                                    const key = SOURCE_KEY[item.sourceType];
+                                                    return key ? t(key) : item.sourceType;
+                                                })()}
                                             </span>
                                             {acknowledged && (
                                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-400">
@@ -155,7 +190,15 @@ export default function RiskQueuePage() {
                                         <p className="mt-1 text-sm text-gray-600">{item.reason}</p>
                                     </div>
                                     <time className="shrink-0 text-xs text-gray-400">
-                                        {new Date(item.createdAt).toLocaleString()}
+                                        {/* `useFormatter` rather than a bare
+                                            `toLocaleString()`, which silently used
+                                            the browser's locale - so someone who
+                                            chose Indonesian still got their OS
+                                            default on the triage screen. */}
+                                        {format.dateTime(new Date(item.createdAt), {
+                                            dateStyle: "medium",
+                                            timeStyle: "short",
+                                        })}
                                     </time>
                                 </div>
 
@@ -166,7 +209,15 @@ export default function RiskQueuePage() {
                                             {item.patient.lastAssessment.type.toUpperCase()}{" "}
                                             {item.patient.lastAssessment.score}
                                         </strong>{" "}
-                                        ({item.patient.lastAssessment.severity})
+                                        {/* The raw slug - "moderately-severe" - used
+                                            to be rendered here. */}
+                                        {(() => {
+                                            const key =
+                                                SEVERITY_KEY[item.patient.lastAssessment.severity];
+                                            return key
+                                                ? t(key)
+                                                : item.patient.lastAssessment.severity;
+                                        })()}
                                     </p>
                                 )}
 
@@ -210,12 +261,21 @@ export default function RiskQueuePage() {
                                     )}
 
                                     {item.sourceType === "message" && item.sourceId && (
-                                        <a
-                                            href={`/messages/${item.patient.id}`}
+                                        /* `?with=`, not a path segment. There is no
+                                           `app/messages/[id]` route, so
+                                           `/messages/12` was a 404 - on the
+                                           highest-stakes link in the product, the
+                                           one a clinician clicks when a crisis
+                                           phrase has just come in. The messages
+                                           page already reads `with` and
+                                           preselects the thread, which is exactly
+                                           what the appointments page does. */
+                                        <Link
+                                            href={`/messages?with=${item.patient.id}`}
                                             className="text-xs font-bold text-indigo-600 underline underline-offset-2"
                                         >
                                             {t("openConversation")}
-                                        </a>
+                                        </Link>
                                     )}
                                 </div>
 
