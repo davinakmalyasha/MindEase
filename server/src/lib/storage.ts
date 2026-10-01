@@ -78,7 +78,15 @@ export const deleteFile = async (url: string) => {
     const fs = await import("fs");
     const match = /^\/uploads\/([^/]+)$/.exec(url);
     if (match) {
-        const p = path.join(LOCAL_UPLOAD_DIR, match[1]);
+        // `path.basename` as defence in depth. `match[1]` cannot contain a
+        // separator by the regex, but it *can* be `..`, which would unlink the
+        // upload directory itself. Not reachable today - `User.avatar` is only
+        // ever written by `saveFile`, and `UpdateProfileSchema` is `.strict()`
+        // and does not accept `avatar` from the body - but this is a filesystem
+        // call on a value that came from a database column.
+        const name = path.basename(match[1]);
+        if (!name || name.startsWith(".")) return;
+        const p = path.join(LOCAL_UPLOAD_DIR, name);
         if (fs.existsSync(p)) fs.unlinkSync(p);
     }
 };
