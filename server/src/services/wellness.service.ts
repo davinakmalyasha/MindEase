@@ -380,12 +380,31 @@ export class WellnessService {
      * both are already wrong in most client code that hardcodes them.
      */
     static async getAssessmentTrajectory(userId: number, type: AssessmentType, limit = 24) {
-        const rows = await prisma.assessment.findMany({
+        // Newest first, then reversed.
+        //
+        // The previous query was `orderBy: { createdAt: "asc" }, take: limit`. MySQL
+        // applies LIMIT *after* ORDER BY, so the window was the *beginning* of the
+        // screening history: once a patient had more than `limit` sittings, the
+        // oldest ones were kept and the newest discarded.
+        //
+        // That is a clinical bug, not a display one. `summary.latest` is rendered
+        // by the client as "Latest score", and `summary.direction` as the
+        // improving / stable / worsening verdict - so a patient whose PHQ-9 had
+        // risen sharply was shown a permanently frozen verdict derived from their
+        // *earliest* sittings, while `GET /api/wellness/assessments` on the very
+        // same screen showed the real current score.
+        //
+        // Taking the newest N and reversing gives ascending order for the
+        // `changeFromPrevious` arithmetic below while keeping the window anchored
+        // to the present. `getAssessments` at line 362 already ordered `desc` for
+        // exactly this reason.
+        const newest = await prisma.assessment.findMany({
             where: { userId, type },
-            orderBy: { createdAt: "asc" },
+            orderBy: { createdAt: "desc" },
             take: Math.min(limit, 100),
             select: { id: true, score: true, severity: true, createdAt: true },
         });
+        const rows = [...newest].reverse();
 
         const points = rows.map((row, i) => ({
             id: row.id,
