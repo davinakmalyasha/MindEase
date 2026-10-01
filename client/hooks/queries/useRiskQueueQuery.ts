@@ -123,13 +123,36 @@ export const useRiskAlertListener = (onAlert?: (payload: unknown) => void) => {
     }, [qc, onAlert]);
 };
 
-/** Human label for a queue item's source, for the "why am I seeing this" column. */
-export const SOURCE_LABEL: Record<string, string> = {
-    phq9: "PHQ-9 screening",
-    gad7: "GAD-7 screening",
-    sos: "SOS button",
-    message: "Message",
-    mood: "Mood log",
+/**
+ * Translation key suffix per disclosure source, looked up as `source_<x>` in
+ * `features.riskQueue`.
+ *
+ * This was a hardcoded English `Record<string, string>` rendered as the "why am
+ * I seeing this" column on the triage screen, so a clinician using Indonesian
+ * read "PHQ-9 screening" on an otherwise translated page. The values now live in
+ * the locale files, where the parity test holds both sides to the same key set.
+ */
+export const SOURCE_KEY: Record<string, string> = {
+    phq9: "source_phq9",
+    gad7: "source_gad7",
+    sos: "source_sos",
+    message: "source_message",
+    mood: "source_mood",
+};
+
+/**
+ * A clinical severity slug from the API, as a translation key suffix.
+ *
+ * The server sends "moderately-severe" and the raw slug used to be rendered
+ * directly, putting a hyphenated API value in front of a clinician on the
+ * triage screen.
+ */
+export const SEVERITY_KEY: Record<string, string> = {
+    minimal: "severity_minimal",
+    mild: "severity_mild",
+    moderate: "severity_moderate",
+    "moderately-severe": "severity_moderatelySevere",
+    severe: "severity_severe",
 };
 
 export const riskErrorMessage = (err: unknown, fallback: string) => getErrorMessage(err, fallback);
