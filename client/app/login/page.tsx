@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { resolvePostLoginPath } from "@/lib/postLogin";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslations } from "next-intl";
 import { getErrorMessage } from "@/lib/api";
@@ -47,13 +48,13 @@ function AuthForm() {
     const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
     const redirectByRole = (role: string) => {
-        const target =
-            nextPath && nextPath.startsWith("/")
-                ? nextPath
-                : role === "patient"
-                ? "/dashboard/mood"
-                : "/dashboard";
-        window.location.href = target;
+        // `isSafeInternalPath`, not `startsWith("/")`. The old check let
+        // `//evil.example` through, which is a protocol-relative URL, so
+        // `/login?next=//evil.example` collected real credentials on the genuine
+        // page and then navigated the authenticated user off-origin - and
+        // because `redirectByRole` also runs after the second factor, the bounce
+        // happened at the point of maximum trust. See `lib/postLogin.ts`.
+        window.location.href = resolvePostLoginPath(nextPath, role);
     };
 
     const verify2FA = async () => {
