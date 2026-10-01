@@ -76,11 +76,27 @@ export class CarePlanService {
         });
     }
 
-    /** Every plan for a patient, closed ones included. The history is the point. */
-    static async listForPatient(patientId: number) {
+    /**
+     * Every plan for a patient, closed ones included. The history is the point.
+     *
+     * Takes the actor when a clinician is reading somebody else's plan, and goes
+     * through `assertMayContribute` in that case. A patient's own call passes no
+     * actor and skips the check, because the id is `req.user.id` and there is
+     * nothing to check.
+     */
+    static async listForPatient(patientId: number, actor?: { id: number; role: string }) {
+        // A clinician reading somebody else's plan must have a live clinical
+        // relationship. Without this route the only way a clinician could see a
+        // plan at all was to know the patient's id and no endpoint to ask with.
+        if (actor && actor.id !== patientId) {
+            await assertMayContribute(actor, patientId);
+        }
         return prisma.carePlan.findMany({
             where: { userId: patientId },
             orderBy: { createdAt: "desc" },
+            // Bounded, and a three-level eager load is not free. A patient has a
+            // handful of plans; a hundred would be a bug elsewhere.
+            take: 20,
             include: withPlanInclude,
         });
     }
@@ -295,24 +311,59 @@ export class SafetyPlanService {
      *
      * `upsert` on `userId` rather than create-or-error: a patient editing their
      * plan repeatedly should not have to know whether this is their first save.
+     *
+     * ## Why this is a merge and not a replace
+     *
+     * The original built `data` by mapping every field through
+     * `input.X ? sanitize(input.X) : null`, and used it as the `update` branch of
+     * the upsert. Since every field in the schema is optional, a client saving
+     * one section sent the other five as `null` and the update set them to `null`
+     * — so editing the professional contact silently erased the warning signs,
+     * the coping strategies and the reasons to live.
+     *
+     * That is data loss on the document a person may need at their worst moment,
+     * and the schema makes it easy to trigger: any form that sends one field.
+     * A field the caller did not mention is now left alone; a field explicitly
+     * sent as an empty string is cleared, which is what "I have no contact here"
+     * should mean.
      */
     static async save(actor: { id: number; role: string }, patientId: number, input: SafetyPlanInput) {
         await assertMayRead(actor, patientId);
 
-        const data = {
-            warningSigns: input.warningSigns ? sanitize(input.warningSigns) : null,
-            copingStrategies: input.copingStrategies ? sanitize(input.copingStrategies) : null,
-            reasonsToLive: input.reasonsToLive ? sanitize(input.reasonsToLive) : null,
-            contacts: input.contacts ? sanitize(input.contacts) : null,
-            professionalContact: input.professionalContact
-                ? input.professionalContact.slice(0, 255)
-                : null,
-            locationToBeSafe: input.locationToBeSafe ? input.locationToBeSafe.slice(0, 255) : null,
+        const clean = (v: string | null | undefined, max?: number) => {
+            if (v === undefined) return undefined;
+            if (v === null) return null;
+            const s = sanitize(v);
+            return max ? s.slice(0, max) || null : s || null;
         };
+
+        // Only the keys the caller actually sent. `undefined` means "not
+        // mentioned" and Prisma omits it from the update entirely.
+        const data: Record<string, unknown> = {};
+        const warningSigns = clean(input.warningSigns);
+        if (warningSigns !== undefined) data.warningSigns = warningSigns;
+        const copingStrategies = clean(input.copingStrategies);
+        if (copingStrategies !== undefined) data.copingStrategies = copingStrategies;
+        const reasonsToLive = clean(input.reasonsToLive);
+        if (reasonsToLive !== undefined) data.reasonsToLive = reasonsToLive;
+        const contacts = clean(input.contacts);
+        if (contacts !== undefined) data.contacts = contacts;
+        const professionalContact = clean(input.professionalContact, 255);
+        if (professionalContact !== undefined) data.professionalContact = professionalContact;
+        const locationToBeSafe = clean(input.locationToBeSafe, 255);
+        if (locationToBeSafe !== undefined) data.locationToBeSafe = locationToBeSafe;
 
         const plan = await prisma.safetyPlan.upsert({
             where: { userId: patientId },
-            create: { userId: patientId, ...data },
+            create: {
+                userId: patientId,
+                warningSigns: (warningSigns as string | null) ?? null,
+                copingStrategies: (copingStrategies as string | null) ?? null,
+                reasonsToLive: (reasonsToLive as string | null) ?? null,
+                contacts: (contacts as string | null) ?? null,
+                professionalContact: (professionalContact as string | null) ?? null,
+                locationToBeSafe: (locationToBeSafe as string | null) ?? null,
+            },
             update: data,
         });
 
@@ -337,7 +388,12 @@ export class SafetyPlanService {
      * co-authored plan.
      */
     static async markReviewed(actor: { id: number; role: string }, patientId: number) {
-        if (actor.role !== "doctor" && actor.role !== "admin") {
+        // Doctor only. This previously also accepted `role === "admin"`, which
+        // was unreachable: the route is `requireDoctor`, so an admin got a 403
+        // before reaching here, and even without that guard `assertMayRead` only
+        // admits a doctor with a live clinical relationship. A permission that
+        // no principal can exercise reads as a permission that exists.
+        if (actor.role !== "doctor") {
             throw forbidden("only a clinician can record a review");
         }
         await assertMayRead(actor, patientId);
