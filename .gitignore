@@ -65,3 +65,11 @@ Thumbs.db
 
 # Test-only helpers that are committed deliberately.
 !server/scripts/*.ps1
+
+# Working notes for a single maintainer. Not documentation - documentation is
+# in `docs/`, which is committed. These files are the scratch layer underneath a
+# work session: what was checked, what was found, what was deliberately not
+# done, and what the next person would otherwise have to rediscover.
+FINAL-SWEEP*.md
+NOTES*.md
+SWEEP-HANDOFF*.md
