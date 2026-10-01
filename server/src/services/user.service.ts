@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { invalidateDoctorCache } from "./doctor.service";
 import crypto from "crypto";
 import { badRequest } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 
 
@@ -103,15 +104,15 @@ export class UserService {
                 ...(experience !== undefined && { experience }),
                 ...(licenseNumber !== undefined && { licenseNumber: String(licenseNumber).trim() || null }),
                 ...(licenseIssuer !== undefined && { licenseIssuer: String(licenseIssuer).trim() || null }),
-                ...(bio !== undefined && { bio: String(bio) }),
-                ...(specialty !== undefined && { specialty: String(specialty) }),
+                ...(bio !== undefined && { bio: sanitize(String(bio)) }),
+                ...(specialty !== undefined && { specialty: sanitize(String(specialty)) }),
                 ...(languages !== undefined && { languages: String(languages) || null }),
-                ...(education !== undefined && { education: String(education) || null }),
+                ...(education !== undefined && { education: sanitize(String(education)) || null }),
                 ...(price !== undefined && { price }),
                 ...(bankName !== undefined && { bankName: String(bankName) || null }),
                 ...(bankAccount !== undefined && { bankAccount: String(bankAccount) || null }),
                 ...(bankHolder !== undefined && { bankHolder: String(bankHolder) || null }),
-                ...(availability !== undefined && { availability: String(availability) }),
+                ...(availability !== undefined && { availability: sanitize(String(availability)) }),
             };
 
             await prisma.doctor.upsert({

@@ -3,6 +3,7 @@ import { AIService } from "./ai.service";
 import { detectAssessmentRisk, raiseRiskAlert, NO_RISK } from "./clinicalSafety.service";
 import { dayKey, resolveTimezone, shiftDayKey, startOfZonedDay, todayKey } from "../lib/date";
 import { badRequest, notFound } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 export const MOOD_FACTORS = ["sleep", "exercise", "social", "work", "stress"] as const;
 export type MoodFactor = (typeof MOOD_FACTORS)[number];
@@ -97,9 +98,14 @@ export class WellnessService {
         if (mood < 1 || mood > 5) throw badRequest("Mood must be between 1 and 5.");
 
         const validFactors = (factors || []).filter((f) => (MOOD_FACTORS as readonly string[]).includes(f));
+        // Sanitised on the way in, like every other free-text field in the
+        // codebase. These notes are the patient writing about their own mental
+        // state, they are surfaced verbatim in the clinician pre-session
+        // briefing and in the AI briefing prompt, and nothing was stripping
+        // markup from them.
         const data = {
             mood,
-            notes,
+            notes: notes ? sanitize(notes) : null,
             factors: validFactors.length ? JSON.stringify(validFactors) : null,
         };
 
@@ -247,7 +253,7 @@ export class WellnessService {
 
     static async createJournalEntry(userId: number, content: string) {
         return await prisma.journalEntry.create({
-            data: { userId, content },
+            data: { userId, content: sanitize(content) },
         });
     }
 
@@ -257,7 +263,7 @@ export class WellnessService {
         if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         return await prisma.journalEntry.update({
             where: { id: entryId },
-            data: { content },
+            data: { content: sanitize(content) },
         });
     }
 
