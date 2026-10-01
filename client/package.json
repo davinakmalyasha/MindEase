@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "check:encoding": "node ../scripts/check-encoding.js",
-    "check:deps": "node scripts/check-dependencies.js"
+    "check:deps": "node scripts/check-dependencies.js",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
