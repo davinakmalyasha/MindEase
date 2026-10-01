@@ -207,10 +207,29 @@ export const env = {
      * on every join via `degraded`, and the client says so on screen. Making
      * livekit the default would instead fail closed with no video at all, which
      * is worse for a consultation that is minutes from starting.
+     *
+     * An *absent* value defaults to jitsi on purpose. An unrecognised value is
+     * an error, and the distinction matters: this used to be a bare `as` cast,
+     * so `VIDEO_PROVIDER=livekiit` booted cleanly, fell through
+     * `activeProvider()` to the plain jitsi branch, and returned
+     * `degraded: false`. The deployment served therapy sessions through a public
+     * third-party room with no credential while reporting to the client - and
+     * to the on-screen banner the client renders from it - that the session was
+     * fine. The payments provider already learned this lesson
+     * (`payment-config.test.ts` names the identical bug), and the video case is
+     * worse: payments at least reports which mode it is in.
      */
-    videoProvider: ((process.env.VIDEO_PROVIDER || "jitsi").trim().toLowerCase() || "jitsi") as
-        | "livekit"
-        | "jitsi",
+    videoProvider: (() => {
+        const provider = (process.env.VIDEO_PROVIDER || "").trim().toLowerCase();
+        const KNOWN_VIDEO_PROVIDERS = ["livekit", "jitsi"] as const;
+        if (provider && !KNOWN_VIDEO_PROVIDERS.includes(provider as (typeof KNOWN_VIDEO_PROVIDERS)[number])) {
+            throw new Error(
+                `[config] VIDEO_PROVIDER=${provider} is not a known provider ` +
+                    `(expected one of: ${KNOWN_VIDEO_PROVIDERS.join(", ")}).`
+            );
+        }
+        return (provider || "jitsi") as "livekit" | "jitsi";
+    })(),
 
     livekit: {
         url: (process.env.LIVEKIT_URL || "").trim(),
