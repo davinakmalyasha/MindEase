@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { AlertTriangle, Loader2, MicOff, VideoOff, PhoneOff } from "lucide-react";
 import type { Room, RoomEvent, Track } from "livekit-client";
 
@@ -22,6 +23,11 @@ import type { Room, RoomEvent, Track } from "livekit-client";
  * `livekit-client` is imported dynamically, so a participant on the jitsi path
  * does not download a WebRTC SDK they will not use, and a chunk-load failure
  * degrades rather than taking the page down.
+ *
+ * Every string here goes through `useTranslations`. The whole call screen used
+ * to be hardcoded English - mute, camera, leave, the connecting state and the
+ * compliance disclosure - so an Indonesian patient opened a translated page and
+ * then an entirely English consultation.
  */
 
 export type VideoGrant = {
@@ -30,6 +36,15 @@ export type VideoGrant = {
     room: string;
     token: string | null;
     identity: string;
+    /**
+     * The server's own statement of whether this session is authenticated.
+     *
+     * Optional so the type still describes a grant from an older API. When
+     * absent, the component falls back to deriving it from the provider name -
+     * which is what it always did, and which is why a `VIDEO_PROVIDER` typo
+     * could serve an unauthenticated room while reporting itself as fine.
+     */
+    degraded?: boolean;
 };
 
 type ConnectionState = "idle" | "connecting" | "connected" | "failed";
@@ -43,6 +58,7 @@ export default function VideoRoom({
     consultationType: string;
     onPeerLeft?: () => void;
 }) {
+    const t = useTranslations("features.video");
     const [state, setState] = useState<ConnectionState>("idle");
     const [error, setError] = useState<string | null>(null);
     const [muted, setMuted] = useState(consultationType === "voice");
@@ -54,11 +70,20 @@ export default function VideoRoom({
     // kind of thing that type-checks against a loose signature and then
     // renders nothing.
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    // Remote video tracks seen so far, and the element they are currently
+    // attached to. Held so a publication that lands before the element mounts
+    // can be attached once it does - see the effect near `toggleCamera`.
+    const remoteVideoRef = useRef<Track[]>([]);
+    const videoElRef = useRef<HTMLVideoElement | null>(null);
 
     const isVoice = consultationType === "voice";
-    // Derived, not state: it is a property of the grant, and a copy in state
-    // would be a second source of truth that could disagree with it.
-    const degraded = grant.provider === "jitsi";
+    // The server's word when it gives one, and only otherwise derived from the
+    // provider name. Keeping the fallback means an older API still works, but
+    // the API is the authority: `AppointmentService.joinRoom` computes
+    // `degraded` from whether an operator asked for livekit and the deployment
+    // could not supply it, which is a fact the provider name alone does not
+    // carry.
+    const degraded = grant.degraded ?? grant.provider === "jitsi";
 
     const teardown = useCallback(() => {
         const room = roomRef.current;
@@ -96,12 +121,34 @@ export default function VideoRoom({
                 await room.localParticipant.setCameraEnabled(!isVoice);
 
                 room.on(Events.TrackSubscribed, (track: Track) => {
-                    if (track.kind === Tracks.Kind.Video && videoRef.current) {
-                        track.attach(videoRef.current);
+                    if (track.kind === Tracks.Kind.Video) {
+                        // A single <video> in the tree, so only one remote
+                        // stream at a time here.
+                        remoteVideoRef.current = [track];
+                        if (videoRef.current) {
+                            track.attach(videoRef.current);
+                            videoElRef.current = videoRef.current;
+                        }
+                    } else if (track.kind === Tracks.Kind.Audio) {
+                        // No argument. LiveKit creates a detached <audio>,
+                        // assigns the MediaStream and calls play(), which
+                        // works because a media element with a srcObject plays
+                        // audio whether or not it is in the document. Passing
+                        // the <video> element here would put an audio stream on
+                        // a video sink and the peer would stay silent - which
+                        // is exactly what happened: the SDK does not auto-attach
+                        // anything, and this handler only ever matched video.
+                        track.attach();
                     }
                 });
                 room.on(Events.TrackUnsubscribed, (track: Track) => {
-                    if (track.kind === Tracks.Kind.Video) track.detach();
+                    if (track.kind === Tracks.Kind.Video) {
+                        remoteVideoRef.current = [];
+                        videoElRef.current = null;
+                        track.detach();
+                    } else if (track.kind === Tracks.Kind.Audio) {
+                        track.detach();
+                    }
                 });
                 // The realtime channel already announces arrivals; nothing else
                 // covers departures.
@@ -119,7 +166,7 @@ export default function VideoRoom({
             } catch (err) {
                 if (cancelled) return;
                 setError(
-                    err instanceof Error ? err.message : "Could not connect to the consultation room."
+                    err instanceof Error ? err.message : t("joinFailed")
                 );
                 setState("failed");
             }
@@ -137,17 +184,51 @@ export default function VideoRoom({
         const room = roomRef.current;
         if (!room) return;
         const next = !muted;
-        await room.localParticipant.setMicrophoneEnabled(!next);
-        setMuted(next);
+        // `setMicrophoneEnabled` throws if the browser denies the permission,
+        // and an unhandled rejection here would leave the button showing the
+        // opposite of the truth with no way to tell which is wrong.
+        try {
+            await room.localParticipant.setMicrophoneEnabled(!next);
+            setMuted(next);
+        } catch {
+            setMuted(muted);
+        }
     }, [muted]);
 
     const toggleCamera = useCallback(async () => {
         const room = roomRef.current;
         if (!room) return;
         const next = !cameraOff;
-        await room.localParticipant.setCameraEnabled(!next);
-        setCameraOff(next);
+        try {
+            await room.localParticipant.setCameraEnabled(!next);
+            setCameraOff(next);
+        } catch {
+            setCameraOff(cameraOff);
+        }
     }, [cameraOff]);
+
+    /**
+     * Attach any remote video that arrived before the <video> element existed.
+     *
+     * The subscription handler is registered before `room.connect()`, which is
+     * correct - missing the peer's first publication is worse - but the element
+     * only mounts once `state === "connected"`, and `setState` is awaited
+     * afterwards. A peer already in the room therefore publishes a track in that
+     * window, `videoRef.current` is null, and the track is silently dropped for
+     * the rest of the session. Holding the tracks and attaching once the
+     * element is mounted closes the window in both directions.
+     */
+    useEffect(() => {
+        if (state !== "connected") return;
+        const element = videoRef.current;
+        if (!element) return;
+        for (const track of remoteVideoRef.current) {
+            if (videoElRef.current !== element) {
+                track.attach(element);
+                videoElRef.current = element;
+            }
+        }
+    }, [state]);
 
     // --- Degraded path: the jitsi iframe ------------------------------------
     //
@@ -159,7 +240,7 @@ export default function VideoRoom({
                 <DegradedNotice />
                 <div className="aspect-video overflow-hidden rounded-3xl bg-black">
                     <iframe
-                        title="Consultation room"
+                        title={t("roomTitle")}
                         src={`${grant.room}${isVoice ? "#config.startWithVideoMuted=true&config.prejoinPageEnabled=false" : "#config.prejoinPageEnabled=true"}`}
                         // `allowFullScreen` is a separate attribute from the
                         // `allow` token list; without it the fullscreen control
@@ -177,8 +258,8 @@ export default function VideoRoom({
         return (
             <div className="rounded-3xl border border-gray-100 bg-white p-10 text-center">
                 <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-amber-500" />
-                <p className="text-sm text-gray-600">
-                    {error ?? "Could not connect to the consultation room."}
+                <p className="text-sm text-gray-600" role="alert">
+                    {error ?? t("joinFailed")}
                 </p>
             </div>
         );
@@ -186,9 +267,13 @@ export default function VideoRoom({
 
     if (state !== "connected") {
         return (
-            <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Connecting to the consultation room
+            <div
+                className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400"
+                role="status"
+                aria-live="polite"
+            >
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                {t("connecting")}
             </div>
         );
     }
@@ -208,7 +293,7 @@ export default function VideoRoom({
                     aria-pressed={muted}
                 >
                     <MicOff className="h-4 w-4" />
-                    {muted ? "Unmute" : "Mute"}
+                    {muted ? t("unmute") : t("mute")}
                 </button>
                 {!isVoice && (
                     <button
@@ -222,7 +307,7 @@ export default function VideoRoom({
                         aria-pressed={cameraOff}
                     >
                         <VideoOff className="h-4 w-4" />
-                        {cameraOff ? "Start camera" : "Stop camera"}
+                        {cameraOff ? t("startCamera") : t("stopCamera")}
                     </button>
                 )}
                 <button
@@ -230,33 +315,25 @@ export default function VideoRoom({
                     onClick={teardown}
                     className="inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-700"
                 >
-                    <PhoneOff className="h-4 w-4" />
-                    Leave
-                </button>
+                    <PhoneOff className="h-4 w-4" />{t("leave")}</button>
             </div>
         </div>
     );
 }
 
 function DegradedNotice() {
+    const t = useTranslations("features.video");
     return (
         <div
+            // `role="status"`, not `role="alert"`: the notice renders on mount,
+            // before there is anything else for a user to have started, so
+            // interrupting would be wrong. The information is on screen before
+            // either party can speak.
             role="status"
             className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
         >
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>{DEGRADED_NOTICE}</span>
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+            <span>{t("degradedNotice")}</span>
         </div>
     );
 }
-
-/**
- * Shown on the degraded path.
- *
- * Not translated here on purpose: it is a compliance disclosure, and a
- * disclosure that silently changes language between locales is one that can be
- * missed by the person who most needs to read it. It is added to both locale
- * files byte-identical, for the same reason hotline numbers are.
- */
-const DEGRADED_NOTICE =
-    "This session is not end-to-end authenticated. The room link is a shared URL rather than a per-participant credential, so anyone with the link could join. Configure LiveKit to fix this.";
