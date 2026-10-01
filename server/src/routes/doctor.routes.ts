@@ -23,6 +23,10 @@ router.post("/packages/:id/purchase", authenticate, validate(idParam), DoctorCon
 
 // Public discovery.
 router.get("/", DoctorController.getAll);
+// Registered before `/:id` so "specialties" is not parsed as an id. Public for
+// the same reason the directory is: the filter has to render before a patient
+// has an account.
+router.get("/specialties", DoctorController.getSpecialties);
 router.get("/slots/:id", validate(idParam), DoctorController.getSlots);
 
 // Waitlist (any authenticated role, scoped to the caller's own patient id).

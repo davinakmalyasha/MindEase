@@ -2,8 +2,9 @@
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useCallback, useTransition } from "react";
-import { SPECIALTIES, Specialty } from "@/lib/types/doctor";
+import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
+import api from "@/lib/api";
 
 const PRICE_PRESETS = [
     { value: "", label: "Any price" },
@@ -25,8 +26,29 @@ export default function FilterSidebar() {
     const pathname = usePathname();
     const [isPending, startTransition] = useTransition();
 
+    /**
+     * The specialty list, from the server.
+     *
+     * This used to be a hardcoded array of seven names - "Psychology",
+     * "Psychiatry", "Counseling", "Pediatric", "Neuropsychology", "Clinical" -
+     * against a seed that creates eight completely different ones: "Clinical
+     * Psychologist", "Family Counselor", "Trauma Therapist". No overlap, so every
+     * filter button in this sidebar returned an empty directory, and nothing
+     * tested it. A hardcoded taxonomy can only stay in sync by hand.
+     *
+     * Until this endpoint existed, the honest alternative would have been
+     * deriving the list from the loaded page - but that is circular here, since
+     * the sidebar is what filters that page.
+     */
+    const { data: specialtyData } = useQuery({
+        queryKey: ["doctors", "specialties"],
+        queryFn: async () => (await api.get("/doctors/specialties")).data?.data as string[],
+        staleTime: 5 * 60_000,
+    });
+    const specialties = ["All", ...(specialtyData ?? [])];
+
     const search = searchParams.get("search") ?? "";
-    const specialty = (searchParams.get("specialty") as Specialty) ?? "All";
+    const specialty = searchParams.get("specialty") ?? "All";
     const minExperience = Number(searchParams.get("exp")) || 0;
     const availableOnly = searchParams.get("available") === "true";
     const pricePreset = searchParams.get("price") ?? "";
@@ -90,7 +112,7 @@ export default function FilterSidebar() {
             <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Specialty</label>
                 <div className="flex flex-wrap gap-2">
-                    {SPECIALTIES.map((s) => (
+                    {specialties.map((s) => (
                         <button
                             key={s}
                             onClick={() => updateParams({ specialty: s })}

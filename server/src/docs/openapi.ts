@@ -102,6 +102,15 @@ registerBody("/api/account/2fa/disable", "post", z.object({ code: z.string(), pa
 registerGet("/api/doctors", "List doctors", "doctors", false);
 registerGet("/api/doctors/{id}", "Doctor detail", "doctors", false);
 registerGet("/api/doctors/slots/{id}", "Doctor slots", "doctors", false);
+// Public, and deliberately derived from the approved clinicians on the
+// platform rather than hardcoded anywhere: a static list drifted so far from
+// the seeded values that every filter button returned an empty directory.
+registerGet(
+    "/api/doctors/specialties",
+    "Every specialty an approved clinician has, for the directory filter",
+    "doctors",
+    false
+);
 registerGet("/api/doctors/analytics", "Doctor practice analytics", "doctors");
 registerBody("/api/doctors/slots", "post", CreateSlotSchema.shape.body, "Create availability slot");
 registerBody("/api/doctors/patterns", "post", CreatePatternSchema.shape.body, "Create weekly availability pattern (auto-generates slots)");

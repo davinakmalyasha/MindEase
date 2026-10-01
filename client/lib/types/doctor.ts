@@ -1,15 +1,18 @@
-export const SPECIALTIES = [
-    "All",
-    "Psychology",
-    "Psychiatry",
-    "Counseling",
-    "Pediatric",
-    "Neuropsychology",
-    "Clinical",
-] as const;
-
-export type Specialty = (typeof SPECIALTIES)[number];
-
+/**
+ * The specialty taxonomy is owned by the data, not by this file.
+ *
+ * This used to export a hardcoded `SPECIALTIES` array of seven names -
+ * "Psychology", "Psychiatry", "Counseling", "Pediatric", "Neuropsychology",
+ * "Clinical" - which the filter sidebar offered to the patient. The seed
+ * creates eight entirely different values: "Clinical Psychologist", "Family
+ * Counselor", "Trauma Therapist", "Addiction Specialist". There was no overlap,
+ * so every one of those buttons returned an empty directory.
+ *
+ * The list now comes from `GET /api/doctors/specialties`, which derives it from
+ * the approved clinicians actually on the platform, and the sidebar renders
+ * `specialty` as a plain `string`. Nothing can drift out of sync, because there
+ * is only one list.
+ */
 export const ITEMS_PER_PAGE = 8;
 
 export interface Doctor {
@@ -19,16 +22,8 @@ export interface Doctor {
     /**
      * Free text, as the column is.
      *
-     * Previously typed as the `Specialty` union, which the API has never
-     * returned - the seeded values are "Clinical Psychologist", "Family
-     * Counselor", "Trauma Therapist" and so on, none of which are in that
-     * list. The annotation was satisfied by casting rather than by the data.
-     *
-     * Note the separate `SPECIALTIES` taxonomy is still what the filter sidebar
-     * offers, and those values are sent to the server to match against this
-     * column. They do not correspond. That is a pre-existing mismatch and is
-     * flagged rather than fixed here, because redesigning the taxonomy is a
-     * bigger change than this type was worth.
+     * Previously typed as a `Specialty` union, which the API has never returned.
+     * The annotation was satisfied by casting rather than by the data.
      */
     specialty: string;
     avatar: string;
@@ -102,7 +97,7 @@ export interface AppointmentWithDoctor {
 
 export interface FilterParams {
     search: string;
-    specialty: Specialty;
+    specialty: string;
     minExperience: number;
     availableOnly: boolean;
     page: number;

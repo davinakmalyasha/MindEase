@@ -31,6 +31,19 @@ export class DoctorController {
         }
     }
 
+    static async getSpecialties(req: Request, res: Response) {
+        try {
+            const specialties = await DoctorService.getSpecialties();
+            res.json({ status: "success", data: specialties });
+        } catch (error: any) {
+            const { message, status } = publicMessageFor(error) ?? {
+                message: "Something went wrong. Please try again.",
+                status: 500,
+            };
+            res.status(status).json({ status: "error", message });
+        }
+    }
+
     static async getById(req: Request, res: Response) {
         try {
             const id = parseInt(req.params.id as string);

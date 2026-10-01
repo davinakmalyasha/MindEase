@@ -1,16 +1,33 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { parseLocalDate, localDateKey, timeToMinutes, overlaps } from "../lib/date";
-import { cacheGet, cacheSet, cacheDel } from "../lib/cache";
+import { cacheGet, cacheSet, cacheDel, singleFlight } from "../lib/cache";
 import { WaitlistService } from "./waitlist.service";
 import { badRequest, conflict, notFound } from "../utils/appError";
 
 const DIRECTORY_CACHE_KEY = "cache:doctors:directory";
 const doctorDetailKey = (id: number) => `cache:doctors:detail:${id}`;
+// The cache key must include the page size. `limit` determines both `take` and
+// `totalPages`, and the directory and booking pages request different sizes
+// (20 and 50) from the same public endpoint, so a shared key served one of them
+// the wrong row count and the wrong page count for the whole TTL.
+const directoryCacheKey = (limit: number) => `${DIRECTORY_CACHE_KEY}:v2:${limit}`;
+const SPECIALTIES_CACHE_KEY = "cache:doctors:specialties:v1";
 
 // Cache invalidation hooks — call after any doctor profile change.
 export const invalidateDoctorCache = (doctorId?: number) =>
-    cacheDel(DIRECTORY_CACHE_KEY, doctorId ? doctorDetailKey(doctorId) : "");
+    doctorId
+        ? cacheDel(directoryCacheKey(0), doctorDetailKey(doctorId))
+        : cacheDel(...DIRECTORY_ALL_KEYS, SPECIALTIES_CACHE_KEY);
+
+/**
+ * Every page size the directory is ever requested at.
+ *
+ * The invalidation hook has to clear all of them, because a profile edit
+ * changes every page's contents. Kept as a list rather than a wildcard because
+ * Redis `DEL` takes explicit keys and there is no way to enumerate cheaply.
+ */
+const DIRECTORY_ALL_KEYS = [20, 50].map(directoryCacheKey);
 
 /**
  * Narrows a slot query to the dates a clinician is actually bookable on.
@@ -101,33 +118,103 @@ export class DoctorService {
             (filters.sort && filters.sort !== "rating");
 
         // Page 1 default directory is cached for 60s (Redis); misses hit the DB.
+        //
+        // `singleFlight` coalesces concurrent misses on an expiring key. Without
+        // it, every 60 seconds the number of in-flight requests all fire the same
+        // two queries at once - and on the unauthenticated public directory that
+        // is the highest-traffic endpoint in the app. `cache.ts` has exported a
+        // correct coalescer with failure eviction since it was written; nothing
+        // was calling it.
+        const cacheKey = directoryCacheKey(Math.min(limit, 50));
+
         if (page === 1 && !isUncachedQuery) {
-            const cached = await cacheGet<any>(DIRECTORY_CACHE_KEY);
+            const cached = await cacheGet<any>(cacheKey);
             if (cached) return cached;
         }
-        const skip = (page - 1) * limit;
-        const take = Math.min(limit, 50);
-        const [rows, total] = await Promise.all([
-            prisma.doctor.findMany({
-                where,
-                include: {
-                    user: {
-                        select: {
-                            name: true,
-                            avatar: true,
-                            phone_number: true,
+
+        const load = async () => {
+            const skip = (page - 1) * limit;
+            const take = Math.min(limit, 50);
+            const [rows, total] = await Promise.all([
+                prisma.doctor.findMany({
+                    where,
+                    // An explicit projection, not `include`. `include` without
+                    // `select` returns every scalar on Doctor, which means the
+                    // public, unauthenticated directory was serialising `bio`
+                    // and `education` prose and - far worse - `bankName`,
+                    // `bankAccount` and `bankHolder` for all 50 clinicians, on
+                    // every page load, for a card that uses six fields.
+                    select: {
+                        id: true,
+                        specialty: true,
+                        experience: true,
+                        price: true,
+                        rating: true,
+                        totalReviews: true,
+                        verificationStatus: true,
+                        user: {
+                            select: {
+                                // No `phone_number`. The detail endpoint
+                                // deliberately omits it - "contact details are
+                                // only exchanged between a patient and a doctor
+                                // once an appointment is confirmed" - and the
+                                // directory was never given the same treatment,
+                                // so the whole clinician phone list was
+                                // anonymously harvestable from one public call.
+                                name: true,
+                                avatar: true,
+                            },
                         },
+                        // `hidden: false` matters: the public rating is computed
+                        // over visible reviews only, so counting every review put
+                        // a moderated-away one in the card's total and disagreed
+                        // with the rating right next to it. It also leaked
+                        // moderation state to anyone counting.
+                        _count: { select: { reviews: { where: { hidden: false } } } },
                     },
-                    _count: { select: { reviews: true } },
-                },
-                orderBy,
-                skip,
-                take,
-            }),
-            prisma.doctor.count({ where }),
-        ]);
-        const result = { rows, total, page, totalPages: Math.ceil(total / take) };
-        if (page === 1 && !isUncachedQuery) await cacheSet(DIRECTORY_CACHE_KEY, result, 60);
+                    orderBy,
+                    skip,
+                    take,
+                }),
+                prisma.doctor.count({ where }),
+            ]);
+            const result = { rows, total, page, totalPages: Math.ceil(total / take) };
+            if (page === 1 && !isUncachedQuery) await cacheSet(cacheKey, result, 60);
+            return result;
+        };
+
+        return page === 1 && !isUncachedQuery ? singleFlight(cacheKey, load) : load();
+    }
+
+    /**
+     * Every specialty an approved clinician actually has.
+     *
+     * This existed as a hardcoded client-side list of seven names - "Psychology",
+     * "Psychiatry", "Counseling", "Pediatric", "Neuropsychology", "Clinical" -
+     * and the seed creates eight completely different ones: "Clinical
+     * Psychologist", "Family Counselor", "Trauma Therapist", and so on. There
+     * was no overlap, so every filter button in the directory sidebar returned
+     * an empty result. A hardcoded taxonomy can only be kept in sync by hand,
+     * and nothing was checking.
+     *
+     * Derived from the same `where` the directory uses, so a clinician who is
+     * away or unapproved does not contribute a filter that yields nothing.
+     */
+    static async getSpecialties(): Promise<string[]> {
+        const cached = await cacheGet<string[]>(SPECIALTIES_CACHE_KEY);
+        if (cached) return cached;
+
+        const rows = await prisma.doctor.findMany({
+            where: {
+                verificationStatus: "approved",
+                OR: [{ awayUntil: null }, { awayUntil: { lte: new Date() } }],
+            },
+            distinct: ["specialty"],
+            select: { specialty: true },
+            orderBy: { specialty: "asc" },
+        });
+        const result = rows.map((r) => r.specialty).filter(Boolean);
+        await cacheSet(SPECIALTIES_CACHE_KEY, result, 300);
         return result;
     }
 
