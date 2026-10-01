@@ -82,6 +82,13 @@ model User {
   @@index([role, lastMoodNudgeAt])
   @@index([role, lastDeclineNudgeAt])
   @@index([weeklyReportEnabled, role])
+  // The admin user list sorts by `createdAt desc` with an optional `role`
+  // filter, and there was no `createdAt` index on this model at all - so every
+  // page click was a full scan plus a filesort.
+  @@index([createdAt])
+  @@index([role, createdAt])
+  // The care check-in jobs scan `role = 'patient'` ordered by `id`.
+  @@index([role, id])
 }
 
 model Doctor {
@@ -166,7 +173,16 @@ model Appointment {
   // in set). Without them each claim scanned the whole appointments table, on
   // every replica, every ten minutes.
   @@index([reminderSentAt, appointmentDate, status])
+  // The admin list is unfiltered and sorts by (appointmentDate, startTime).
+  // Every other appointmentDate-leading index starts with a doctor or user
+  // equality this query does not supply, so MySQL filesorted the whole table.
+  @@index([appointmentDate, startTime])
   @@index([checkinSentAt, appointmentDate, status])
+  // Status first so the reminder and check-in jobs get an equality followed by a
+  // range. Leading with the nullable `*SentAt` column means every unsent row is
+  // in one NULL block that MySQL must scan and filter.
+  @@index([status, reminderSentAt, appointmentDate])
+  @@index([status, checkinSentAt, appointmentDate])
   @@index([userId, appointmentDate])
 }
 
@@ -220,6 +236,14 @@ model Message {
   createdAt  DateTime @default(now())
 
   @@index([senderId, receiverId, createdAt])
+  // `getMessages` paginates on `id desc` with an `id: { lt: before }` cursor.
+  // Neither message index above ends in `id`, so every page of a thread was a
+  // filesort of the whole conversation - and the client polls this every 5s.
+  @@index([senderId, receiverId, id])
+  @@index([receiverId, senderId, id])
+  // `getConversations` orders by `createdAt` across a two-sided OR, which the
+  // composite above can only serve as a prefix.
+  @@index([senderId, createdAt])
   @@index([receiverId, senderId])
   // Unread-badge and conversation-list queries.
   @@index([receiverId, isRead])
@@ -237,6 +261,9 @@ model Notification {
 
   @@index([userId, isRead, createdAt])
   @@index([userId, createdAt])
+  // `orderBy: [{ createdAt: desc }, { id: desc }]` - without `id` the
+  // tiebreaker alone forces a filesort. Polled every 15s per user.
+  @@index([userId, createdAt, id])
 }
 
 model ConsultationSlot {
