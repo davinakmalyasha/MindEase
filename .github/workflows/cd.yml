@@ -25,10 +25,19 @@ concurrency:
   group: production-deploy
   cancel-in-progress: false
 
+# Least privilege, stated once. `deploy_api` and `deploy_web` are the only jobs
+# that need more, and they narrow to exactly what they use at the job level.
+# Everything else runs third-party actions against a read-only token.
+permissions:
+  contents: read
+
 jobs:
   # Fails fast on missing configuration, before anything has been built. A
   # half-configured deploy that fails at the last step is the expensive kind.
   preflight:
+    permissions:
+      contents: read
+    timeout-minutes: 5
     name: Preflight
     runs-on: ubuntu-latest
     outputs:
@@ -75,6 +84,10 @@ jobs:
   # ---------------------------------------------------------------------
 
   deploy_api:
+    permissions:
+      contents: read
+      deployments: write
+    timeout-minutes: 40
     name: Deploy API + realtime (Railway)
     needs: preflight
     runs-on: ubuntu-latest
@@ -142,6 +155,10 @@ jobs:
           exit 1
 
   deploy_web:
+    permissions:
+      contents: read
+      deployments: write
+    timeout-minutes: 30
     name: Deploy web (Vercel)
     needs: preflight
     runs-on: ubuntu-latest
@@ -194,6 +211,9 @@ jobs:
         run: npx vercel deploy --prebuilt --prod
 
   verify:
+    permissions:
+      contents: read
+    timeout-minutes: 10
     name: Post-deploy verification
     needs: [deploy_api, deploy_web]
     runs-on: ubuntu-latest

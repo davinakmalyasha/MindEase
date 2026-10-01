@@ -8,6 +8,23 @@ on:
   # The end-to-end step is opt-in. See the `docker` job for why.
   workflow_dispatch:
 
+# Least privilege. Stated once, at the top, and narrowed per job where a job needs
+# more - so the default for anything added later is read-only rather than the
+# repository's default token. Only `docker` widens, because it uploads Playwright
+# traces.
+permissions:
+  contents: read
+
+# One run per ref. A second push cancels the first instead of racing it: two
+# complete five-job runs would both burn the full runner budget, and the slower
+# one is what ends up reporting on the commit.
+#
+# Contrast `cd.yml`, where `cancel-in-progress` is false - two deploys must never
+# interleave, because `prisma migrate deploy` is not re-entrant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # --------------------------------------------------------------------
   # Compose file validation
@@ -24,6 +41,10 @@ jobs:
   # A schema error in the compose file should cost ten seconds, not a full
   # three-job test run.
   compose:
+    # `docker compose config` parses one file. Nothing else.
+    permissions:
+      contents: read
+    timeout-minutes: 5
     name: Compose (validate)
     runs-on: ubuntu-latest
     steps:
@@ -34,6 +55,10 @@ jobs:
         run: docker compose config -q
 
   server:
+    # Installs dependencies, migrates, runs 415 tests against MySQL. Generous because a cold `npm ci` plus a full suite is genuinely slow.
+    permissions:
+      contents: read
+    timeout-minutes: 25
     name: Server (lint, typecheck, test)
     runs-on: ubuntu-latest
     services:
@@ -129,6 +154,10 @@ jobs:
           NODE_ENV: test
 
   client:
+    # Lint, unit tests and a production build. The build is the slow part.
+    permissions:
+      contents: read
+    timeout-minutes: 20
     name: Client (lint, test, build)
     runs-on: ubuntu-latest
     defaults:
@@ -157,6 +186,10 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
 
   realtime:
+    # go vet, build and race tests on a 532-line service.
+    permissions:
+      contents: read
+    timeout-minutes: 10
     name: Realtime (Go vet, build, test)
     runs-on: ubuntu-latest
     defaults:
@@ -179,6 +212,15 @@ jobs:
         run: go test -race -cover ./...
 
   docker:
+    # Builds all three images, boots the stack, and uploads Playwright traces on
+    # failure - so it needs to write a check run, and nothing else. The only job
+    # in this workflow that is not read-only, and deliberately so: it is the one
+    # that runs third-party actions.
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+    timeout-minutes: 45
     name: Docker build
     runs-on: ubuntu-latest
     # `compose` first: a malformed compose file should fail here rather than
