@@ -1,0 +1,148 @@
+# Weekly, not daily. The reason is that nothing in this repository is
+# released on a schedule and there is one maintainer, so a daily run is forty
+# pull requests a week against a repo where most of the value is in review
+# attention spent on the clinical code, not on lockfiles.
+#
+# Grouping the npm patch updates is the same argument: one PR that moves forty
+# patch versions is a PR nobody reads, and a PR nobody reads is how a version
+# gets bumped past a breaking change in a minor.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Express 5, Prisma 6, Zod 4 and @types/node are the four upgrades here
+      # that are not a drop-in, so they are held back into their own PR. Every
+      # patch bump goes together and can be approved without reading it.
+      patch-dependencies:
+        dependency-type: production
+        update-types:
+          - patch
+          - minor
+        patterns:
+          - "*"
+      # Keep these out of the patch sweep, and say why inline rather than in
+      # a comment: each has a migration that is a code change, not a version
+      # change, and a grouped PR would hide it.
+      majors-and-migrations:
+        exclude-patterns:
+          - "express"
+          - "prisma"
+          - "@prisma/client"
+          - "zod"
+          - "@types/node"
+          - "typescript"
+          - "eslint"
+          - "typescript-eslint"
+          - "vitest"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /client
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Next.js 16 and next-intl carry breaking changes between minors, and
+      # both are involved in routing and message loading respectively, so they
+      # are separated out rather than swept.
+      patch-dependencies:
+        dependency-type: production
+        update-types:
+          - patch
+        patterns:
+          - "*"
+      next-and-intl:
+        patterns:
+          - "next"
+          - "next-intl"
+          - "eslint-config-next"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Next 16.1.6 is pinned exactly, not with a caret, on purpose: the
+      # Dockerfile is what production deploys, and an unpinned base has
+      # shipped a broken build here before. Unpinning it is a decision, not a
+      # version bump.
+      - dependency-name: "next"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: "eslint-config-next"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      # @vitest/coverage-v8 is 3.x while vitest is 4.x on the server. Aligning
+      # them is a change, so the mismatched major is left alone until someone
+      # does it on purpose and can see the two package.json files side by side.
+      - dependency-name: "@vitest/coverage-v8"
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: gomod
+    directory: /server-realtime
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      # One module, a handful of dependencies. Grouping keeps the weekly run
+      # at a single PR instead of one per library.
+      go-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # The Go directive is 1.26 and the CI runner pins 1.26. Bumping the
+      # toolchain is a change to ci.yml and to the Dockerfile as well, so it
+      # is not something a weekly bot should do unattended.
+      - dependency-name: "go"
+        update-types:
+          - version-update:semver-minor
+
+  - package-ecosystem: docker
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /client
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /server-realtime
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"
+    ignore:
+      # The Go base image is the toolchain. See the note on the gomod entry
+      # above: the version appears in the Dockerfile, in ci.yml and in go.mod,
+      # and those three have to move together.
+      - dependency-name: "golang"

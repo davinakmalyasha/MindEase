@@ -1,0 +1,56 @@
+# CODEOWNERS
+#
+# Owner: @davinakmalyasha
+#
+# A CODEOWNERS file whose only reviewer is the author of the change is
+# decoration. GitHub will happily show "1 approval required" on a pull request
+# whose reviewer has written the diff, and nothing in the UI distinguishes
+# that from review by somebody else. So this file is not a control, and it is
+# worth being explicit about that rather than letting a reviewer assume
+# otherwise.
+#
+# Review here is currently self-review. It is still worth doing: the checks in
+# CONTRIBUTING.md — schema drift, the error-status meta-test, the realtime
+# contract test — are written to fail on a mistake the author did not notice,
+# which is most of them. What self-review cannot do is catch a wrong
+# assumption held confidently, and on the clinical paths that is the real
+# limitation of this repository.
+#
+# The value of listing the paths below is that it says which files are
+# load-bearing, and where a reviewer should be slowest. It becomes a real
+# control the moment a second person has write access.
+
+# Default owner for everything not matched more specifically.
+*                               @davinakmalyasha
+
+# Sessions, authorisation, the clinical record access checks and anything
+# that decides who may read a patient's data.
+/server/src/lib/                 @davinakmalyasha
+/server/src/middleware/          @davinakmalyasha
+/server/src/services/auth.service.ts      @davinakmalyasha
+/server/src/services/twoFactor.service.ts  @davinakmalyasha
+/server/src/services/riskQueue.service.ts  @davinakmalyasha
+/server/src/services/carePlan.service.ts   @davinakmalyasha
+/server/src/services/video.service.ts      @davinakmalyasha
+
+# Crisis handling. The narrowest rule in the file on purpose: this is the code
+# where a wrong assumption is a harm rather than a bug.
+/server/src/services/crisisText.service.ts  @davinakmalyasha
+
+# Migrations and the schema. Drift here is what broke the triage queue once
+# already, so these are the files to read twice.
+/server/prisma/                  @davinakmalyasha
+
+# AI call sites. Every one of them reports whether a model answered, and the
+# degraded path is the one that has to keep working.
+/server/src/services/ai.service.ts  @davinakmalyasha
+
+# The realtime contract has three implementations and one test. All three.
+/server/tests/realtime-contract.test.ts  @davinakmalyasha
+/server-realtime/                @davinakmalyasha
+
+# Crisis hotline numbers and organisation names are byte-identical across
+# locales by design and are allowlisted in the locale test. Changing them
+# needs a human, not a translation.
+/client/messages/                @davinakmalyasha
+/client/tests/locales.test.ts    @davinakmalyasha

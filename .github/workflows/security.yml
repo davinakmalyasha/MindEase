@@ -1,0 +1,244 @@
+name: Security
+
+# This workflow exists because SECURITY.md listed "no dependency scanning or
+# SAST in CI" as a known gap: the history had been audited by hand and no
+# secret was ever committed, but nothing kept it that way. A hand audit is a
+# fact about the past; these four jobs are a mechanism for the future.
+#
+# It runs on every push to main, on every pull request, and weekly. Weekly is
+# the important trigger: a vulnerability published in the NVD affects a
+# checkout that has not changed at all, and no push-triggered scan can see
+# that.
+#
+# It is a separate workflow from ci.yml rather than extra steps in it, so a
+# scanner that is misconfigured or times out does not redden the build and
+# teach everyone to ignore red.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Sunday 04:10 UTC, not on the hour. Scheduled workflows queue behind every
+    # other job on GitHub's shared fleet, so :00 on a round number is the
+    # slowest possible minute to ask for.
+    - cron: "10 4 * * SUN"
+  # Lets a maintainer re-run a scan without pushing a commit. Security findings
+  # often need a second look once a version is pinned or a false positive is
+  # confirmed, and neither of those should cost a commit.
+  workflow_dispatch:
+
+# One scan at a time per ref. A second push to a branch supersedes the first
+# run of the same job; without this, three pushes in a minute produce three
+# CodeQL analyses of the same tree and the oldest one can report last, so a
+# red run survives a green one.
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Secret scanning
+  # ---------------------------------------------------------------------
+  # Full-history scan, not just the diff. A secret that was committed and then
+  # amended away is still in the objects, and still in anybody's clone.
+  #
+  # Expected to go green on the first run: the history was audited and is
+  # clean. That is worth stating, because a first red run here would be a
+  # discovery about the repository rather than a regression, and the two need
+  # to be told apart.
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs the history to scan it, and the default
+          # `fetch-depth: 1` would give it one commit.
+          fetch-depth: 0
+      - name: Scan full history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # Without a licence key the action reports findings in the log but
+          # does not fail the check. Failing the job is the entire point of
+          # running it in CI, and the check would be advisory otherwise.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # ---------------------------------------------------------------------
+  # Static analysis
+  # ---------------------------------------------------------------------
+  # Two languages, so two jobs: CodeQL's language is a build-mode setting, not
+  # something one run can switch between. Paths are split the same way the
+  # repositories are, so a change to the Go service does not pay for a
+  # TypeScript database and vice versa.
+  codeql-js:
+    name: CodeQL (TypeScript — server, client)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # `security-events: write` is what lets the analysis be uploaded and shown
+      # on the Security tab. It is granted here and not at workflow level so
+      # the other three jobs cannot write to it.
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # No build step. TypeScript is not compiled by CodeQL, and a custom
+          # build command here would only make the extractor miss files.
+          build-mode: none
+          # Scoped to the two directories that hold TypeScript. Including the
+          # root would pull in configuration and the Playwright spec, neither
+          # of which is a library anything calls.
+          paths: server,client
+          queries: security-and-quality
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  codeql-go:
+    name: CodeQL (Go — realtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          # Go needs a real build for the extractor to see call graphs. A
+          # `go build ./...` in the module is enough; nothing is run.
+          build-mode: autobuild
+          paths: server-realtime
+          queries: security-and-quality
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:go"
+
+  # ---------------------------------------------------------------------
+  # Container images
+  # ---------------------------------------------------------------------
+  # Scans the three Dockerfiles, one job per image, because a matrix cell
+  # cannot tell you *which* image a finding came from and the remediation is
+  # different for each: the API and the web app are `node:22-slim` over a
+  # Prisma/Next build, the realtime service is a compiled Go binary on
+  # `scratch`-ish, so its findings are base-image CVEs and nothing else.
+  #
+  # HIGH and CRITICAL only. Every base image carries a tail of CVEs with no
+  # fixed version, and reporting them turns a red badge into wallpaper.
+  trivy:
+    name: Trivy (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: server
+            dockerfile: server/Dockerfile
+          - image: client
+            dockerfile: client/Dockerfile
+          - image: server-realtime
+            dockerfile: server-realtime/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan ${{ matrix.dockerfile }}
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: dockerfile
+          scan-ref: ${{ matrix.dockerfile }}
+          format: table
+          # `exit-code: 1` is what makes this a gate. Without it the action
+          # prints findings and the job goes green, which is the default and
+          # is the reason a scanner can be present in a repo for a year without
+          # anyone knowing.
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          # No `trivyignores` file. A suppressions file is the right thing
+          # once something needs suppressing; an empty one is only a way to
+          # make the scan pass without looking at it.
+
+  # ---------------------------------------------------------------------
+  # Dependency advisories
+  # ---------------------------------------------------------------------
+  # `--audit-level=high` rather than `--audit-level=moderate`, for the same
+  # reason Trivy is HIGH and CRITICAL only. A moderate finding in a
+  # transitive dev dependency is not the same event as a high finding in the
+  # JWT path.
+  #
+  # `npm audit` runs against the lockfile only and needs no build; it is the
+  # fastest useful signal in the whole workflow and runs first.
+  npm-audit:
+    name: npm audit (server, client)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - directory: server
+          - directory: client
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      # `npm ci` installs exactly what is locked, which is what `npm audit`
+      # reads. No postinstall scripts run that are not already in the lockfile;
+      # `--ignore-scripts` is deliberate — Prisma's client generation is not
+      # needed to audit a lockfile, and skipping the scripts means a compromised
+      # transitive package cannot execute anything just by being audited.
+      - run: npm ci --ignore-scripts
+      - name: Audit (${{ matrix.directory }})
+        run: npm audit --audit-level=high
+
+  # govulncheck is not `go list -m -u`. It walks the call graph from the binary
+  # and only reports a vulnerability if the vulnerable symbol is actually
+  # reachable, which is the difference between a Go report you can act on and
+  # one you cannot.
+  go-vulncheck:
+    name: govulncheck (realtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server-realtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Matches ci.yml and the `go` directive in go.mod. A mismatch makes
+          # the analysis describe a toolchain the service is not built with.
+          go-version: "1.26"
+      - run: go mod download
+      # `./...` rather than `.`: the hub package is where the WebSocket and
+      # JWT handling lives, and auditing only the root would miss it.
+      - run: go vet ./...
+      - name: Vulnerable symbols in reachable code
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...

@@ -1,0 +1,146 @@
+name: Bug report
+description: Something behaves differently from how it is documented in the README.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Before you file this
+
+        Three things decide how fast this gets looked at, in order:
+
+        1. **Which service.** The four below are deployed and tested separately,
+           and a stack trace in the API log is a different problem from a
+           selector that fails in a Playwright journey.
+        2. **A reproduction.** A report with a route and a payload is acted on;
+           a report that says "the app feels slow" is not, because there is
+           nothing to instrument.
+        3. **A security problem?** Do not file it here. `SECURITY.md` has a
+           private reporting path, and a public issue that describes how to
+           read a patient's journal is itself the breach.
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Which service is this in?
+      description: >-
+        API = server/ (Express, :5000). Web = client/ (Next.js, :3000).
+        Realtime = server-realtime/ (Go, :8080). Infrastructure = Railway,
+        Vercel, MySQL, Redis, compose, or the deploy pipeline.
+      options:
+        - API (server/)
+        - Web (client/)
+        - Realtime (server-realtime/)
+        - Infrastructure (deploy, MySQL, Redis, compose)
+        - More than one / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part of the product?
+      options:
+        - Auth, sessions, 2FA
+        - Doctor discovery, profiles, verification
+        - Booking, availability, waitlist, packages
+        - Consultation room (video/voice)
+        - Messaging and realtime push
+        - Wellness, mood, journal
+        - Screening (PHQ-9 / GAD-7)
+        - Risk queue / clinical safety
+        - Care plan, safety plan
+        - AI features (briefing, pre-session, matching, chat)
+        - Admin console
+        - Notifications, email
+        - Docs, tooling, repo itself
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: >-
+        What you saw, and what you expected instead. If a status code or a
+        Prisma error is involved, paste it exactly — the error-status gate in
+        CONTRIBUTING.md exists precisely because message text gets pattern-matched.
+      placeholder: |
+        Selecting a consultation shows the room shell with no video element,
+        and the browser console logs `WebSocket closed 1006`. Expected the
+        room to prompt for camera access.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce it
+      description: >-
+        Seeded accounts are in the README. If the bug needs a specific fixture
+        (a clinician with a risk alert, a package mid-checkout, a pending
+        follow-up), say which one you built.
+      placeholder: |
+        1. Log in as patient@mindease.app
+        2. Book with dr1 for the next slot
+        3. Open Messages, type a message with "I want to hurt myself"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or deploy you saw it on
+      description: >-
+        A SHA, or the Railway/Vercel deployment id. Several bugs here have been
+        version-specific — a `RiskAlert.resolvedById` column that existed in the
+        datamodel but not in any migration only surfaced against databases
+        built from migrations.
+      placeholder: "a1b2c3d or railway deployment 7f3c…"
+    validations:
+      required: false
+
+  - type: textarea
+    id: ai
+    attributes:
+      label: Was a model involved in what you saw?
+      description: >-
+        AI features degrade to local generation when the key is absent, and the
+        UI is supposed to say so. Say which case you hit.
+      value: |
+        - [ ] No AI feature involved
+        - [ ] `GEMINI_API_KEY` was set and a model answered
+        - [ ] `GEMINI_API_KEY` was unset (degraded/local fallback)
+        - [ ] Unknown — I do not know whether the key is configured
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, trace, or screenshot
+      description: >-
+        For an API bug, `GET /api/health/db` and the pino lines for the
+        request. For a realtime bug, the output of the service including the
+        Redis connection line — Redis being down is silent by design and the
+        realtime push simply stops.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the open issues and this is not a duplicate.
+          required: true
+        - label: >-
+            I ran the affected suite locally (`cd server && npm test`,
+            `cd client && npm test`, `cd server-realtime && go test -race ./...`)
+            and it reproduces there too, if it reproduces at all.
+        - label: >-
+            This touches patient data, a screening score, or a disclosure —
+            so it needs a clinical read, not only an engineering one.

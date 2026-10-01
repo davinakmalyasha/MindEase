@@ -133,10 +133,17 @@ regex rather than a model: [ADR-0002](docs/adr/0002-ai-provenance.md).
 The most safety-critical surface in the product, and the part with the most
 opinionated code.
 
-A non-zero answer to PHQ-9 item 9 is treated as a disclosure. Three further
-sources feed the same queue: the SOS button, crisis phrasing in a
-patient-to-clinician message, and mood decline. All four land in one
-`RiskAlert` table, which is the only triage worklist a clinician works.
+A non-zero answer to PHQ-9 item 9 is treated as a disclosure. Two further
+sources feed the same queue: the SOS button, and crisis phrasing in a
+patient-to-clinician message. All three land in one `RiskAlert` table, which is
+the only triage worklist a clinician works.
+
+A fourth signal, a sustained mood decline, is detected daily by
+`jobs/checkins.ts` and does prompt the patient directly — but it does not reach
+this queue. `RiskAlert.sourceType` reserves `"mood"` for it, so wiring it up is
+a matter of raising an alert rather than inventing a mechanism. It is called out
+here because "the decline nudge notifies the patient" and "a clinician sees a
+declining patient" are different claims, and only the first one is true today.
 
 Two state transitions, deliberately distinct. `acknowledgedAt` means a human has
 seen it; `resolvedAt` means it is dealt with. The queue defaults to *unresolved*
@@ -184,7 +191,7 @@ the client says so on screen before the session starts.
 
 ## Data model notes
 
-23 models, no enums. Every status is a `String` with the legal values in a
+27 models, no enums. Every status is a `String` with the legal values in a
 comment, which is why ordering cannot be done in SQL for `RiskAlert.level` and
 why the sort happens on a bounded page in the service.
 
@@ -196,7 +203,7 @@ invariant rather than a convention.
 
 **Sequential integer ids are exposed in API responses.** The PRD requires UUIDv7
 in every external identifier and prohibits leaking internal ids. That is not
-met, and retrofitting it across 23 models, every route, every cache key and
+met, and retrofitting it across 27 models, every route, every cache key and
 every export is a rewrite rather than a change. It is recorded here rather than
 left for a reader to discover, because a requirement that has been quietly
 abandoned is worse than one that was never met.
@@ -208,10 +215,10 @@ never built. Its zero-trust threat model survives in the services and ADRs.
 
 | Suite | Count | Runs against |
 |---|---|---|
-| server | 226 vitest, 19 files | Real MySQL, real Argon2 |
+| server | 415 vitest, 30 files | Real MySQL, real Argon2 |
 | client | 21 vitest, 4 files | jsdom |
 | realtime | 22 Go tests | In-memory |
-| e2e | 11 Playwright journeys | The compose stack, on demand |
+| e2e | 12 Playwright tests, 10 journeys | The compose stack, on demand |
 
 The server suite uses a real database and real password hashing by design. A
 unique-constraint race and a hash round trip are exactly the properties that
