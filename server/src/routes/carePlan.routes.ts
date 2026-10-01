@@ -23,6 +23,12 @@ router.use(authenticate);
 // existing plan rather than an empty screen.
 router.get("/care-plan", CarePlanController.getMine);
 router.get("/care-plan/all", CarePlanController.list);
+// The clinician-facing read, mirroring `/safety-plan/patient/:id`. This closes a
+// real gap: `assertMayContribute` lets a treating clinician add goals and steps
+// to a patient's plan, so without this they could write into a document they had
+// no way to read. `requireDoctor` plus the service's relationship check, same as
+// the safety plan.
+router.get("/care-plan/patient/:id", requireDoctor, validate(idParam), CarePlanController.getPlanForPatient);
 router.put("/care-plan/:id", validate(UpdateCarePlanSchema), CarePlanController.update);
 
 // Goals and steps. Writable by the patient *or* by a clinician they see: what

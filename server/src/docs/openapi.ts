@@ -432,6 +432,11 @@ registerGet("/api/wellness/assessments/trajectory", "Screening trajectory with t
 // ---------------------------------------------------------------------------
 registerGet("/api/care-plan", "Your active care plan (created on first read)", "care-plan");
 registerGet("/api/care-plan/all", "Every care plan you have had, closed ones included", "care-plan");
+registerGet(
+    "/api/care-plan/patient/{id}",
+    "A patient's care plans (clinician). Mirrors the safety plan's clinician read",
+    "care-plan"
+);
 registerBody("/api/care-plan/{id}", "put", UpdateCarePlanSchema.shape.body, "Update your care plan");
 registerBody("/api/care-plan/{id}/goals", "post", CreateGoalSchema.shape.body, "Add a goal to a plan");
 registerBody("/api/care-plan/goals/{id}", "put", UpdateGoalSchema.shape.body, "Update a goal, including marking it achieved or dropped");

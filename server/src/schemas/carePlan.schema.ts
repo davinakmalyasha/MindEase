@@ -16,9 +16,29 @@ import { idObject } from "./params.schema";
 
 const section = (max: number) => z.string().max(max, "Section too long").nullable().optional();
 
+/**
+ * An ISO date that also exists on a calendar.
+ *
+ * The shape regex alone is not enough, and both failure modes it allows are
+ * real. `"2026-13-45"` matched the pattern, `new Date(...)` produced an Invalid
+ * Date, Prisma threw, and a client error was answered with a 500. Worse,
+ * `"2026-02-31"` matched, and JavaScript rolled it forward to 3 March - so a
+ * target date was silently stored two days late, on a document a clinician
+ * reviews.
+ *
+ * The round trip is the check: parse it, and require the date part to come back
+ * unchanged.
+ */
 const dateOrNull = z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/, "Expected an ISO date")
+    .refine((value) => {
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return false;
+        // Compare only the calendar part, so a timezone suffix cannot make a
+        // legitimate date fail on a DST boundary.
+        return value.slice(0, 10) === d.toISOString().slice(0, 10);
+    }, "Not a real calendar date")
     .nullable()
     .optional();
 

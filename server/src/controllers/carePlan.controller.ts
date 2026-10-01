@@ -88,6 +88,20 @@ export class CarePlanController {
         },
         "Failed to update the step."
     );
+
+    /**
+     * A clinician reading a patient's care plan.
+     *
+     * The mirror of the safety plan's clinician read, and it closes a real gap
+     * rather than a cosmetic one: `assertMayContribute` deliberately lets a
+     * treating clinician add goals and steps to a patient's plan, so before this
+     * route existed a clinician could write into a document they had no way to
+     * read back. Any client that will show the goals they just agreed needs it.
+     */
+    static getPlanForPatient = handle(
+        (req) => CarePlanService.listForPatient(parseInt(req.params.id as string), req.user!),
+        "Failed to load the patient's care plan."
+    );
 }
 
 export class SafetyPlanController {
