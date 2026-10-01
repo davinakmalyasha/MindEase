@@ -338,11 +338,22 @@ export class DoctorService {
                 where: { doctorId },
                 _count: { _all: true },
             }),
-            prisma.appointment.findMany({
-                where: { doctorId },
-                distinct: ["userId"],
-                select: { userId: true },
-            }),
+        // `COUNT(DISTINCT userId)` in SQL, not `distinct: ["userId"]` in Prisma.
+        //
+        // Prisma applies `distinct` in the query engine *after* fetching, so
+        // that form still pulled every appointment row for the doctor - one
+        // column each - into the engine and deduplicated there. The comment
+        // above this block describes exactly that full-history fetch as the bug
+        // that was already fixed, and `distinct` reintroduced it in a subtler
+        // form.
+        //
+        // `Appointment_doctorId_fkey` is indexed, so this is an index-only scan
+        // of one column, and it is on the dashboard's critical path.
+        prisma.$queryRaw<{ uniquePatients: bigint }[]>`
+            SELECT COUNT(DISTINCT userId) AS uniquePatients
+            FROM \`Appointment\`
+            WHERE doctorId = ${doctorId}
+        `,
             prisma.appointment.count({
                 where: { doctorId, status: "confirmed", appointmentDate: { gte: now } },
             }),
@@ -352,7 +363,9 @@ export class DoctorService {
         const totalAppointments = byStatus.reduce((sum, s) => sum + s._count._all, 0);
 
         return {
-            totalPatients: uniquePatients.length,
+            // A raw aggregate comes back as a one-element array with a BigInt
+            // column, not as a number.
+            totalPatients: Number(uniquePatients[0]?.uniquePatients ?? 0),
             pendingAppointments: counts.pending ?? 0,
             confirmedAppointments: counts.confirmed ?? 0,
             completedAppointments: counts.completed ?? 0,
