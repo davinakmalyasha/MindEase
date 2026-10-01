@@ -283,7 +283,20 @@ describe("Consultation rooms (video/voice join)", () => {
 
         const join = await patient.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", patient.csrf);
         expect(join.status).toBe(200);
-        expect(join.body.data.meetingLink).toContain("meet.jit.si");
+        // LiveKit, because that is what the suite is configured with and what
+        // production runs. This asserts the whole grant contract on the HTTP
+        // path: a provider, an opaque room name, and a short-lived token. The
+        // previous assertion (`meetingLink` contains "meet.jit.si") only ever
+        // exercised the unauthenticated fallback, so the token-minting branch of
+        // `joinRoom` had no HTTP coverage at all.
+        expect(join.body.data.provider).toBe("livekit");
+        expect(join.body.data.degraded).toBe(false);
+        expect(join.body.data.room).toBeTruthy();
+        expect(join.body.data.token).toBeTruthy();
+        // The room is not a URL. A URL here would mean the public provider is
+        // still being used under a livekit configuration.
+        expect(join.body.data.room).not.toContain("http");
+        expect(join.body.data.meetingLink).toBeNull();
         expect(join.body.data.consultationType).toBe("voice");
 
         const doctorJoin = await doctor.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", doctor.csrf);

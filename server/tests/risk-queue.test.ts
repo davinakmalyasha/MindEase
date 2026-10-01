@@ -35,7 +35,11 @@ const raiseAlert = async (opts: {
 const confirmAppointment = async (patientId: number, doctorUserId: number) =>
     prisma.appointment.create({
         data: {
-            userId: patientId,
+            // Both relations are connected rather than given as a bare scalar
+            // id. Prisma rejects a `data` that mixes the two forms: passing
+            // `userId` alongside `doctor: { connect }` makes the write
+            // ambiguous and it throws "Argument `user` is missing".
+            user: { connect: { id: patientId } },
             doctor: { connect: { userId: doctorUserId } },
             appointmentDate: new Date(),
             startTime: "10:00",

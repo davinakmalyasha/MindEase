@@ -138,7 +138,7 @@ describe("Appointments", () => {
         expect(overlap.status).toBe(409);
     });
 
-    it("confirms on doctor approval and creates a meeting link", async () => {
+    it("confirms on doctor approval without minting a public meeting link", async () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();
         const slot = await createOpenSlot(doctor.doctorId);
@@ -153,10 +153,23 @@ describe("Appointments", () => {
             .set("X-CSRF-Token", doctor.csrf)
             .send({ status: "confirmed" });
         expect(confirm.status).toBe(200);
-        expect(confirm.body.data.meetingLink).toContain("meet.jit.si");
 
+        // The suite runs with VIDEO_PROVIDER=livekit, which is the production
+        // configuration. Previously this asserted `meetingLink` contained
+        // "meet.jit.si", which meant the only room the test suite ever exercised
+        // was the unauthenticated fallback - the token path, the thing that
+        // actually secures a consultation, was untested end to end.
+        // `appointment.service.ts:504` only writes a meeting link when the
+        // active provider is jitsi, so under livekit there must be none: a
+        // stray third-party URL sitting on the row would be the old behaviour
+        // leaking through. The jitsi path is covered by
+        // `video-fallback.test.ts`.
+        expect(confirm.body.data.meetingLink).toBeNull();
+
+        // The per-appointment room seed is what the room name is derived from,
+        // so it is written at confirmation and not at join time.
         const updated = await prisma.appointment.findUnique({ where: { id: appId } });
-        expect(updated?.meetingLink).toBeTruthy();
+        expect(updated?.roomSeed).toBeTruthy();
     });
 
     it("releases the slot when cancelled", async () => {

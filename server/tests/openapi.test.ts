@@ -96,7 +96,12 @@ describe("OpenAPI document", () => {
         const put = specPaths["/api/notifications/preferences"]?.put as
             | { request?: { body?: { content?: Record<string, { schema?: unknown }> } } }
             | undefined;
-        const schema = put?.request?.body?.content?.["application/json"]?.schema as
+        // `requestBody`, not `request`. The registry takes `request` on the way in
+        // and the generator emits the OpenAPI 3.0 field name on the way out, so
+        // reading `request` off the generated document silently yields
+        // `undefined` and an `Object.keys([])` assertion fails with a message
+        // that looks like a missing schema.
+        const schema = put?.requestBody?.content?.["application/json"]?.schema as
             | { properties?: Record<string, unknown> }
             | undefined;
 
@@ -113,12 +118,12 @@ describe("OpenAPI document", () => {
         for (const path of ["/api/messages/upload", "/api/users/profile"]) {
             const item = specPaths[path] as
                 | {
-                      post?: { request?: { body?: { content?: Record<string, unknown> } } };
-                      put?: { request?: { body?: { content?: Record<string, unknown> } } };
+                      post?: { requestBody?: { content?: Record<string, unknown> } };
+                      put?: { requestBody?: { content?: Record<string, unknown> } };
                   }
                 | undefined;
             const operation = item?.post ?? item?.put;
-            const content = operation?.request?.body?.content ?? {};
+            const content = operation?.requestBody?.content ?? {};
             // Sending JSON to a `multer` route means no file and a server-side
             // failure the client cannot explain.
             expect(Object.keys(content)).toEqual(["multipart/form-data"]);

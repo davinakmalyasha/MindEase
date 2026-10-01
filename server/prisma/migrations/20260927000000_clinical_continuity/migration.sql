@@ -1,10 +1,24 @@
 -- Clinical continuity: a care plan that outlives a session, and a patient-owned
 -- safety plan.
 --
--- Split into three migrations from the datamodel change, because the RiskAlert
--- columns are a behaviour change to an existing table and the two new models
--- are additive. They are ordered so the datamodel and the database never
--- disagree at an intermediate point.
+-- Three groups of changes, ordered so the datamodel and the database never
+-- disagree at an intermediate point: a behaviour change to RiskAlert, the three
+-- care-plan models, then SafetyPlan.
+--
+-- Two corrections were made to this file after it was first written, and both
+-- were found by the `prisma migrate diff --exit-code` gate in CI rather than by
+-- a test. Both are edited in place rather than added as a follow-up migration,
+-- because this file has never been applied anywhere persistent: the feature
+-- branch was never pushed and no deploy has run. Correcting it in place is what
+-- leaves a single honest source of truth for how the schema is built.
+--
+--   1. `resolvedById` was missing. The datamodel declared it and
+--      `riskQueue.service.ts` wrote it, but no statement here created the
+--      column, so against a `migrate deploy` database every queue read and
+--      every resolve threw a PrismaClientValidationError. A test that never
+--      ran against a migrated database is how that survived.
+--   2. `CarePlan.userId` had no foreign key. SafetyPlan below got one, CarePlan
+--      did not, and Prisma's drift gate reported the omission on every run.
 
 -- ---------------------------------------------------------------------------
 -- 1. RiskAlert becomes a worklist rather than a log.
@@ -20,7 +34,8 @@
 ALTER TABLE `RiskAlert`
     ADD COLUMN `resolvedAt` DATETIME(3) NULL,
     ADD COLUMN `resolutionNote` TEXT NULL,
-    ADD COLUMN `assignedDoctorUserId` INTEGER NULL;
+    ADD COLUMN `assignedDoctorUserId` INTEGER NULL,
+    ADD COLUMN `resolvedById` INTEGER NULL;
 
 -- Deliberately NOT a foreign key, matching `acknowledgedById` and
 -- `notifiedDoctorUserId` on this table. Those are actor references that must
@@ -61,6 +76,17 @@ CREATE TABLE `CarePlan` (
 -- `RiskAlert.assignedDoctorUserId`. A clinician leaving the platform must not
 -- delete a patient's plan, and a plan outliving its clinician is the normal
 -- case rather than an error.
+--
+-- `userId` IS a foreign key, and the absence of one here was a real omission
+-- rather than a decision: an orphaned plan is unreadable by design
+-- (`carePlan.service.ts` keys every read off the owner) but nothing at the
+-- database level prevented a row pointing at a deleted user. SafetyPlan below
+-- cascades for the same reason, so the two behave consistently.
+ALTER TABLE `CarePlan`
+    ADD CONSTRAINT `CarePlan_userId_fkey`
+    FOREIGN KEY (`userId`) REFERENCES `User`(`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE;
+
 CREATE TABLE `CareGoal` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `carePlanId` INTEGER NOT NULL,

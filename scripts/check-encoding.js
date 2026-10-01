@@ -28,9 +28,24 @@ const TEXT_EXTENSIONS = new Set([
     ".prisma", ".css", ".go", ".sql", ".sh", ".ps1", ".txt", ".html",
 ]);
 
+// `path.extname` returns "" for `Dockerfile` and ".example" for `.env.example`,
+// so an allowlist driven purely by extension silently skipped every dotfile and
+// every extensionless file in the repository - including `.env.example`, which
+// is where operator-facing copy actually lives and where the three real
+// occurrences of this bug were hiding while this script reported the repo
+// clean. These two sets close that hole.
+const EXTRA_TEXT_EXTENSIONS = new Set([
+    ".example", ".mod", ".sum", ".toml", ".env", ".conf", ".ini", ".cfg",
+]);
+
+const EXPLICIT_TEXT_FILENAMES = new Set([
+    "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".npmrc",
+    ".nvmrc", ".gitattributes", ".editorconfig",
+]);
+
 const SKIP_DIRECTORIES = new Set([
     "node_modules", ".next", "dist", "build", ".git", "coverage",
-    "test-results", "playwright-report", "uploads", "backups",
+    "test-results", "playwright-report", "uploads", "backups", ".vercel",
 ]);
 
 // U+FFFD: a character that could not be decoded.
@@ -51,7 +66,10 @@ const walk = (dir) => {
             walk(full);
             continue;
         }
-        if (!TEXT_EXTENSIONS.has(path.extname(entry.name))) continue;
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!TEXT_EXTENSIONS.has(ext) &&
+            !EXTRA_TEXT_EXTENSIONS.has(ext) &&
+            !EXPLICIT_TEXT_FILENAMES.has(entry.name)) continue;
 
         let contents;
         try {

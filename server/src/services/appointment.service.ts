@@ -811,6 +811,7 @@ export class AppointmentService {
 
         // The token is scoped to the end of the window, not to a constant, so a
         // token captured from a proxy log is useless once the session is over.
+        const providerState = activeProvider();
         const grant = buildGrant({
             appointmentId: id,
             userId: actor.id,
@@ -830,6 +831,15 @@ export class AppointmentService {
             token: grant.token ?? null,
             identity: grant.identity,
             meetingLink: grant.provider === "jitsi" ? grant.room : null,
+            // The server states whether this consultation is authenticated,
+            // rather than the client inferring it from the provider name. The
+            // privacy policy and ARCHITECTURE.md both promise the patient is
+            // told, and a disclosure whose truth is computed in the browser is
+            // a disclosure that can be wrong. `degradedReason` is set only when
+            // an operator asked for livekit and the deployment could not supply
+            // it, which is the case a patient actually needs explained.
+            degraded: providerState.degraded,
+            degradedReason: providerState.degraded ? providerState.reason ?? null : null,
             consultationType: appointment.consultationType,
             startTime: appointment.startTime,
             endTime: appointment.endTime,
