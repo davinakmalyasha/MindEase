@@ -13,18 +13,24 @@
     "test:watch": "vitest",
     "test:db": "cross-env DATABASE_URL=mysql://root:@localhost:3306/mindease_test prisma db push --skip-generate"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mental-health",
+    "telehealth",
+    "express",
+    "prisma",
+    "mysql",
+    "typescript"
+  ],
+  "author": "Davin Akmal Yasha",
+  "license": "MIT",
   "type": "commonjs",
-  "description": "",
+  "description": "MindEase API - Express, Prisma and MySQL backend for a mental-health telehealth platform.",
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@aws-sdk/client-s3": "^3.1107.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.2.1",
     "@sentry/node": "^10.70.0",
-    "@types/multer": "^2.0.0",
     "argon2": "^0.44.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -71,6 +77,11 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "@types/multer": "^2.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davinakmalyasha/MindEase.git"
   }
 }

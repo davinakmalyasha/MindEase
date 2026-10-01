@@ -48,5 +48,11 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "vitest": "^3.2.7"
+  },
+  "license": "MIT",
+  "description": "MindEase web client - Next.js App Router front end for a mental-health telehealth platform.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davinakmalyasha/MindEase.git"
   }
 }
