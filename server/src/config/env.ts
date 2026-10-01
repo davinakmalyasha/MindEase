@@ -50,13 +50,54 @@ function requireUrl(name: string, devFallback: string): string {
     return value;
 }
 
-/** Warns at boot about variables the app treats as optional but cannot work without. */
+/**
+ * Warns at boot about variables the app treats as optional but cannot work
+ * without in a production topology.
+ *
+ * `GOOGLE_CLIENT_ID` and `GEMINI_API_KEY` degrade a feature. `REDIS_URL` costs
+ * realtime pub/sub and the shared rate-limit counters. The S3 group is
+ * different in kind and is called out separately below, because its failure
+ * mode is data loss rather than a missing feature.
+ */
 const requiredInProd = ["GOOGLE_CLIENT_ID", "GEMINI_API_KEY", "REDIS_URL"] as const;
 for (const name of requiredInProd) {
     if (isProd && !(process.env[name] || "").trim()) {
-         
-        console.warn(`[config] ${name} is not set — dependent features will be disabled in production.`);
+        console.warn(
+            `[config] ${name} is not set - dependent features will be disabled in production.`
+        );
     }
+}
+
+/**
+ * S3, when unset in production, is not a degraded feature.
+ *
+ * `lib/storage.ts` falls back to the container's local disk whenever the S3
+ * variables are missing, and `docker-compose.yml` mounts a named volume there,
+ * so a single-container deployment is fine. A multi-replica deployment is not:
+ * an avatar uploaded to replica A 404s on replica B, and everything is lost on
+ * the next deploy, because `Dockerfile` creates `public/uploads` with no
+ * `VOLUME` and no way to persist it across replicas. `deleteFile` then
+ * silently no-ops, so the directory grows without bound.
+ *
+ * This warns rather than throws, unlike the payments and 2FA validators, for
+ * one reason: `docker-compose.yml` sets `NODE_ENV: production` and has no S3,
+ * and that is the documented way to run the project locally. Failing to boot
+ * there would be worse than the warning.
+ */
+const S3_VARS = [
+    "S3_ENDPOINT",
+    "S3_BUCKET",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+] as const;
+if (isProd && S3_VARS.some((n) => !(process.env[n] || "").trim())) {
+    console.warn(
+        "[config] S3 storage is not configured. Avatars and chat attachments will be written to the " +
+            "container's local disk. That is fine for the single-container docker-compose stack, which " +
+            "mounts a volume, but on more than one replica an upload to one instance is a 404 on the " +
+            "next and every file is lost on redeploy. Set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY and " +
+            "S3_SECRET_KEY before scaling past one instance."
+    );
 }
 
 const jwtSecret = requireSecret("JWT_SECRET", "dev_only_insecure_jwt_secret_change_me");
