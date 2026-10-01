@@ -7,7 +7,6 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
-import rateLimit from "express-rate-limit";
 import path from "path";
 import crypto from "crypto";
 import { logger } from "./utils/logger";
@@ -35,6 +34,7 @@ import { csrfProtect, csrfTokenHandler } from "./middleware/csrf.middleware";
 import { openApiDocument } from "./docs/openapi";
 import { captureError } from "./utils/sentry";
 import swaggerUi from "swagger-ui-express";
+import { sharedLimiter } from "./middleware/rateLimit.middleware";
 
 export { prisma };
 
@@ -115,16 +115,22 @@ export const createApp = () => {
 
     // General API rate limit: 300 requests / 15 min / IP.
     //
+    // `sharedLimiter` rather than a bare `rateLimit({...})`. This one was missed
+    // when the Redis-backed store was introduced, so it kept the default
+    // per-process `MemoryStore` - meaning the ceiling most requests are actually
+    // governed by was doubled on two replicas and reset on every rolling deploy,
+    // while `docs/security.md` listed it as Redis-backed. The store is now
+    // something you get by using the one constructor, and
+    // `tests/rate-limit-store.test.ts` proves no bare `rateLimit({` is left.
+    //
     // Defined outside the NODE_ENV guard because `/api/docs` reuses it below.
     // Skipping in tests keeps the suite from having to share one IP's budget
     // across several hundred assertions, which is the only reason the mount is
     // conditional.
-    const generalLimiter = rateLimit({
+    const generalLimiter = sharedLimiter({
         windowMs: 15 * 60 * 1000,
         max: 300,
         message: { status: "error", message: "Too many requests, please slow down" },
-        standardHeaders: true,
-        legacyHeaders: false,
     });
 
     if (process.env.NODE_ENV !== "test") {

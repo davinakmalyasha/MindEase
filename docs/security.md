@@ -402,8 +402,21 @@ updated.
 
 `middleware/rateLimit.middleware.ts`. Counters live in **Redis**, not in the
 default in-memory store: `express-rate-limit`'s `MemoryStore` is per-process and
-lost on restart, so on two Railway replicas every limit below was effectively
-doubled and a rolling deploy handed every attacker a free reset of all counters.
+lost on restart, so on two Railway replicas every limit below would be
+effectively doubled and a rolling deploy would hand every attacker a free reset
+of all counters.
+
+Every limiter is built through the module's own `sharedLimiter()` helper, which
+is the only thing that supplies the store.
+`tests/rate-limit-store.test.ts` greps `src/` and fails if a bare
+`rateLimit({...})` appears anywhere — because that is exactly how four of these
+were missed the first time, including `generalLimiter` and the SOS limiter, and
+a bare `rateLimit({...})` is an entirely ordinary-looking line in review.
+
+When Redis is unreachable the general and AI limits **fail open** — an
+unavailable cache must not take the site down — while the credential limits warn
+on every miss, because "your brute-force protection is not shared across
+replicas" is a fact an operator needs to see.
 
 | Limiter | Budget | Keyed on |
 |---|---|---|
