@@ -113,18 +113,26 @@ export const createApp = () => {
         })
     );
 
-    // General API rate limit: 300 requests / 15 min / IP (disabled in tests)
+    // General API rate limit: 300 requests / 15 min / IP.
+    //
+    // Defined outside the NODE_ENV guard because `/api/docs` reuses it below.
+    // Skipping in tests keeps the suite from having to share one IP's budget
+    // across several hundred assertions, which is the only reason the mount is
+    // conditional.
+    const generalLimiter = rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 300,
+        message: { status: "error", message: "Too many requests, please slow down" },
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+
     if (process.env.NODE_ENV !== "test") {
-        const generalLimiter = rateLimit({
-            windowMs: 15 * 60 * 1000,
-            max: 300,
-            message: { status: "error", message: "Too many requests, please slow down" },
-            standardHeaders: true,
-            legacyHeaders: false,
-        });
         app.use("/api", (req, res, next) => {
-            // Health checks and CSRF bootstrap are exempt (monitoring must always work)
-            if (req.path.startsWith("/health") || req.path === "/csrf-token" || req.path === "/docs") {
+            // Health checks and CSRF bootstrap are exempt (monitoring must always
+            // work). `/docs` is no longer exempt: it now has its own limiter
+            // rather than none at all.
+            if (req.path.startsWith("/health") || req.path === "/csrf-token") {
                 return next();
             }
             return generalLimiter(req, res, next);
@@ -144,7 +152,29 @@ export const createApp = () => {
     });
     app.get("/api/csrf-token", csrfTokenHandler);
 
-    app.use("/uploads", express.static(path.join(__dirname, "../public/uploads")));
+    app.use(
+    "/uploads",
+    express.static(path.join(__dirname, "../public/uploads"), {
+        setHeaders: (res, filePath) => {
+            // Served from the API's own origin, which is the origin that holds
+            // the session cookies. `httpOnly` stops script reading them, but the
+            // file is still same-origin content.
+            //
+            // `Content-Security-Policy: default-src 'none'; sandbox` means that
+            // even if someone later adds `.svg` to an upload allowlist, the
+            // result is an inert file rather than a script that runs on the
+            // credential origin. It is one allowlist entry away from being stored
+            // XSS today, which is the part worth defending against.
+            res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+            res.setHeader("X-Content-Type-Options", "nosniff");
+            // Anything that is not an image is a download rather than something
+            // the browser renders in place. Images stay inline so avatars work.
+            if (!/\.(png|jpe?g|webp|gif)$/i.test(filePath)) {
+                res.setHeader("Content-Disposition", "attachment");
+            }
+        },
+    })
+);
 
     // Health checks
     app.get("/api/health", (req, res) => {
@@ -161,7 +191,33 @@ export const createApp = () => {
     });
 
     // API documentation (Swagger UI)
-    app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+    //
+    // Served only outside production, and behind the same per-IP limiter as the
+    // rest of the API.
+    //
+    // It was mounted unconditionally and *exempted* from the general limiter, so
+    // the entire attack surface was anonymously readable - every route, every
+    // request schema, the exact cookie and CSRF header names, and the fact that
+    // the payment webhook is signature-authenticated rather than
+    // session-authenticated. An exemption is the wrong tool here: it removes a
+    // ceiling rather than adding one.
+    //
+    // In production the spec is still available, machine-readable, at
+    // `/api/openapi.json` - which is what a client generator or a reviewer
+    // actually wants, and which is not a browsable UI.
+    if (!env.isProd) {
+        app.use(
+            "/api/docs",
+            generalLimiter,
+            swaggerUi.serve,
+            swaggerUi.setup(openApiDocument)
+        );
+    }
+    // The document itself is not sensitive, and gating it would break the
+    // generated clients a portfolio reviewer will point at this.
+    app.get("/api/openapi.json", (_req, res) => {
+        res.json(openApiDocument);
+    });
 
     // Routes
     app.use("/api/auth", authRoutes);
