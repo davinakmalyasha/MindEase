@@ -1,0 +1,54 @@
+# Normalise line endings.
+#
+# The repository is edited on Windows, developed on Linux CI, and built in Linux
+# containers. Without this, `git diff` shows whole files as changed when a
+# checkout lands on a different platform, which makes a review of a five-line
+# change impossible.
+#
+# `* text=auto` with `eol=lf` gives LF in the repository and LF on checkout
+# everywhere. On Windows, Git's `core.autocrlf` then converts on the way in and
+# back on the way out, so the working tree stays native without the index ever
+# recording a CRLF.
+#
+# The language-specific binary lines below matter: without them Git will try to
+# normalise a PNG and produce a file that is subtly corrupt, and the encoding
+# guard in `scripts/check-encoding.js` cannot tell a mangled image from a
+# mangled comment.
+
+* text=auto eol=lf
+
+# Shell scripts must stay LF or they fail to run on Linux.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows-only, and explicitly CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary. Never normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp4 binary
+*.webm binary
+
+# Lockfiles are generated with LF and diffed in review, so normalise them.
+package-lock.json text eol=lf
+pnpm-lock.yaml text eol=lf
+yarn.lock text eol=lf
+go.sum text eol=lf
+
+# Generated - mark so a diff on them is obviously a build artefact.
+*.pb.go linguist-generated=true
+client/next-env.d.ts linguist-generated=true
+client/.next/** linguist-generated=true
+client/.next-env.d.ts linguist-generated=true
