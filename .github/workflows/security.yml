@@ -36,6 +36,13 @@ concurrency:
   group: security-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege at the top, with the two CodeQL jobs narrowing to
+# `security-events: write` at the job level because a SARIF upload needs it.
+# Stating it here means a job added later is read-only by default rather than
+# inheriting the repository's default token.
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------
   # Secret scanning
