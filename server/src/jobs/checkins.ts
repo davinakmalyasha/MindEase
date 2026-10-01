@@ -3,8 +3,19 @@ import { prisma } from "../lib/prisma";
 import { NotificationService } from "../services/notification.service";
 import { WaitlistService } from "../services/waitlist.service";
 import { logger } from "../utils/logger";
+import { acquireLock, releaseLock } from "../lib/cache";
 
 const DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Upper bound on candidates read per block per run.
+ *
+ * The job runs daily, so a platform-wide gap in logging is worked through over
+ * several days rather than in one unbounded fetch. The clinical rules below are
+ * unchanged: this only stops the candidate query returning the whole patient
+ * table.
+ */
+const CANDIDATE_CAP = 2000;
 
 /**
  * Automated care check-ins (daily):
@@ -14,6 +25,22 @@ const DAY_MS = 24 * 3600 * 1000;
  * All are claim-safe for multi-replica deployments and respect notification prefs.
  */
 export const runCareCheckins = async () => {
+    // Single-runner gate, before anything is read.
+    //
+    // The per-user `updateMany` claims below already prevent duplicate *sends*,
+    // which is why the cost of this running on every replica went unnoticed:
+    // claims do nothing about the scans. Two full `User` reads, then a
+    // `moodEntry` query per candidate, and `NotificationService.create` costs up
+    // to four more queries each — roughly 120k queries per run at 10k patients,
+    // multiplied by the replica count, to produce the same notifications.
+    //
+    // `runWeeklyReports` already takes this lock; this job did not. The lock is
+    // best-effort — `cache.ts` documents that its `GET_LOCK` fallback cannot work
+    // as written — so the claims remain the correctness guarantee and this is
+    // only an optimisation.
+    const locked = await acquireLock("care-checkins", 3600);
+    if (!locked) return;
+
     try {
         const now = new Date();
 
@@ -21,12 +48,17 @@ export const runCareCheckins = async () => {
         const moodNudgeCandidates = await prisma.user.findMany({
             where: {
                 role: "patient",
+                // A suspended account should not be nudged, and a banned one
+                // should not be readable here at all.
+                isBanned: false,
                 OR: [
                     { lastMoodNudgeAt: null },
                     { lastMoodNudgeAt: { lt: new Date(now.getTime() - 3 * DAY_MS) } },
                 ],
             },
             select: { id: true, lastMoodNudgeAt: true },
+            orderBy: { id: "asc" },
+            take: CANDIDATE_CAP,
         });
         for (const user of moodNudgeCandidates) {
             const lastEntry = await prisma.moodEntry.findFirst({
@@ -57,12 +89,15 @@ export const runCareCheckins = async () => {
         const declineCandidates = await prisma.user.findMany({
             where: {
                 role: "patient",
+                isBanned: false,
                 OR: [
                     { lastDeclineNudgeAt: null },
                     { lastDeclineNudgeAt: { lt: new Date(now.getTime() - 7 * DAY_MS) } },
                 ],
             },
             select: { id: true, lastDeclineNudgeAt: true },
+            orderBy: { id: "asc" },
+            take: CANDIDATE_CAP,
         });
         for (const user of declineCandidates) {
             const recent = await prisma.moodEntry.findMany({
@@ -103,6 +138,8 @@ export const runCareCheckins = async () => {
                 appointmentDate: { lte: new Date(now.getTime() - DAY_MS) },
             },
             select: { id: true, userId: true, appointmentDate: true, startTime: true },
+            orderBy: { id: "asc" },
+            take: CANDIDATE_CAP,
         });
         for (const app of completed) {
             const [h, m] = (app.startTime || "00:00").split(":").map(Number);
@@ -136,6 +173,8 @@ export const runCareCheckins = async () => {
         }
     } catch (err: any) {
         logger.error({ err: err.message }, "Care check-in job failed");
+    } finally {
+        await releaseLock("care-checkins");
     }
 };
 
