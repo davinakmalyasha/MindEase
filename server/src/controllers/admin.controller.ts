@@ -12,53 +12,107 @@ import { publicMessageFor } from "../utils/appError";
 export class AdminController {
     static async getStats(req: Request, res: Response) {
         try {
-            const totalPatients = await prisma.user.count({ where: { role: "patient" } });
-            const totalDoctors = await prisma.user.count({ where: { role: "doctor" } });
-            const successfulBookings = await prisma.appointment.count({ where: { status: "completed" } });
-            const pendingAppointments = await prisma.appointment.count({ where: { status: "pending" } });
-            const totalAppointments = await prisma.appointment.count();
-
-            const revenueResult = await prisma.appointment.findMany({
-                where: { status: "completed" },
-                include: { doctor: true },
-            });
-
-            const totalEstimatedRevenue = revenueResult.reduce((sum, app) => sum + (app.doctor.price || 0), 0);
-
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const newUsersToday = await prisma.user.count({
-                where: { createdAt: { gte: today } },
-            });
-
-            // Revenue trend: last 12 months of completed bookings + package purchases
             const twelveMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 11, 1);
-            const completedForTrend = await prisma.appointment.findMany({
-                where: { status: "completed", appointmentDate: { gte: twelveMonthsAgo } },
-                include: { doctor: { select: { price: true } } },
-            });
-            const packagesForTrend = await prisma.packagePurchase.findMany({
-                where: { createdAt: { gte: twelveMonthsAgo } },
-                include: { package: { select: { totalPrice: true } } },
-            });
+
+            // The five counts and the two monthly aggregates run as one group of
+            // independent queries rather than eight sequential awaits, and
+            // nothing is fetched row-by-row into JavaScript any more.
+            //
+            // `totalEstimatedRevenue` used to be `findMany({ where: { status:
+            // "completed" }, include: { doctor: true } })` with a `.reduce()`.
+            // `include: { doctor: true }` returns every scalar on Doctor, so at
+            // 100k completed appointments this pulled ~60k rows *each carrying a
+            // bio, an education history and a bank account number* into Node
+            // heap on every dashboard load. The same applied to the 12-month
+            // trend, which is on the page's critical path.
+            //
+            // `groupBy` does the aggregation in the database and returns 12 rows
+            // instead of 60,000. `DATE_FORMAT` gives the month bucket directly;
+            // doing it in JS meant a `monthly.find()` per row, O(rows x 12).
+            const [
+                totalPatients,
+                totalDoctors,
+                successfulBookings,
+                pendingAppointments,
+                totalAppointments,
+                newUsersToday,
+                lifetimeRevenue,
+                revenueByMonth,
+                packageRevenueByMonth,
+            ] = await Promise.all([
+                prisma.user.count({ where: { role: "patient" } }),
+                prisma.user.count({ where: { role: "doctor" } }),
+                prisma.appointment.count({ where: { status: "completed" } }),
+                prisma.appointment.count({ where: { status: "pending" } }),
+                prisma.appointment.count(),
+                prisma.user.count({ where: { createdAt: { gte: today } } }),
+
+                // All time, and separate from the trend on purpose. The KPI is
+                // labelled as total estimated revenue, so bounding it to the
+                // 12-month window would quietly change what the number means
+                // rather than making it faster.
+                prisma.$queryRaw<{ revenue: number }[]>`
+                    SELECT COALESCE(SUM(d.price), 0) AS revenue
+                    FROM \`Appointment\` a
+                    JOIN \`Doctor\` d ON d.id = a.doctorId
+                    WHERE a.status = 'completed'
+                `,
+
+                // Session revenue needs the clinician's price, which lives on
+                // Doctor, so it cannot be summed from Appointment alone. Joined
+                // in SQL and grouped, which is the difference between 12 rows
+                // and every completed booking ever made.
+                prisma.$queryRaw<{ month: string; revenue: number; bookings: bigint }[]>`
+                    SELECT DATE_FORMAT(a.appointmentDate, '%Y-%m') AS month,
+                           COALESCE(SUM(d.price), 0) AS revenue,
+                           COUNT(*) AS bookings
+                    FROM \`Appointment\` a
+                    JOIN \`Doctor\` d ON d.id = a.doctorId
+                    WHERE a.status = 'completed'
+                      AND a.appointmentDate >= ${twelveMonthsAgo}
+                    GROUP BY DATE_FORMAT(a.appointmentDate, '%Y-%m')
+                `,
+
+                prisma.$queryRaw<{ month: string; revenue: number }[]>`
+                    SELECT DATE_FORMAT(pp.createdAt, '%Y-%m') AS month,
+                           COALESCE(SUM(p.totalPrice), 0) AS revenue
+                    FROM \`PackagePurchase\` pp
+                    JOIN \`Package\` p ON p.id = pp.packageId
+                    WHERE pp.paidAt IS NOT NULL
+                      AND pp.createdAt >= ${twelveMonthsAgo}
+                    GROUP BY DATE_FORMAT(pp.createdAt, '%Y-%m')
+                `,
+            ]);
+
+            const totalEstimatedRevenue = Number(lifetimeRevenue[0]?.revenue ?? 0);
 
             const monthly: { key: string; label: string; revenue: number; bookings: number }[] = [];
             for (let i = 11; i >= 0; i--) {
                 const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
                 const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                monthly.push({ key, label: d.toLocaleDateString("en-GB", { month: "short" }), revenue: 0, bookings: 0 });
+                monthly.push({
+                    key,
+                    label: d.toLocaleDateString("en-GB", { month: "short" }),
+                    revenue: 0,
+                    bookings: 0,
+                });
             }
-            for (const a of completedForTrend) {
-                const d = new Date(a.appointmentDate);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                const m = monthly.find((x) => x.key === key);
-                if (m) { m.revenue += a.doctor.price || 0; m.bookings += 1; }
+            // A map, not `find()` per row. With the aggregation done in SQL this
+            // is 24 lookups rather than 24 scans, and it is the shape that
+            // survives the trend window being widened.
+            const byKey = new Map(monthly.map((m) => [m.key, m]));
+            for (const r of revenueByMonth) {
+                const m = byKey.get(String(r.month));
+                if (m) {
+                    m.revenue += Number(r.revenue);
+                    m.bookings += Number(r.bookings);
+                }
             }
-            for (const p of packagesForTrend) {
-                const d = new Date(p.createdAt);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                const m = monthly.find((x) => x.key === key);
-                if (m) m.revenue += p.package.totalPrice;
+            for (const r of packageRevenueByMonth) {
+                const m = byKey.get(String(r.month));
+                if (m) m.revenue += Number(r.revenue);
             }
 
             res.json({
