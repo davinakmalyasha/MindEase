@@ -16,8 +16,10 @@ export const skipInTest = (mw: RequestHandler): RequestHandler =>
  * already a runtime dependency and `lib/cache.ts` already owns the reconnect
  * behaviour, so the store is built on that client rather than a second one.
  *
- * Returns `undefined` when the store is not usable, which restores the
- * in-memory behaviour rather than breaking local development.
+ * `failClosed` selects the *credential* variant, which warns loudly when Redis
+ * is unavailable. For the general and AI limits a cache outage must not take the
+ * site down, so those fail open silently - see `redisRateLimitStore.ts` for the
+ * reasoning.
  */
 const store = (failClosed = false): Store =>
     failClosed ? RedisStore.getFailClosed() : RedisStore.get();
@@ -29,6 +31,45 @@ const base = (failClosed = false) => ({
 });
 
 /**
+ * The only supported way to construct a limiter in this codebase.
+ *
+ * Two limiters were built with a bare `rateLimit({...})` and so silently got
+ * `MemoryStore` - the exact defect the comment above describes - while
+ * `docs/security.md` listed all seven as Redis-backed. A per-process 300/15min
+ * global ceiling is doubled on two replicas and resets on every rolling deploy.
+ *
+ * So the configuration is now behind a function whose only job is to make the
+ * store impossible to forget, and `tests/rate-limit-store.test.ts` greps `src/`
+ * to prove no bare `rateLimit({` exists anywhere.
+ */
+/**
+ * The only supported way to construct a limiter in this codebase.
+ *
+ * Two limiters were built with a bare `rateLimit({...})` and so silently got
+ * `MemoryStore` - the exact defect the comment above describes - while
+ * `docs/security.md` listed all seven as Redis-backed. A per-process 300/15min
+ * global ceiling is doubled on two replicas and resets on every rolling deploy.
+ * Two more (`supportLimiter` and `sosLimiter`, in `routes/support.routes.ts`)
+ * had the same problem, and the SOS one matters most: its bound is a safety
+ * ceiling, so a person in distress pressing the button again was counted twice
+ * over.
+ *
+ * So the configuration is now behind a function whose only job is to make the
+ * store impossible to forget, and `tests/rate-limit-store.test.ts` greps `src/`
+ * to prove no bare `rateLimit({` exists anywhere.
+ *
+ * Typed as `Parameters<typeof rateLimit>[0]` rather than by naming the
+ * library's `Options`: `Options` requires `standardHeaders` and
+ * `legacyHeaders`, which `base()` supplies, and restating a third party's type
+ * here means this file breaks on their next major. Deriving it from the
+ * function cannot drift.
+ */
+type LimiterConfig = Parameters<typeof rateLimit>[0];
+
+export const sharedLimiter = (config: LimiterConfig, failClosed = false) =>
+    rateLimit({ ...base(failClosed), ...config });
+
+/**
  * Login and registration, per IP.
  *
  * `skipSuccessfulRequests` so the budget is spent on *failures*. Without it, a
@@ -36,8 +77,7 @@ const base = (failClosed = false) => ({
  * exhaust the bucket with 20 anonymous attempts from a third party and lock a
  * real user out for the rest of the window.
  */
-export const authLimiter = rateLimit({
-    ...base(true),
+export const authLimiter = sharedLimiter({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 20,
     skipSuccessfulRequests: true,
@@ -57,8 +97,7 @@ export const authLimiter = rateLimit({
  * forgotten password, or to complete 2FA, in a mental-health product, for
  * fifteen minutes, for the cost of twenty requests.
  */
-export const resetLimiter = rateLimit({
-    ...base(true),
+export const resetLimiter = sharedLimiter({
     windowMs: 15 * 60 * 1000,
     max: 10,
     message: {
@@ -68,8 +107,7 @@ export const resetLimiter = rateLimit({
 });
 
 /** Two-factor verification. Separate again, for the same reason. */
-export const twoFactorLimiter = rateLimit({
-    ...base(true),
+export const twoFactorLimiter = sharedLimiter({
     windowMs: 15 * 60 * 1000,
     max: 10,
     message: {
@@ -80,7 +118,7 @@ export const twoFactorLimiter = rateLimit({
 
 // Guards paid AI calls (Gemini) against cost abuse - 15 generation requests
 // per 10 minutes per IP.
-export const aiLimiter = rateLimit({
+export const aiLimiter = sharedLimiter({
     windowMs: 10 * 60 * 1000,
     max: 15,
     message: {
@@ -102,8 +140,7 @@ export const aiLimiter = rateLimit({
  * ~1-in-a-million chance per guess. The key now falls back to the pending
  * token, which is stable for one login attempt, so the counter applies.
  */
-export const accountLimiter = rateLimit({
-    ...base(true),
+export const accountLimiter = sharedLimiter({
     windowMs: 15 * 60 * 1000,
     max: 10,
     keyGenerator: (req) => {
@@ -131,8 +168,7 @@ export const perUserWriteLimiter = (
     windowMs: number,
     what: string
 ): RequestHandler => {
-    const limiter = rateLimit({
-        ...base(),
+    const limiter = sharedLimiter({
         windowMs,
         max,
         keyGenerator: (req) => {
