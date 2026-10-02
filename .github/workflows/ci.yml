@@ -150,6 +150,15 @@ jobs:
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
       - name: Run tests
+        # TZ is pinned to UTC: that is what GitHub runners use and what a
+        # developer machine usually does not - and the difference was hiding
+        # two real bugs rather than causing flaky ones. `features.test.ts` built
+        # an appointment window from the *host* clock while the server reads it
+        # in the *user* timezone, so it passed on a WIB machine and failed here.
+        # `joinRoom` had the mirror problem and judged the same window in the
+        # *host* zone, so booking and joining could disagree about a single
+        # appointment. Pinning it also makes any CI failure reproducible locally
+        # with TZ=UTC.
         run: npm test
         env:
           # `tests/setup.ts` derives the test connection from TEST_DATABASE_URL and
@@ -167,6 +176,7 @@ jobs:
           # call, and the tests assert the degraded-path behaviour.
           GEMINI_API_KEY: ""
           NODE_ENV: test
+          TZ: UTC
 
   client:
     # Lint, unit tests and a production build. The build is the slow part.

@@ -9,22 +9,13 @@ import {
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
+import { DEFAULT_TIMEZONE } from "../src/lib/date";
 
 const futureDate = (days = 3) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     return d.toISOString().split("T")[0];
 };
-
-/**
- * A `YYYY-MM-DD` calendar day read in the host's own zone.
- *
- * Deriving the day from `toISOString()` (UTC) while pairing it with a
- * wall-clock time taken from `getHours()` (local) mixes two zones, and near
- * midnight the resulting day and time can disagree by 24 hours.
- */
-const localDay = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const bookFor = async (patient: any, doctor: any, extra: Record<string, any> = {}) => {
     return patient.agent
@@ -49,24 +40,64 @@ const confirmAppointment = async (appId: number, doctor: any) => {
 
 /**
  * A consultation window that starts shortly from now and stays on one calendar
- * day.
+ * day, expressed in the timezone the *server* reads it in.
+ *
+ * ## Why the timezone has to be the server's, not the host's
  *
  * `startTime`/`endTime` are wall-clock `HH:mm` strings paired with a single
- * `appointmentDate`, so a window computed as "now + 70 minutes" silently wraps
- * once it passes local midnight: at 23:10 it produced start "23:20" against
- * end "00:20", which the API correctly rejects as `start >= end`. The test then
- * failed for a reason that had nothing to do with what it was checking, once
- * per day, in the last hour. Clamping the end to the last minute of the same
- * day keeps the window inside today and the assertion meaningful.
+ * `appointmentDate`. `AppointmentService.createAppointment` deliberately
+ * interprets them in the *booker's* timezone, falling back to `DEFAULT_TIMEZONE`
+ * (`Asia/Jakarta`) when the user has not set one - see the comment above the
+ * past-booking check in `appointment.service.ts`. Building the window with the
+ * host's `getHours()` therefore only works when the host happens to sit in the
+ * same zone as the default. It did not:
+ *
+ *     host Asia/Bangkok (UTC+7)   window built as 13:51 -> read as 13:51 WIB -> ok
+ *     host UTC (CI)               window built as 06:51 -> read as 06:51 WIB
+ *                                 = 23:51 *yesterday* -> "Cannot book
+ *                                 appointments in the past"
+ *
+ * So the suite was green on a developer machine in WIB and red in CI, for a
+ * reason that had nothing to do with what the test checks. This reads the clock
+ * in the server's zone directly, which makes it correct on any host.
+ *
+ * The day-wrap hazard is handled too: a window computed as "now + 70 minutes"
+ * crosses local midnight at 23:10, producing start "23:20" against end "00:20",
+ * which the API correctly rejects as `start >= end`. The end is clamped to the
+ * last minute of the same day.
  */
 const imminentWindow = () => {
-    const fmt = (d: Date) =>
-        `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    const start = new Date(Date.now() + 10 * 60_000);
-    const proposedEnd = new Date(Date.now() + 70 * 60_000);
-    // If the end would land on the next calendar day, stop at 23:59 instead.
-    const end = proposedEnd.getDate() === start.getDate() ? proposedEnd : new Date(new Date().setHours(23, 59, 0, 0));
-    return { start, date: localDay(start), startTime: fmt(start), endTime: fmt(end) };
+    const zone = DEFAULT_TIMEZONE;
+    // Read "now" as wall-clock parts in `zone`, so the arithmetic below is done
+    // on the same clock the server will read the result back on.
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: zone,
+        hour12: false,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).formatToParts(new Date());
+    const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    const hour = get("hour") % 24; // en-GB renders midnight as 24
+    const minute = get("minute");
+
+    // Minutes since midnight in the server's zone.
+    const nowMinutes = hour * 60 + minute;
+    const startMinutes = nowMinutes + 10;
+    const sameDay = startMinutes + 60 < 24 * 60;
+    const endMinutes = sameDay ? startMinutes + 60 : 24 * 60 - 1;
+
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const hhmm = (m: number) =>
+        `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+    return { date, startTime: hhmm(startMinutes), endTime: hhmm(endMinutes) };
 };
 
 describe("Journal", () => {
