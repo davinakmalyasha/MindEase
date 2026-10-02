@@ -25,20 +25,26 @@ RUN npx tsc --outDir dist
 # which reached CI as the whole stack reporting `mindease-api is unhealthy`, naming a
 # symptom and nothing about the cause. Generating explicitly here makes it
 # deterministic instead of dependent on whether npm is configured to allow install
-# scripts - which it was not, locally, where @prisma/client's postinstall is blocked.
+# scripts - which it is not: locally, @prisma/client's postinstall is blocked outright.
 #
-# `prisma` is a real dependency, not a dev one: `scripts/start.sh` runs
-# `npx prisma migrate deploy` before every boot. It was a devDependency re-added by
-# `npm install --no-save prisma@6.2.1`, a hardcoded third version that had drifted
-# from `@prisma/client` (6.2.1 against 6.19.3). Resolving both from one lockfile
-# means the CLI and the generated client cannot disagree.
+# The Prisma CLI is needed only because `scripts/start.sh` runs
+# `npx prisma migrate deploy` before every boot. Pinned to 6.12.0 rather than tracking
+# `@prisma/client`: from 6.13 the CLI pulls `@prisma/config` -> `deepmerge-ts`, which
+# carries a stack-exhaustion advisory and fails `npm audit --audit-level=high` in the
+# published image. The advisory sits in the CLI's config loader, which the running
+# server never imports - but it is still shipped, and the CLI and client are
+# compatible within a major, so the older CLI is the better trade. Keep this in step
+# with `prisma` in package.json.
 FROM node:22-alpine AS prod-deps
+ARG PRISMA_CLI_VERSION=6.12.0
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev \
+    && npm install --no-save prisma@${PRISMA_CLI_VERSION} \
     && npx prisma generate \
     && npm cache clean --force
+
 FROM node:22-alpine AS runner
 WORKDIR /app
 # Cron windows, room-open windows and "today" horizons are authored in WIB —
