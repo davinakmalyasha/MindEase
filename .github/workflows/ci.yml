@@ -304,6 +304,21 @@ jobs:
       # Redis, so compose reported success for a stack that could not start.
       - name: Boot the full stack
         run: docker compose up -d --wait
+        env:
+          # The API refuses to boot in production without these three, and
+          # compose.yml passes JWT_SECRET and REFRESH_SECRET through with no
+          # default - so "docker compose up" with no environment here hands it
+          # empty strings and the container exits immediately. Compose then
+          # reports "mindease-api is unhealthy" 75 seconds later, which says
+          # nothing about why.
+          #
+          # Throwaway values, safe to commit and shared with nothing: an
+          # ephemeral container on an ephemeral runner. The config layer also
+          # requires all three to differ from each other in production, so they
+          # are deliberately different strings.
+          JWT_SECRET: ci-docker-jwt-secret
+          REFRESH_SECRET: ci-docker-refresh-secret
+          TWO_FACTOR_SECRET: ci-docker-two-factor-secret
       - name: API liveness
         run: curl -fsS http://localhost:5000/api/health
       - name: API database check (the endpoint that actually queries MySQL)
