@@ -115,6 +115,15 @@ jobs:
       - name: Unused dependency check (advisory)
         continue-on-error: true
         run: node scripts/check-dependencies.js
+      - name: Migration table-case check
+        # Not advisory, and not for style: a migration referenced
+        # `moodEntry` where the table is `MoodEntry`. That resolves on
+        # Windows and macOS MySQL and fails on Linux with `Unknown table` -
+        # and Docker, Railway and this service container are all Linux, so it
+        # passed every local run and broke the first deploy. It failed here
+        # instead, which is the entire point of having CI.
+        run: node server/scripts/check-migration-case.js
+
       - name: Dashed-operator check (advisory, known false positives)
         continue-on-error: true
         run: node scripts/check-operators.js

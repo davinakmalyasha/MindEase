@@ -75,7 +75,16 @@ WHERE `moodDate` IS NULL;
 
 -- A user with several entries on one day collapses to the latest, so the
 -- unique key below can be created without deduplicating by hand.
-DELETE `moodEntry` FROM `MoodEntry`
+--
+-- The delete target is spelled `MoodEntry`, not `moodEntry`. In a multi-table
+-- DELETE the leading name is a *table reference*, not an alias, so it is
+-- resolved under the server's `lower_case_table_names` setting: on Windows and
+-- macOS MySQL that is case-insensitive and the typo is invisible, but on Linux -
+-- which is what Docker, Railway and the CI service container all run - table
+-- names are case-sensitive and this failed with
+-- `Unknown table 'moodEntry' in MULTI DELETE`. Every other reference in this
+-- migration was already correctly cased; this one line was not.
+DELETE `MoodEntry` FROM `MoodEntry`
 JOIN (
     SELECT `userId`, `moodDate`, MAX(`id`) AS `keepId`
     FROM `MoodEntry`
