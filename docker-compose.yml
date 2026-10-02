@@ -136,19 +136,28 @@ services:
     # still compiling or has already crashed. The other four services all
     # declare one; this one was the gap.
     #
-    # `/offline`, not `/`. The homepage is a dynamic route that server-renders
+    # Probing `/offline` rather than `/`: the homepage is dynamic, server-renders,
     # and fetches the API using NEXT_PUBLIC_API_URL, which is inlined at build
-    # time as http://localhost:5000/api - the right value for a browser on the
-    # host, and the wrong one inside the compose network, where `localhost` is
-    # the web container itself. So `/` rendered a 500, and `wget -qO-` exits
-    # non-zero on any error status: the container was reported unhealthy while
-    # Next.js was serving normally and logging "Ready".
+    # time as http://localhost:5000/api - right for a browser on the host, wrong
+    # inside the compose network where `localhost` is this container. So `/`
+    # rendered a 500, and a liveness probe should not be asking whether the API
+    # is reachable anyway. The API has its own two checks.
     #
-    # Liveness answers "is this server serving?", not "can it reach the API?".
-    # `/offline` is statically served, so it proves the server works without
-    # coupling web health to a data fetch. The API has its own two checks.
+    # `127.0.0.1` rather than `localhost`, and `-O /dev/null` rather than `-O-`.
+    # Measured with a diagnostic probe added to the CI job, not guessed:
+    #
+    #     curl  http://localhost:3000/offline    ->  200
+    #     wget  127.0.0.1:3000/offline (inside)  ->  HTTP/1.1 200 OK
+    #     docker compose ps  ->  mindease-web-1 ... (unhealthy)
+    #
+    # The page renders and Docker still calls the container unhealthy, so the
+    # healthcheck *command* was exiting non-zero. `localhost` needs name
+    # resolution inside the container, where it can prefer ::1 while the server
+    # binds IPv4 only (HOSTNAME=0.0.0.0); and `-O-` streams the whole ~53 KB
+    # page into the healthcheck's stdout buffer over a chunked response. Removing
+    # both makes the check exactly the request observed returning 200.
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/offline"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/offline"]
       interval: 15s
       timeout: 5s
       retries: 5
