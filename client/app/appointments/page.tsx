@@ -38,9 +38,7 @@ export default function AppointmentPage() {
     const [doctors, setDoctors] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedSpecialty, setSelectedSpecialty] = useState("All");
-    const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
-    const [sortBy, setSortBy] = useState<SortOption>("rating");
+    const [selectedSpecialty, setSelectedSpecialty] = useState("All");    const [sortBy, setSortBy] = useState<SortOption>("rating");
     const [priceRange, setPriceRange] = useState<PriceRange>("all");
     const [showFilters, setShowFilters] = useState(false);
 
@@ -59,15 +57,23 @@ export default function AppointmentPage() {
         fetchDoctors();
     }, []);
 
-    // Deep link: /appointments?doctor=<id> opens the booking modal directly
-    // (e.g. arriving from a doctor profile's "Book Consultation" button)
-    useEffect(() => {
-        const doctorId = new URLSearchParams(window.location.search).get("doctor");
-        if (!doctorId || isLoading) return;
-        const match = (doctors as any[]).find((d) => String(d.id) === String(doctorId));
-        if (match && !selectedDoctor) setSelectedDoctor(match);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [doctors, isLoading]);
+// Deep link: /appointments?doctor=<id> opens the booking modal directly
+  // (e.g. arriving from a doctor profile's "Book Consultation" button)
+  //
+  // Derived rather than set in an effect. The old version ran an effect on every
+  // change of `doctors`/`isLoading` that did `if (match && !selectedDoctor)
+  // setSelectedDoctor(match)` - one extra render, an effect that could never be
+  // expressed without an eslint-disable for its own dependencies, and a `null`
+  // that meant "nothing selected" and also "not loaded yet". Reading the param
+  // straight off the list removes all three: an id that is not in the list yet
+  // simply does not match, and matches as soon as it arrives.
+  const deepLinkDoctorId = new URLSearchParams(window.location.search).get("doctor");
+  const [pickedDoctorId, setPickedDoctorId] = useState<string | null>(null);
+  const selectedDoctor = useMemo(() => {
+      const wanted = pickedDoctorId ?? deepLinkDoctorId;
+      if (!wanted) return null;
+      return (doctors as any[]).find((d) => String(d.id) === String(wanted)) ?? null;
+  }, [doctors, pickedDoctorId, deepLinkDoctorId]);
 
     const specialties = useMemo(() =>
         ["All", ...new Set(doctors.map((d: any) => d.specialty))],
@@ -270,7 +276,7 @@ export default function AppointmentPage() {
                                                 experience: doc.experience,
                                                 bio: doc.bio
                                             }}
-                                            onSelect={(d) => setSelectedDoctor(d)}
+                                            onSelect={(d) => setPickedDoctorId(String(d.id))}
                                         />
                                     </motion.div>
                                 ))
@@ -296,7 +302,7 @@ export default function AppointmentPage() {
                 {selectedDoctor && (
                     <BookingModal
                         doctor={selectedDoctor}
-                        onClose={() => setSelectedDoctor(null)}
+                        onClose={() => setPickedDoctorId(null)}
                     />
                 )}
             </AnimatePresence>
