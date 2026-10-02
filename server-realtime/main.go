@@ -159,7 +159,13 @@ func main() {
 			body["error"] = "redis unreachable"
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
-		json.NewEncoder(w).Encode(body)
+		// Error-checked, not ignored. `WriteHeader` has already committed a 200 or
+		// a 503 by this point, so the only remaining action is to record it - but
+		// record it, because a health endpoint that silently returns `{}` looks
+		// exactly like a healthy one to a probe.
+		if err := json.NewEncoder(w).Encode(body); err != nil {
+			log.Printf("health: encoding response failed: %v", err)
+		}
 	})
 
 	srv := &http.Server{
@@ -181,10 +187,14 @@ func main() {
 	<-stop
 
 	log.Println("shutting down...")
-	sub.Close()
+	if err := sub.Close(); err != nil {
+		log.Printf("shutdown: closing redis subscription failed: %v", err)
+	}
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown: %v (clients still connected were force-closed)", err)
+	}
 }
 
 func consumeEvents(ctx context.Context, sub *redis.PubSub, h *hub.Hub) {

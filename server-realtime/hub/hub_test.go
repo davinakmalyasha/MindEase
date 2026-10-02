@@ -10,7 +10,9 @@ import (
 func TestHubRegisterAndPublish(t *testing.T) {
 	h := New(DefaultLimits())
 	c := &Client{ID: 1, Send: make(chan Event, 4)}
-	h.Register(1, c)
+	if err := h.Register(1, c); err != nil {
+		t.Fatalf("register c: %v", err)
+	}
 
 	if h.UserCount() != 1 {
 		t.Fatalf("expected 1 connected user, got %d", h.UserCount())
@@ -32,8 +34,12 @@ func TestHubDoesNotCrossDeliver(t *testing.T) {
 	h := New(DefaultLimits())
 	a := &Client{ID: 1, Send: make(chan Event, 2)}
 	b := &Client{ID: 2, Send: make(chan Event, 2)}
-	h.Register(1, a)
-	h.Register(2, b)
+	if err := h.Register(1, a); err != nil {
+		t.Fatalf("register a: %v", err)
+	}
+	if err := h.Register(2, b); err != nil {
+		t.Fatalf("register b: %v", err)
+	}
 
 	h.PublishToUser(1, Event{Type: "only-for-one"})
 
@@ -53,7 +59,9 @@ func TestHubDoesNotCrossDeliver(t *testing.T) {
 func TestHubUnregister(t *testing.T) {
 	h := New(DefaultLimits())
 	c := &Client{ID: 1, Send: make(chan Event, 2)}
-	h.Register(1, c)
+	if err := h.Register(1, c); err != nil {
+		t.Fatalf("register c: %v", err)
+	}
 	h.Unregister(1, c)
 
 	if h.UserCount() != 0 {
@@ -68,7 +76,9 @@ func TestHubDoubleUnregisterNoPanic(t *testing.T) {
 	h := New(DefaultLimits())
 	for _, userID := range []int64{1, 2, 3} {
 		c := &Client{ID: userID, Send: make(chan Event, 4)}
-		h.Register(userID, c)
+		if err := h.Register(userID, c); err != nil {
+			t.Fatalf("register %d: %v", userID, err)
+		}
 		h.Unregister(userID, c)
 		h.Unregister(userID, c)
 	}
@@ -84,8 +94,12 @@ func TestHubMultiConnectionUnregister(t *testing.T) {
 	h := New(DefaultLimits())
 	a := &Client{ID: 7, Send: make(chan Event, 4)}
 	b := &Client{ID: 7, Send: make(chan Event, 4)}
-	h.Register(7, a)
-	h.Register(7, b)
+	if err := h.Register(7, a); err != nil {
+		t.Fatalf("register a: %v", err)
+	}
+	if err := h.Register(7, b); err != nil {
+		t.Fatalf("register b: %v", err)
+	}
 
 	if h.UserCount() != 1 {
 		t.Fatalf("expected 1 connected user, got %d", h.UserCount())
@@ -107,7 +121,9 @@ func TestHubMultiConnectionUnregister(t *testing.T) {
 func TestHubConcurrentUnregister(t *testing.T) {
 	h := New(DefaultLimits())
 	c := &Client{ID: 42, Send: make(chan Event, 4)}
-	h.Register(42, c)
+	if err := h.Register(42, c); err != nil {
+		t.Fatalf("register c: %v", err)
+	}
 
 	done := make(chan struct{}, 2)
 	for i := 0; i < 2; i++ {

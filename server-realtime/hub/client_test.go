@@ -109,7 +109,7 @@ func TestServeWSEnforcesPerUserCapOverTheWire(t *testing.T) {
 		// Some paths reject during the handshake itself, which is also correct.
 		return
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, _, err = c.ReadMessage()
 	if err == nil {
