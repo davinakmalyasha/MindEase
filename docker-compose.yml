@@ -131,24 +131,24 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
-# Without this the `web` service is the last one `docker compose up --wait`
-      # stops waiting on, so compose reports the stack ready while Next.js is
-      # still compiling or has already crashed. The other four services all
-      # declare one; this one was the gap.
-      #
-      # `/offline`, not `/`. The homepage is a dynamic route that server-renders
-      # and fetches the API using NEXT_PUBLIC_API_URL, which is inlined at build
-      # time as http://localhost:5000/api — the right value for a browser on the
-      # host, and the wrong one inside the compose network, where `localhost` is
-      # the web container itself. So `/` rendered a 500, and `wget -qO-` exits
-      # non-zero on any error status: the container was reported unhealthy while
-      # Next.js was serving normally and logging "Ready".
-      #
-      # Liveness answers "is this server serving?", not "can it reach the API?".
-      # `/offline` is statically served, so it proves the server works without
-      # coupling web health to a data fetch. The API has its own two checks.
-      healthcheck:
-        test: ["CMD", "wget", "-qO-", "http://localhost:3000/offline"]
+    # Without this the `web` service is the last one `docker compose up --wait`
+    # stops waiting on, so compose reports the stack ready while Next.js is
+    # still compiling or has already crashed. The other four services all
+    # declare one; this one was the gap.
+    #
+    # `/offline`, not `/`. The homepage is a dynamic route that server-renders
+    # and fetches the API using NEXT_PUBLIC_API_URL, which is inlined at build
+    # time as http://localhost:5000/api - the right value for a browser on the
+    # host, and the wrong one inside the compose network, where `localhost` is
+    # the web container itself. So `/` rendered a 500, and `wget -qO-` exits
+    # non-zero on any error status: the container was reported unhealthy while
+    # Next.js was serving normally and logging "Ready".
+    #
+    # Liveness answers "is this server serving?", not "can it reach the API?".
+    # `/offline` is statically served, so it proves the server works without
+    # coupling web health to a data fetch. The API has its own two checks.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/offline"]
       interval: 15s
       timeout: 5s
       retries: 5
