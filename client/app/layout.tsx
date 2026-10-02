@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { cookies } from "next/headers";
 import ThemeProvider from "@/components/ui/ThemeProvider";
 import IntlProvider from "@/components/ui/IntlProvider";
@@ -19,19 +19,34 @@ import enMessages from "../messages/en.json";
 import idMessages from "../messages/id.json";
 import "./globals.css";
 
-const geistSans = Geist({
+// Self-hosted via `next/font/local`, not `next/font/google`.
+//
+// `next/font/google` downloads the font files at build time, which made the
+// build depend on reaching `fonts.googleapis.com`. That failed twice on a
+// transient network error - once in CI and once locally - and the error was
+// `Failed to fetch Geist from Google Fonts` / `Can't resolve
+// '@vercel/turbopack-next/internal/font/google/font'`, which reads like a broken
+// dependency rather than a flaky network and sent me looking in the wrong place
+// both times. A build that fails on someone else's connection is not a build.
+//
+// The files are committed under `app/fonts/` (SIL OFL 1.1); see the README there
+// and `scripts/fetch-fonts.js` to upgrade them. All three are variable fonts, so
+// one file each covers every weight the UI uses and `weight` is omitted.
+const geistSans = localFont({
+  src: "./fonts/Geist-Variable.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Variable.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
 });
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+const jakarta = localFont({
+  src: "./fonts/PlusJakartaSans-Variable.woff2",
+  display: "swap",
   variable: "--font-jakarta",
 });
 
