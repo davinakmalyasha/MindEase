@@ -154,6 +154,21 @@ func main() {
 			"maxTotal":     limits.MaxTotal,
 			"redisChannel": eventChannel,
 		}
+
+		// Event drops, broken out by class.
+		//
+		// The hub drops rather than blocks when a socket's buffer is full, which is
+		// the correct trade - one slow client must not stall every other user - but
+		// it was invisible. A dropped `message:new` or `risk:new` is a message or a
+		// risk alert that never arrived, and without this the only symptom was a
+		// user reporting that nobody replied. Surfaced on the health endpoint
+		// because that is already polled, so the number costs nothing to read.
+		drops := h.DropStats()
+		body["dropped"] = map[string]uint64{
+			"critical": drops.Critical,
+			"cosmetic": drops.Cosmetic,
+		}
+
 		if redisErr != nil {
 			body["status"] = "degraded"
 			body["error"] = "redis unreachable"

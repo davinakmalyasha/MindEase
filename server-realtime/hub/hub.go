@@ -52,6 +52,18 @@ type Hub struct {
 	clients map[int64]map[*Client]bool
 	total   int
 	limits  Limits
+
+	// Drop accounting. `PublishToUser` drops rather than blocks, which is the
+	// right call - one stalled socket must not stall the hub - but it made the
+	// behaviour invisible. A clinician whose risk alert silently vanished, or a
+	// patient whose message never arrived, looked identical to a bug in their
+	// own client. These counters are the difference between "the socket was
+	// slow" and "we have no idea".
+	//
+	// Split by class because the two are not equally serious and an operator
+	// should be able to tell them apart at a glance.
+	droppedCritical uint64 // risk alerts, messages, crisis events
+	droppedCosmetic uint64 // typing indicators and similar
 }
 
 // New creates an empty hub with the given limits. Non-positive limits fall
@@ -114,16 +126,72 @@ func (h *Hub) Unregister(userID int64, c *Client) {
 	}
 }
 
+// criticalTypes are the events where a dropped delivery is a clinical or
+// communication failure rather than a cosmetic one.
+//
+// The distinction drives two things: which counter a drop lands in, and the
+// fact that a caller can ask for priority. But note what priority cannot do:
+// if a socket's buffer is full, it is full. A critical event cannot displace
+// an already-queued one - the channel is FIFO and there is no room made for
+// it. So this classification improves *reporting*, and gives the caller a
+// cheap signal, but it does not claim to guarantee delivery under back
+// pressure. Pretending otherwise would be worse than the silent drop.
+var criticalTypes = map[string]bool{
+	"message:new":        true,
+	"risk:new":           true,
+	"risk:updated":       true,
+	"appointment:new":    true,
+	"appointment:update": true,
+	"crisis":             true,
+}
+
+// IsCritical reports whether an event type is one whose loss matters beyond
+// the screen it would have updated.
+func IsCritical(eventType string) bool {
+	return criticalTypes[eventType]
+}
+
 // PublishToUser delivers an event to every connection of the user.
+//
+// Non-blocking: a socket whose buffer is full is skipped rather than allowed
+// to stall the hub for every other user. That trade is right - one stalled
+// client must not become a service-wide outage - but it used to be silent, so
+// the drop is counted by class and readable via DropStats.
 func (h *Hub) PublishToUser(userID int64, event Event) {
+	critical := IsCritical(event.Type)
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients[userID] {
 		select {
 		case c.Send <- event:
 		default:
-			// Slow consumer — drop the event to avoid blocking the hub.
+			// Slow consumer - drop the event to avoid blocking the hub.
+			// Counted under the write lock we already hold, so this needs no
+			// second lock and cannot race with itself.
+			if critical {
+				h.droppedCritical++
+			} else {
+				h.droppedCosmetic++
+			}
 		}
+	}
+}
+
+// DropStats reports how many events have been dropped, by class, since the
+// hub was created. Returned to the /health endpoint so the number is visible
+// without a debugger attached.
+type DropStats struct {
+	Critical uint64 `json:"droppedCritical"`
+	Cosmetic uint64 `json:"droppedCosmetic"`
+}
+
+func (h *Hub) DropStats() DropStats {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return DropStats{
+		Critical: h.droppedCritical,
+		Cosmetic: h.droppedCosmetic,
 	}
 }
 

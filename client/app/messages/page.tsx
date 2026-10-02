@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
-import { MessageCircle, Send, ChevronLeft, Paperclip, FileText, Check, CheckCheck, Trash2, Search } from "lucide-react";
+import { MessageCircle, Send, ChevronLeft, Paperclip, FileText, Check, CheckCheck, Trash2, Search, AlertTriangle, RefreshCw } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Avatar from "@/components/ui/Avatar";
 import Spinner from "@/components/ui/Spinner";
@@ -62,8 +62,23 @@ function MessagesContent() {
 
     const messageThreadKey = (userId: number) => ["messages", "thread", userId];
 
-    const { data: conversations = [], isLoading: isLoadingConv } = useConversations();
-    const { data: messages = [], isLoading: isLoadingMsgs } = useMessageThread(
+    // `isError` and `refetch` are destructured for a reason: a failed request used to
+    // be indistinguishable from an empty account. `data` defaults to `[]`, so a
+    // network error, a 500, or an expired session all rendered the same thing a
+    // new user sees - "No conversations yet" - which tells someone looking for
+    // their therapist's messages that the therapist has never written to them.
+    const {
+        data: conversations = [],
+        isLoading: isLoadingConv,
+        isError: isConversationsError,
+        refetch: refetchConversations,
+    } = useConversations();
+    const {
+        data: messages = [],
+        isLoading: isLoadingMsgs,
+        isError: isThreadError,
+        refetch: refetchThread,
+    } = useMessageThread(
         activeUser?.id ?? null,
         5000 // polling fallback; realtime pushes make it snappy
     );
@@ -77,15 +92,29 @@ function MessagesContent() {
     const [reactingTo, setReactingTo] = useState<number | null>(null);
 
     // Open conversation from ?with= param
+    //
+    // Arriving here with `?with=<id>` is how the risk queue's "message clinician"
+    // and the appointment pages deep-link into a thread. If that id is not in the
+    // conversation list the old code just did nothing, so the user landed on an
+    // empty messages screen with no thread open and no explanation. `unmatchedId`
+    // records the miss so it can be reported rather than swallowed.
+    const withId = searchParams.get("with");
+    const [unmatchedId, setUnmatchedId] = useState<string | null>(null);
     useEffect(() => {
-        const withId = searchParams.get("with");
-        if (withId && conversations.length > 0) {
-            const conv = conversations.find((c: any) => String(c.user.id) === withId);
-            if (conv) {
-                // eslint-disable-next-line react-hooks/set-state-in-effect
-                setActiveUser(conv.user);
-                setShowMobileThread(true);
-            }
+        const id = searchParams.get("with");
+        if (!id) {
+            setUnmatchedId(null);
+            return;
+        }
+        if (conversations.length === 0) return;
+        const conv = conversations.find((c: any) => String(c.user.id) === id);
+        if (conv) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setActiveUser(conv.user);
+            setShowMobileThread(true);
+            setUnmatchedId(null);
+        } else {
+            setUnmatchedId(id);
         }
     }, [searchParams, conversations]);
 
@@ -260,6 +289,41 @@ function MessagesContent() {
                                         <div key={i} className="h-16 bg-gray-50 rounded-2xl animate-pulse" />
                                     ))}
                                 </div>
+                            ) : isConversationsError ? (
+                                // Distinct from "no conversations", and it was the
+                                // same branch before. Someone opening this page to
+                                // read a message from their clinician must never be
+                                // told they have no conversations.
+                                <div className="p-8 text-center" role="alert">
+                                    <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+                                    <p className="text-sm font-semibold text-gray-700">
+                                        Could not load your conversations
+                                    </p>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        Your messages are safe. Check your connection and try again.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => refetchConversations()}
+                                        className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        Try again
+                                    </button>
+                                </div>
+                            ) : unmatchedId ? (
+                                // The deep link resolved to nobody. Said plainly
+                                // rather than showing an empty list that looks
+                                // like there is simply nothing there.
+                                <div className="p-8 text-center" role="status">
+                                    <MessageCircle className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                                    <p className="text-sm font-semibold text-gray-500">
+                                        No conversation with that person
+                                    </p>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        Messaging opens once an appointment is confirmed. Pick a conversation below to get started.
+                                    </p>
+                                </div>
                             ) : conversations.length === 0 ? (
                                 <div className="p-8 text-center">
                                     <MessageCircle className="w-10 h-10 text-gray-200 mx-auto mb-3" />
@@ -344,6 +408,25 @@ function MessagesContent() {
                                 <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3 bg-gray-50/40">
                                     {isLoadingMsgs ? (
                                         <div className="flex justify-center pt-10"><Spinner /></div>
+                                    ) : isThreadError ? (
+                                        // Same reasoning as the conversation list: a
+                                        // failed thread fetch showed "No messages yet
+                                        // — say hello!", which is advice to send a
+                                        // message into a thread that failed to load.
+                                        <div className="pt-10 text-center" role="alert">
+                                            <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                                            <p className="text-sm font-semibold text-gray-700">
+                                                Could not load this conversation
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => refetchThread()}
+                                                className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors"
+                                            >
+                                                <RefreshCw className="w-3.5 h-3.5" />
+                                                Try again
+                                            </button>
+                                        </div>
                                     ) : visibleMessages.length === 0 ? (
                                         <p className="text-center text-sm text-gray-400 pt-10">
                                             {searchQuery.trim() ? "No messages match your search." : "No messages yet — say hello!"}
