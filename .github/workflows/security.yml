@@ -68,15 +68,14 @@ jobs:
           fetch-depth: 0
       - name: Scan full history
         uses: gitleaks/gitleaks-action@v2
-        with:
-          # Since v2 this is mandatory, not optional: without a token the
-          # action refuses to scan a pull_request at all and the job fails
-          # before it reads a single commit. The token only needs
-          # `contents: read`, which this job already has, so it is not a
-          # privilege change - it is the difference between the scan running
-          # and not running.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # `GITHUB_TOKEN` is an env var, not a `with:` input. The action declares
+        # no inputs at all - passing one fails the step with "Unexpected input(s)
+        # 'GITHUB_TOKEN'" - and it is required since v2 to scan a pull_request
+        # rather than skipping. It needs only `contents: read`, which this job
+        # already has, so this is not a privilege change: it is the difference
+        # between the secret scan running and silently not running.
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Without a licence key the action reports findings in the log but
           # does not fail the check. Failing the job is the entire point of
           # running it in CI, and the check would be advisory otherwise.
@@ -173,7 +172,16 @@ jobs:
       - name: Scan ${{ matrix.dockerfile }}
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          scan-type: dockerfile
+          # Pinned rather than floated. The action otherwise resolves whatever
+          # Trivy is newest, and a scanner that no longer accepts our flags
+          # fails exactly like a finding does - which teaches everyone to
+          # ignore the red.
+          version: v0.70.0
+          # `config`, not `dockerfile`. Trivy v0.70 removed the `dockerfile`
+          # subcommand and folded it into `trivy config`, which is also what
+          # scans Kubernetes and Terraform. The action resolved v0.70.0 and
+          # failed with `unknown command "dockerfile" for "trivy"`.
+          scan-type: config
           scan-ref: ${{ matrix.dockerfile }}
           format: table
           # `exit-code: 1` is what makes this a gate. Without it the action
@@ -182,7 +190,7 @@ jobs:
           # anyone knowing.
           exit-code: "1"
           ignore-unfixed: true
-          vuln-type: os,library
+          vuln-type: misconfig
           severity: HIGH,CRITICAL
           # No `trivyignores` file. A suppressions file is the right thing
           # once something needs suppressing; an empty one is only a way to
