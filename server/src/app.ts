@@ -127,7 +127,7 @@ export const createApp = () => {
     // Skipping in tests keeps the suite from having to share one IP's budget
     // across several hundred assertions, which is the only reason the mount is
     // conditional.
-    const generalLimiter = sharedLimiter({
+    const generalLimiter = sharedLimiter("general", {
         windowMs: 15 * 60 * 1000,
         max: 300,
         message: { status: "error", message: "Too many requests, please slow down" },

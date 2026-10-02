@@ -79,7 +79,7 @@ describe("rate limiter construction", () => {
             source.indexOf("export const sharedLimiter"),
             source.indexOf("export const sharedLimiter") + 400
         );
-        expect(helper).toMatch(/\.\.\.base\(failClosed\)/);
+        expect(helper).toMatch(/\.\.\.base\(name, failClosed\)/);
     });
 
     it("every limiter exported from the middleware module is built by it", () => {
@@ -90,7 +90,7 @@ describe("rate limiter construction", () => {
             path.join(SRC, "middleware/rateLimit.middleware.ts"),
             "utf8"
         );
-        const constructed = (source.match(/sharedLimiter\(\{/g) || []).length;
+        const constructed = (source.match(/sharedLimiter\(/g) || []).length;
         // auth, reset, twoFactor, ai, account, and the one inside
         // `perUserWriteLimiter`. A new limiter must be added to this count, which
         // is the point: adding a limiter should be a deliberate act.

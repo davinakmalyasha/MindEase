@@ -16,7 +16,7 @@ const router = Router();
 // on the one endpoint where the bound is a safety ceiling rather than a cost
 // control.
 const supportLimiter = skipInTest(
-    sharedLimiter({
+    sharedLimiter("support", {
         windowMs: 10 * 60 * 1000,
         max: 60,
         message: { status: "error", message: "Too many chat messages, please slow down" }
@@ -35,7 +35,7 @@ const supportLimiter = skipInTest(
  *      pool could otherwise walk straight through.
  */
 const sosLimiter = skipInTest(
-    sharedLimiter({
+    sharedLimiter("sos", {
         windowMs: 60 * 60 * 1000,
         max: 20,
         // Throttled, but never empty-handed.
