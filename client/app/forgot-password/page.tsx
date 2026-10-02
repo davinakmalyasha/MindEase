@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 
@@ -24,6 +25,7 @@ const ResetSchema = z.object({
 });
 
 export default function ForgotPasswordPage() {
+    const router = useRouter();
     const [step, setStep] = useState<1 | 2>(1);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -52,8 +54,13 @@ export default function ForgotPasswordPage() {
         setIsLoading(true);
         setError(null);
         try {
-            await api.post("/account/reset-password", { email, ...data });
-            window.location.href = "/login";
+await api.post("/account/reset-password", { email, ...data });
+                // `router.push`, not `window.location.href`. No session changed
+                // here, so a client-side transition is equivalent and avoids
+                // re-downloading and re-hydrating the app. The post-*login*
+                // navigations elsewhere do need a full load, because they
+                // happen immediately after the session cookie changes.
+                router.push("/login");
         } catch (err: any) {
             setError(getErrorMessage(err, "Failed to reset password"));
         } finally {

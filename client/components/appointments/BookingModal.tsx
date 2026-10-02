@@ -64,10 +64,14 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
         }
     }, [packagesError, toast]);
 
-    // Never leave the toggle on if the entitlement list fails or empties.
-    useEffect(() => {
-        if (usePackage && myPackages.length === 0) setUsePackage(false);
-    }, [myPackages.length, usePackage]);
+// Never charge the toggle on if the entitlement list fails or empties.
+  //
+  // Derived, not corrected by an effect. The old version stored `usePackage`
+  // and then did `if (usePackage && myPackages.length === 0) setUsePackage(false)`
+  // in an effect, which renders one frame with the toggle on and the entitlement
+  // gone, and had to be re-run whenever `myPackages` arrived. Reading it straight
+  // off the query means there is no invalid state to correct.
+  const usePackageEffective = usePackage && myPackages.length > 0;
 
     const { data: rawSlots = [], isFetching: slotsLoading } = useDoctorSlots(doctor.id);
 
@@ -94,7 +98,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     );
 
     /** The entitlement the booking will consume, or null if not using one. */
-    const selectedPackage = usePackage ? (myPackages[0] ?? null) : null;
+    const selectedPackage = usePackageEffective ? (myPackages[0] ?? null) : null;
 
     const handleBooking = useCallback(async () => {
         if (!selectedSlot) {
@@ -309,7 +313,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                                 </span>
                                 <input
                                     type="checkbox"
-                                    checked={usePackage}
+                                    checked={usePackageEffective}
                                     onChange={(e) => setUsePackage(e.target.checked)}
                                     className="h-5 w-5 accent-emerald-500"
                                 />
