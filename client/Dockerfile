@@ -37,4 +37,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
+# Bind on every interface, not just the container hostname.
+#
+# Docker sets `HOSTNAME=<container-id>` on every container, and Next.js's
+# standalone `server.js` uses `process.env.HOSTNAME` as its bind address when it
+# is set. So the server listened on the container's own hostname and *not* on
+# 127.0.0.1 - and the compose healthcheck, which probes
+# `http://localhost:3000/...`, could never reach it. The container was reported
+# unhealthy while Next.js logged "Ready" and served perfectly well on the
+# published port.
+ENV HOSTNAME=0.0.0.0
 CMD ["node", "server.js"]
