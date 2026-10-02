@@ -21,13 +21,13 @@ export const skipInTest = (mw: RequestHandler): RequestHandler =>
  * site down, so those fail open silently - see `redisRateLimitStore.ts` for the
  * reasoning.
  */
-const store = (failClosed = false): Store =>
-    failClosed ? RedisStore.getFailClosed() : RedisStore.get();
+const store = (name: string, failClosed: boolean): Store =>
+    failClosed ? RedisStore.getFailClosed(name) : RedisStore.get(name);
 
-const base = (failClosed = false) => ({
+const base = (name: string, failClosed: boolean) => ({
     standardHeaders: true as const,
     legacyHeaders: false as const,
-    store: store(failClosed),
+    store: store(name, failClosed),
 });
 
 /**
@@ -66,8 +66,11 @@ const base = (failClosed = false) => ({
  */
 type LimiterConfig = Parameters<typeof rateLimit>[0];
 
-export const sharedLimiter = (config: LimiterConfig, failClosed = false) =>
-    rateLimit({ ...base(failClosed), ...config });
+export const sharedLimiter = (
+    name: string,
+    config: LimiterConfig,
+    failClosed = false
+) => rateLimit({ ...base(name, failClosed), ...config });
 
 /**
  * Login and registration, per IP.
@@ -77,7 +80,7 @@ export const sharedLimiter = (config: LimiterConfig, failClosed = false) =>
  * exhaust the bucket with 20 anonymous attempts from a third party and lock a
  * real user out for the rest of the window.
  */
-export const authLimiter = sharedLimiter({
+export const authLimiter = sharedLimiter("auth", {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 20,
     skipSuccessfulRequests: true,
@@ -85,7 +88,7 @@ export const authLimiter = sharedLimiter({
         status: "error",
         message: "Too many login attempts, please try again after 15 minutes",
     },
-});
+}, true);
 
 /**
  * Password reset and email verification, per IP.
@@ -97,28 +100,28 @@ export const authLimiter = sharedLimiter({
  * forgotten password, or to complete 2FA, in a mental-health product, for
  * fifteen minutes, for the cost of twenty requests.
  */
-export const resetLimiter = sharedLimiter({
+export const resetLimiter = sharedLimiter("reset", {
     windowMs: 15 * 60 * 1000,
     max: 10,
     message: {
         status: "error",
         message: "Too many attempts, please try again after 15 minutes",
     },
-});
+}, true);
 
 /** Two-factor verification. Separate again, for the same reason. */
-export const twoFactorLimiter = sharedLimiter({
+export const twoFactorLimiter = sharedLimiter("twoFactor", {
     windowMs: 15 * 60 * 1000,
     max: 10,
     message: {
         status: "error",
         message: "Too many verification attempts, please try again after 15 minutes",
     },
-});
+}, true);
 
 // Guards paid AI calls (Gemini) against cost abuse - 15 generation requests
 // per 10 minutes per IP.
-export const aiLimiter = sharedLimiter({
+export const aiLimiter = sharedLimiter("ai", {
     windowMs: 10 * 60 * 1000,
     max: 15,
     message: {
@@ -140,7 +143,7 @@ export const aiLimiter = sharedLimiter({
  * ~1-in-a-million chance per guess. The key now falls back to the pending
  * token, which is stable for one login attempt, so the counter applies.
  */
-export const accountLimiter = sharedLimiter({
+export const accountLimiter = sharedLimiter("account", {
     windowMs: 15 * 60 * 1000,
     max: 10,
     keyGenerator: (req) => {
@@ -168,7 +171,7 @@ export const perUserWriteLimiter = (
     windowMs: number,
     what: string
 ): RequestHandler => {
-    const limiter = sharedLimiter({
+    const limiter = sharedLimiter(`write:${what}`, {
         windowMs,
         max,
         keyGenerator: (req) => {

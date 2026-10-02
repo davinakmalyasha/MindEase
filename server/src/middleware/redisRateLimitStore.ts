@@ -73,13 +73,27 @@ const makeStore = (prefix: string, warnOnMiss: boolean): Store => {
     };
 };
 
-let shared: Store | undefined;
-let credential: Store | undefined;
-
-/** The shared store, built once and reused by every limiter. */
+/**
+ * A fresh `Store` for each limiter.
+ *
+ * `express-rate-limit` v8 rejects reusing a Store instance across limiters
+ * (`ERR_ERL_STORE_REUSE`) because a Store carries per-limiter state - notably
+ * the `windowMs` captured by `init` - so sharing one instance both trips the
+ * validation and silently gives every limiter whichever window the last
+ * `init` saw.
+ *
+ * What must be shared for the limits to hold across replicas is the *Redis
+ * client*, and that is still shared: `lib/cache.ts` owns one. Giving each
+ * limiter its own Store object over the same connection costs nothing and
+ * keeps the counters shared.
+ *
+ * `name` must be stable across restarts (otherwise the key prefix changes and
+ * every counter resets on deploy) and unique per limiter (otherwise two
+ * limiters read each other's counts).
+ */
 export const RedisStore = {
     /** For limits that must stay correct across replicas when Redis is up. */
-    get: (): Store => (shared ??= makeStore("shared", false)),
+    get: (name: string): Store => makeStore(name, false),
     /** For credential limits, which warn when they cannot be shared. */
-    getFailClosed: (): Store => (credential ??= makeStore("auth", true)),
+    getFailClosed: (name: string): Store => makeStore(name, true),
 };
