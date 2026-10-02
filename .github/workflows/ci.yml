@@ -371,6 +371,42 @@ jobs:
       - name: Dump logs on failure
         if: failure()
         run: docker compose logs --no-color
+
+      # `docker compose up --wait` only ever reports "container X is unhealthy".
+      # That names a symptom, not a cause, and the last three rounds of this job
+      # were spent guessing: a missing secret, a missing Prisma client, and a
+      # bind address all produced the identical one-line message.
+      #
+      # This prints what each service actually returns, so the next failure is
+      # diagnosed from the log rather than by another hypothesis. It runs before
+      # teardown and never fails the job itself, because it is a diagnostic.
+      - name: Probe every service (diagnostics)
+        if: failure()
+        continue-on-error: true
+        run: |
+          for probe in \
+            "web|http://localhost:3000/offline" \
+            "web-ip|http://127.0.0.1:3000/offline" \
+            "web-static|http://localhost:3000/robots.txt" \
+            "api|http://localhost:5000/api/health" \
+            "api-db|http://localhost:5000/api/health/db" \
+            "realtime|http://localhost:8080/health"
+          do
+            name="${probe%%|*}"
+            url="${probe#*|}"
+            echo "--- ${name}  ${url}"
+            # `-S` prints the status line, `-O-` to stdout. Never let the probe's
+            # own exit code abort the loop: a failure here *is* the finding.
+            curl -sS -S --max-time 10 -o /dev/null -w '    status=%{http_code} time=%{time_total}s\n' \
+              "$url" || echo "    curl exit=$?"
+          done
+          echo "--- from inside the web container"
+          docker compose exec -T web sh -c \
+            'wget -S -O /dev/null http://127.0.0.1:3000/offline 2>&1 | head -20' \
+            || echo "    exec failed"
+          echo "--- container health state"
+          docker compose ps --format '{{.Name}}  {{.State}}  {{.Status}}' || true
+
       - name: Tear down
         if: always()
         run: docker compose down -v
