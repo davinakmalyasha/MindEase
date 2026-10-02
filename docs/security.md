@@ -413,10 +413,19 @@ is the only thing that supplies the store.
 were missed the first time, including `generalLimiter` and the SOS limiter, and
 a bare `rateLimit({...})` is an entirely ordinary-looking line in review.
 
-When Redis is unreachable the general and AI limits **fail open** — an
-unavailable cache must not take the site down — while the credential limits warn
-on every miss, because "your brute-force protection is not shared across
-replicas" is a fact an operator needs to see.
+Every limiter is constructed with its **own** `Store` instance and its own Redis key
+prefix. Sharing one `Store` across limiters is rejected by express-rate-limit
+(`ERR_ERL_STORE_REUSE`), because a Store holds per-limiter state — and sharing one
+was exactly what happened, so every boot logged a `ValidationError`. What makes the
+limits shared across replicas is the Redis *client*, which is still shared. See
+`tests/rate-limit-store-isolation.test.ts`.
+
+When Redis is unreachable every limit **fails open** — an unavailable cache must
+not take the product down — but the credential limits (`auth`, `reset`,
+`twoFactor`) **log a warning on every miss**, because "your brute-force protection is
+not shared across replicas" is a fact an operator needs to see. The `failClosed` flag
+existed and was never passed by any call site, so until this was fixed that warning
+had never once fired.
 
 | Limiter | Budget | Keyed on |
 |---|---|---|
