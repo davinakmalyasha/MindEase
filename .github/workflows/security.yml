@@ -61,13 +61,21 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # gitleaks needs the history to scan it, and the default
           # `fetch-depth: 1` would give it one commit.
           fetch-depth: 0
       - name: Scan full history
         uses: gitleaks/gitleaks-action@v2
+        with:
+          # Since v2 this is mandatory, not optional: without a token the
+          # action refuses to scan a pull_request at all and the job fails
+          # before it reads a single commit. The token only needs
+          # `contents: read`, which this job already has, so it is not a
+          # privilege change - it is the difference between the scan running
+          # and not running.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         env:
           # Without a licence key the action reports findings in the log but
           # does not fail the check. Failing the job is the entire point of
@@ -92,7 +100,7 @@ jobs:
       # the other three jobs cannot write to it.
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Initialise CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -118,7 +126,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Initialise CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -161,9 +169,9 @@ jobs:
           - image: server-realtime
             dockerfile: server-realtime/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Scan ${{ matrix.dockerfile }}
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: dockerfile
           scan-ref: ${{ matrix.dockerfile }}
@@ -206,8 +214,8 @@ jobs:
       run:
         working-directory: ${{ matrix.directory }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -235,7 +243,7 @@ jobs:
       run:
         working-directory: server-realtime
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
           # Matches ci.yml and the `go` directive in go.mod. A mismatch makes
