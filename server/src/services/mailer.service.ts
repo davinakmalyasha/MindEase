@@ -17,7 +17,17 @@ const esc = (v: unknown) =>
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
-let transporter: nodemailer.Transporter | null = null;
+// `ReturnType<typeof createTransport>` rather than the old `nodemailer.Transporter`.
+//
+// nodemailer 10 removed the `Transporter` type and replaced it with a generic
+// `Mail<SentMessageInfo, Options>`: the return type now depends on which transport
+// you asked for, so there is no single `Transporter` name to reference. Deriving
+// the type from the function means this annotation is correct for whichever
+// transport is configured here, and it will not break again on the next major -
+// which is what upgrading to 10 to pick up the TLS servername advisory fix did.
+type Transporter = ReturnType<typeof nodemailer.createTransport>;
+
+let transporter: Transporter | null = null;
 let smtpConfigured = false;
 
 const getTransporter = () => {
