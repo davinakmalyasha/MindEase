@@ -289,7 +289,15 @@ export default function AdminDashboard() {
                                         <td className="px-6 py-5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center font-bold text-indigo-600 overflow-hidden">
-                                                    {app.user?.avatar ? <img src={app.user.avatar} className="w-full h-full object-cover" /> : app.user?.name?.charAt(0)}
+                                                    {app.user?.avatar ? (
+                        <img
+                            src={app.user.avatar}
+                            alt={app.user?.name || "User avatar"}
+                            className="w-full h-full object-cover"
+                        />
+                    ) : (
+                        app.user?.name?.charAt(0)
+                    )}
                                                 </div>
                                                 <div>
                                                     <p className="font-bold text-gray-900 leading-none mb-1">{app.user?.name}</p>
@@ -490,7 +498,15 @@ export default function AdminDashboard() {
                                     <td className="px-6 py-5">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center font-bold text-indigo-600 overflow-hidden">
-                                                {u.avatar ? <img src={u.avatar} className="w-full h-full object-cover" /> : u.name?.charAt(0)}
+                                                {u.avatar ? (
+                        <img
+                            src={u.avatar}
+                            alt={u.name || "User avatar"}
+                            className="w-full h-full object-cover"
+                        />
+                    ) : (
+                        u.name?.charAt(0)
+                    )}
                                             </div>
                                             <div>
                                                 <p className="font-bold text-gray-900 leading-none mb-1">{u.name} {u.isBanned && <span className="text-[9px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full ml-1 uppercase">banned</span>}</p>

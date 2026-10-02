@@ -124,6 +124,29 @@ jobs:
         # instead, which is the entire point of having CI.
         run: node scripts/check-migration-case.js
 
+      - name: UI hygiene (advisory)
+        # Counts, never fails. Three things this codebase has been quietly losing
+        # ground on, and all three are invisible until someone counts them:
+        #
+        #   hardcoded UI strings  English text in JSX that `useTranslations` was
+        #                        meant to cover, so the Indonesian build silently
+        #                        falls back to English
+        #   locale bypasses       `toLocaleDateString()` and friends, which render
+        #                        in the *viewer's* locale and timezone rather than
+        #                        the one the user chose. `lib/format.ts` exists to
+        #                        centralise exactly this
+        #   <img> without alt     a screen reader announces the file path
+        #
+        # Advisory on purpose. A gate with 180 existing violations is a gate nobody
+        # turns on, and enabling it before fixing them would block every PR. This
+        # prints a number so the direction is visible and the count can be held flat
+        # or driven down as strings are migrated.
+        #
+        # UI_HYGIENE_VERBOSE=1 lists every finding.
+        run: node client/scripts/check-ui-hygiene.js
+        env:
+          UI_HYGIENE_VERBOSE: ${{ vars.UI_HYGIENE_VERBOSE }}
+
       - name: Dashed-operator check (advisory, known false positives)
         continue-on-error: true
         run: node scripts/check-operators.js
