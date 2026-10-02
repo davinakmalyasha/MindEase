@@ -122,7 +122,7 @@ jobs:
         # and Docker, Railway and this service container are all Linux, so it
         # passed every local run and broke the first deploy. It failed here
         # instead, which is the entire point of having CI.
-        run: node server/scripts/check-migration-case.js
+        run: node scripts/check-migration-case.js
 
       - name: Dashed-operator check (advisory, known false positives)
         continue-on-error: true

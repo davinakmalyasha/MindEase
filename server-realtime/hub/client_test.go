@@ -89,7 +89,7 @@ func TestServeWSEnforcesPerUserCapOverTheWire(t *testing.T) {
 	var open []*websocket.Conn
 	defer func() {
 		for _, c := range open {
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 
