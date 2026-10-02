@@ -13,13 +13,32 @@ RUN npx tsc --outDir dist
 
 # Runtime dependencies only. The previous final stage copied the builder's whole
 # `node_modules`, which shipped typescript, vitest, nodemon, supertest and every
-# @types package into a container that handles clinical data. Prisma CLI is
-# re-added explicitly because the entrypoint runs `migrate deploy` at boot.
+# @types package into a container that handles clinical data.
+#
+# The schema is copied *before* installing. `@prisma/client` has a postinstall that
+# generates the client, but with no `schema.prisma` present it cannot, and it does
+# not fail loudly - it just leaves the package uninitialised. The runner stage then
+# throws on the first import:
+#
+#     Error: @prisma/client did not initialize yet. Please run "prisma generate"
+#
+# which reached CI as the whole stack reporting `mindease-api is unhealthy`, naming a
+# symptom and nothing about the cause. Generating explicitly here makes it
+# deterministic instead of dependent on whether npm is configured to allow install
+# scripts - which it was not, locally, where @prisma/client's postinstall is blocked.
+#
+# `prisma` is a real dependency, not a dev one: `scripts/start.sh` runs
+# `npx prisma migrate deploy` before every boot. It was a devDependency re-added by
+# `npm install --no-save prisma@6.2.1`, a hardcoded third version that had drifted
+# from `@prisma/client` (6.2.1 against 6.19.3). Resolving both from one lockfile
+# means the CLI and the generated client cannot disagree.
 FROM node:22-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm install --no-save prisma@6.2.1 && npm cache clean --force
-
+COPY prisma ./prisma
+RUN npm ci --omit=dev \
+    && npx prisma generate \
+    && npm cache clean --force
 FROM node:22-alpine AS runner
 WORKDIR /app
 # Cron windows, room-open windows and "today" horizons are authored in WIB —
