@@ -48,7 +48,7 @@ jobs:
     name: Compose (validate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # `-q` validates and exits non-zero on any error without printing the
       # resolved config, so a failure shows the parse error and nothing else.
       - name: Validate docker-compose.yml
@@ -75,8 +75,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -123,7 +123,13 @@ jobs:
         run: npm run lint
       - run: npx tsc --noEmit
       - name: Prepare test DB via migrations
-        run: npx prisma migrate deploy --skip-generate
+        # No `--skip-generate`: `migrate deploy` does not accept it in Prisma 6.
+        # Passing it printed the command's help text and exited 1, so this step
+        # failed without running a single migration - and because the job stops
+        # here, the drift check and all 415 tests below it never ran either. The
+        # test wipe in `tests/setup.ts` means they would have reported against
+        # an empty schema.
+        run: npx prisma migrate deploy
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
       - name: Check for schema drift (schema must match committed migrations)
@@ -164,8 +170,8 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -196,13 +202,20 @@ jobs:
       run:
         working-directory: server-realtime
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
       - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v6
+        # v9, not v6. v6 resolves its own binary version and picked
+        # v1.64.8, which is built with go1.24 and refuses to load a module
+        # declaring `go 1.26`: it exits 3 with "the Go language version used
+        # to build golangci-lint is lower than the targeted Go version".
+        # The version is pinned below for the same reason - a floating
+        # resolver is what picked a binary that cannot read this go.mod.
+        uses: golangci/golangci-lint-action@v9
         with:
+          version: v2.14.0
           working-directory: server-realtime
       - run: go vet ./...
       - run: go build ./...
@@ -227,7 +240,7 @@ jobs:
     # after the server, client and realtime suites have all run.
     needs: [compose, server, client, realtime]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # ----------------------------------------------------------------
       # Opt-in for the end-to-end step
