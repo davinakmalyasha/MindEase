@@ -1,451 +1,462 @@
 {
-    "common": {
-        "appName": "MindEase",
-        "loading": "Memuat...",
-        "save": "Simpan",
-        "cancel": "Batal",
-        "logout": "Keluar",
-        "back": "Kembali",
-        "messages": "Pesan",
-        "notifications": "Notifikasi",
-        "profile": "Profil",
-        "dashboard": "Dasbor",
-        "search": "Cari",
-        "refresh": "Muat Ulang"
+  "common": {
+    "appName": "MindEase",
+    "loading": "Memuat...",
+    "save": "Simpan",
+    "cancel": "Batal",
+    "logout": "Keluar",
+    "back": "Kembali",
+    "messages": "Pesan",
+    "notifications": "Notifikasi",
+    "profile": "Profil",
+    "dashboard": "Dasbor",
+    "search": "Cari",
+    "refresh": "Muat Ulang",
+    "noPermission": "Anda tidak memiliki akses ke halaman ini.",
+    "unknown": "Tidak diketahui",
+    "logoutSuccess": "Berhasil keluar",
+    "security": "Keamanan"
+  },
+  "nav": {
+    "home": "Beranda",
+    "findDoctors": "Cari Dokter",
+    "bookNow": "Pesan Sekarang",
+    "crisisHelp": "Bantuan Krisis",
+    "myHistory": "Riwayat Saya",
+    "signIn": "Masuk/Daftar"
+  },
+  "auth": {
+    "welcomeBack": "Selamat Datang Kembali",
+    "createAccount": "Buat Akun",
+    "enterDetails": "Masukkan detail Anda untuk masuk",
+    "signUpToStart": "Daftar untuk memulai",
+    "email": "Email",
+    "password": "Kata Sandi",
+    "fullName": "Nama Lengkap",
+    "signIn": "Masuk",
+    "createAccountBtn": "Buat Akun",
+    "forgotPassword": "Lupa kata sandi?",
+    "dontHaveAccount": "Belum punya akun?",
+    "alreadyHaveAccount": "Sudah punya akun?",
+    "signUp": "Daftar",
+    "phone": "Telepon (WhatsApp)",
+    "joinAs": "Saya ingin bergabung sebagai",
+    "patient": "Pasien",
+    "doctor": "Dokter"
+  },
+  "dashboard": {
+    "welcomeBack": "Selamat Datang,",
+    "quickActions": "Aksi Cepat",
+    "explore": "Jelajahi",
+    "subtitle": "Kelola kesehatan mental Anda dari satu tempat.",
+    "manageBio": "Perbarui bio profesional Anda",
+    "moodTracker": "Pelacak Suasana Hati",
+    "assessments": "Penilaian Kesehatan",
+    "journal": "Jurnal",
+    "findSpecialist": "Cari Spesialis",
+    "myAppointments": "Janji Temu Saya",
+    "messages": "Pesan",
+    "notifications": "Notifikasi",
+    "profileSettings": "Pengaturan Profil",
+    "mySchedule": "Jadwal Saya",
+    "patientHistory": "Riwayat Pasien",
+    "aiBriefings": "Ringkasan AI",
+    "analytics": "Analitik",
+    "adminOverview": "Dasbor Admin",
+    "totalPatients": "Total Pasien",
+    "pendingRequests": "Permintaan Menunggu",
+    "upcomingSessions": "Sesi Mendatang",
+    "completedSessions": "Sesi Selesai",
+    "logMood": "Catat suasana hati harian dan lihat wawasan",
+    "browseDoctors": "Jelajahi jaringan profesional kami",
+    "viewHistory": "Lihat riwayat, pra-sesi, ulasan",
+    "chatWithDoctor": "Chat dengan dokter Anda",
+    "seeAlerts": "Lihat semua pemberitahuan",
+    "manageProfile": "Kelola informasi pribadi Anda",
+    "manageSlots": "Kelola slot konsultasi Anda",
+    "approveSessions": "Setujui, selesaikan & lihat sesi",
+    "clinicalSummaries": "Ringkasan klinis sebelum sesi",
+    "chatWithPatients": "Chat dengan pasien Anda",
+    "manageUsers": "Kelola pengguna dan statistik sistem",
+    "riskQueue": "Antrean risiko",
+    "carePlan": "Rencana perawatan",
+    "safetyPlan": "Rencana keamanan",
+    "briefingsHint": "Ringkasan pra-sesi tentang suasana hati, asesmen, dan pemeriksaan terakhir pasien. Terbuka pada sesi konsultasi.",
+    "noBriefings": "Belum ada sesi untuk diringkas",
+    "noBriefingsHint": "Ringkasan tersedia setelah sesi konsultasi dimulai.",
+    "openBriefing": "Buka ringkasan",
+    "mainNavigation": "Navigasi utama",
+    "openNavigation": "Buka menu navigasi",
+    "closeNavigation": "Tutup menu navigasi"
+  },
+  "mood": {
+    "title": "Pelacak Suasana Hati",
+    "subtitle": "Catat perasaan Anda setiap hari dan lihat pola emosional Anda",
+    "howFeeling": "Bagaimana perasaan Anda?",
+    "logMood": "Catat Suasana Hati",
+    "yourInsights": "Wawasan Anda",
+    "avg30": "Rata-rata 30 hari",
+    "logStreak": "Rentetan pencatatan",
+    "days": "hari",
+    "trend": "Tren emosional",
+    "personalized": "Kesehatan Personal",
+    "suggestActivities": "Sarankan Aktivitas",
+    "generateSuggestions": "Buat Saran",
+    "suggestionsHint": "Dapatkan saran aktivitas bertenaga AI berdasarkan riwayat suasana hati Anda.",
+    "last14": "14 Hari Terakhir",
+    "addNote": "Tambahkan catatan tentang hari Anda (opsional)...",
+    "veryLow": "Sangat Rendah",
+    "low": "Rendah",
+    "okay": "Biasa",
+    "good": "Baik",
+    "great": "Hebat"
+  },
+  "features": {
+    "journal": {
+      "title": "Jurnal Saya",
+      "subtitle": "Ruang aman untuk menuliskan pikiran, perasaan, dan refleksi Anda",
+      "writeTitle": "Tulis entri baru",
+      "writePlaceholder": "Bagaimana perasaan Anda saat ini? Apa yang ada di pikiran Anda?...",
+      "saveEntry": "Simpan Entri",
+      "aiReflection": "Refleksi AI",
+      "summarize": "Ringkas",
+      "regenerate": "Buat Ulang",
+      "summaryHint": "Minta AI untuk merefleksikan entri terbaru Anda dan menunjukkan pola dengan lembut.",
+      "empty": "Belum ada entri jurnal. Tulis entri pertama Anda di sebelah kiri."
     },
-    "nav": {
-        "home": "Beranda",
-        "findDoctors": "Cari Dokter",
-        "bookNow": "Pesan Sekarang",
-        "crisisHelp": "Bantuan Krisis",
-        "myHistory": "Riwayat Saya",
-        "signIn": "Masuk/Daftar"
+    "assessments": {
+      "title": "Penilaian Mandiri",
+      "subtitle": "Skrining standar (PHQ-9 & GAD-7) untuk memantau kesejahteraan Anda dari waktu ke waktu — dokter Anda melihat skor terbaru",
+      "questionHint": "Dalam dua minggu terakhir, seberapa sering Anda terganggu oleh hal-hal berikut?",
+      "back": "Kembali",
+      "next": "Lanjut",
+      "submit": "Kirim",
+      "takeAgain": "Ulangi",
+      "history": "Riwayat",
+      "historyEmpty": "Belum ada hasil. Selesaikan skrining untuk memulai.",
+      "severeHint": "Skor ini menunjukkan gejala yang signifikan. Pertimbangkan untuk segera membuat janji temu — dokter Anda dapat melihat hasil ini dan bersiap untuk kunjungan Anda.",
+      "savedHint": "Skor terbaru Anda telah disimpan dan akan muncul dalam ringkasan pra-sesi dokter Anda.",
+      "disclaimer": "Alat skrining adalah indikator, bukan diagnosis. Selalu diskusikan hasil dengan profesional yang berkualifikasi.",
+      "trajectoryTitle": "Seiring waktu",
+      "trajectoryHint": "Perubahan skor skrining Anda dari waktu ke waktu.",
+      "trajectoryDisclaimer": "Ini adalah skor skrining, bukan diagnosis dan bukan ukuran pemulihan. Garis yang menurun berarti lebih sedikit gejala yang dilaporkan pada pengukuran tersebut; itu bukan bukti bahwa sesuatu telah disembuhkan, dan tidak menggantikan penilaian klinis.",
+      "sittings": "Pengukuran",
+      "latestScore": "Terbaru",
+      "change": "Perubahan keseluruhan",
+      "direction_improving": "Menurun",
+      "direction_worsening": "Meningkat",
+      "direction_stable": "Relatif stabil",
+      "direction_insufficient_data": "Pengukuran masih terlalu sedikit"
     },
-    "auth": {
-        "welcomeBack": "Selamat Datang Kembali",
-        "createAccount": "Buat Akun",
-        "enterDetails": "Masukkan detail Anda untuk masuk",
-        "signUpToStart": "Daftar untuk memulai",
-        "email": "Email",
-        "password": "Kata Sandi",
-        "fullName": "Nama Lengkap",
-        "signIn": "Masuk",
-        "createAccountBtn": "Buat Akun",
-        "forgotPassword": "Lupa kata sandi?",
-        "dontHaveAccount": "Belum punya akun?",
-        "alreadyHaveAccount": "Sudah punya akun?",
-        "signUp": "Daftar",
-        "phone": "Telepon (WhatsApp)",
-        "joinAs": "Saya ingin bergabung sebagai",
-        "patient": "Pasien",
-        "doctor": "Dokter"
+    "analytics": {
+      "title": "Analitik Praktik",
+      "subtitle": "Pesanan, pendapatan, peringkat, dan kesejahteraan pasien Anda sekilas",
+      "totalAppointments": "Total janji temu",
+      "revenue6mo": "Pendapatan (6 bln)",
+      "cancellationRate": "Tingkat pembatalan",
+      "patientMood30d": "Suasana pasien (30 hr)",
+      "last6Months": "6 Bulan Terakhir",
+      "revenue": "Pendapatan (Rp)",
+      "completedSessions": "Sesi selesai",
+      "statusBreakdown": "Rincian Status",
+      "monthlyRating": "Tren Peringkat Bulanan",
+      "noRatings": "Belum ada ulasan dalam 6 bulan terakhir.",
+      "moodFootnote": "Suasana pasien menunjukkan rata-rata skor suasana yang dicatat oleh pasien yang menyelesaikan sesi dengan Anda dalam 30 hari terakhir."
     },
-    "dashboard": {
-        "welcomeBack": "Selamat Datang,",
-        "quickActions": "Aksi Cepat",
-        "explore": "Jelajahi",
-        "subtitle": "Kelola kesehatan mental Anda dari satu tempat.",
-        "manageBio": "Perbarui bio profesional Anda",
-        "moodTracker": "Pelacak Suasana Hati",
-        "assessments": "Penilaian Kesehatan",
-        "journal": "Jurnal",
-        "findSpecialist": "Cari Spesialis",
-        "myAppointments": "Janji Temu Saya",
-        "messages": "Pesan",
-        "notifications": "Notifikasi",
-        "profileSettings": "Pengaturan Profil",
-        "mySchedule": "Jadwal Saya",
-        "patientHistory": "Riwayat Pasien",
-        "aiBriefings": "Ringkasan AI",
-        "analytics": "Analitik",
-        "adminOverview": "Dasbor Admin",
-        "totalPatients": "Total Pasien",
-        "pendingRequests": "Permintaan Menunggu",
-        "upcomingSessions": "Sesi Mendatang",
-        "completedSessions": "Sesi Selesai",
-        "logMood": "Catat suasana hati harian dan lihat wawasan",
-        "browseDoctors": "Jelajahi jaringan profesional kami",
-        "viewHistory": "Lihat riwayat, pra-sesi, ulasan",
-        "chatWithDoctor": "Chat dengan dokter Anda",
-        "seeAlerts": "Lihat semua pemberitahuan",
-        "manageProfile": "Kelola informasi pribadi Anda",
-        "manageSlots": "Kelola slot konsultasi Anda",
-        "approveSessions": "Setujui, selesaikan & lihat sesi",
-        "clinicalSummaries": "Ringkasan klinis sebelum sesi",
-        "chatWithPatients": "Chat dengan pasien Anda",
-        "manageUsers": "Kelola pengguna dan statistik sistem",
-        "riskQueue": "Antrean risiko",
-        "carePlan": "Rencana perawatan",
-        "safetyPlan": "Rencana keamanan"
+    "video": {
+      "back": "Kembali",
+      "badge": "Ruang Konsultasi Aman",
+      "opening": "Membuka ruangan Anda...",
+      "notAvailable": "Ruangan belum tersedia",
+      "notAvailableHint": "Anda akan menerima notifikasi saat lawan bicara bergabung. Sesi dibuka 15 menit sebelum waktu yang dijadwalkan.",
+      "sessionWithDoctor": "Sesi dengan",
+      "yourDoctor": "dokter Anda",
+      "yourPatient": "pasien",
+      "peerJoined": "Lawan bicara Anda telah bergabung ke ruangan!",
+      "peerWillBeNotified": "Lawan bicara Anda akan diberi tahu saat Anda bergabung",
+      "poweredBy": "Didukung oleh Jitsi Meet. Sesi bersifat pribadi antara Anda dan",
+      "opensIn": "Ruangan dibuka dalam {{minutes}} menit. Anda dapat bergabung 15 menit sebelum sesi dimulai.",
+      "badgeUnverified": "Sesi tidak terverifikasi",
+      "sessionWithPatient": "Sesi dengan",
+      "poweredByLiveKit": "Ter autentikasi ujung ke ujung dengan LiveKit. Sesi ini bersifat privat antara Anda dan",
+      "joinFailed": "Ruang konsultasi tidak dapat dibuka.",
+      "tryAgain": "Coba lagi",
+      "degradedNotice": "Sesi ini tidak terauthentikasi ujung ke ujung. IAction di hosting oleh pihak ketiga dan siapa pun yang memiliki tautan ini dapat bergabung. Pilih ruang privat jika memungkinkan.",
+      "roomTitle": "Ruang konsultasi",
+      "connecting": "Menghubungkan ke ruang konsultasi",
+      "mute": "Bisukan",
+      "unmute": "Aktifkan suara",
+      "startCamera": "Nyalakan kamera",
+      "stopCamera": "Matikan kamera",
+      "leave": "Keluar"
     },
-    "mood": {
-        "title": "Pelacak Suasana Hati",
-        "subtitle": "Catat perasaan Anda setiap hari dan lihat pola emosional Anda",
-        "howFeeling": "Bagaimana perasaan Anda?",
-        "logMood": "Catat Suasana Hati",
-        "yourInsights": "Wawasan Anda",
-        "avg30": "Rata-rata 30 hari",
-        "logStreak": "Rentetan pencatatan",
-        "days": "hari",
-        "trend": "Tren emosional",
-        "personalized": "Kesehatan Personal",
-        "suggestActivities": "Sarankan Aktivitas",
-        "generateSuggestions": "Buat Saran",
-        "suggestionsHint": "Dapatkan saran aktivitas bertenaga AI berdasarkan riwayat suasana hati Anda.",
-        "last14": "14 Hari Terakhir",
-        "addNote": "Tambahkan catatan tentang hari Anda (opsional)...",
-        "veryLow": "Sangat Rendah",
-        "low": "Rendah",
-        "okay": "Biasa",
-        "good": "Baik",
-        "great": "Hebat"
+    "moodFactors": {
+      "label": "Apa yang memengaruhi hari Anda? (opsional)",
+      "factorImpact": "Dampak faktor (rata-rata suasana)"
     },
-    "features": {
-        "journal": {
-            "title": "Jurnal Saya",
-            "subtitle": "Ruang aman untuk menuliskan pikiran, perasaan, dan refleksi Anda",
-            "writeTitle": "Tulis entri baru",
-            "writePlaceholder": "Bagaimana perasaan Anda saat ini? Apa yang ada di pikiran Anda?...",
-            "saveEntry": "Simpan Entri",
-            "aiReflection": "Refleksi AI",
-            "summarize": "Ringkas",
-            "regenerate": "Buat Ulang",
-            "summaryHint": "Minta AI untuk merefleksikan entri terbaru Anda dan menunjukkan pola dengan lembut.",
-            "empty": "Belum ada entri jurnal. Tulis entri pertama Anda di sebelah kiri."
-        },
-        "assessments": {
-            "title": "Penilaian Mandiri",
-            "subtitle": "Skrining standar (PHQ-9 & GAD-7) untuk memantau kesejahteraan Anda dari waktu ke waktu — dokter Anda melihat skor terbaru",
-            "questionHint": "Dalam dua minggu terakhir, seberapa sering Anda terganggu oleh hal-hal berikut?",
-            "back": "Kembali",
-            "next": "Lanjut",
-            "submit": "Kirim",
-            "takeAgain": "Ulangi",
-            "history": "Riwayat",
-            "historyEmpty": "Belum ada hasil. Selesaikan skrining untuk memulai.",
-            "severeHint": "Skor ini menunjukkan gejala yang signifikan. Pertimbangkan untuk segera membuat janji temu — dokter Anda dapat melihat hasil ini dan bersiap untuk kunjungan Anda.",
-            "savedHint": "Skor terbaru Anda telah disimpan dan akan muncul dalam ringkasan pra-sesi dokter Anda.",
-            "disclaimer": "Alat skrining adalah indikator, bukan diagnosis. Selalu diskusikan hasil dengan profesional yang berkualifikasi.",
-            "trajectoryTitle": "Seiring waktu",
-            "trajectoryHint": "Perubahan skor skrining Anda dari waktu ke waktu.",
-            "trajectoryDisclaimer": "Ini adalah skor skrining, bukan diagnosis dan bukan ukuran pemulihan. Garis yang menurun berarti lebih sedikit gejala yang dilaporkan pada pengukuran tersebut; itu bukan bukti bahwa sesuatu telah disembuhkan, dan tidak menggantikan penilaian klinis.",
-            "sittings": "Pengukuran",
-            "latestScore": "Terbaru",
-            "change": "Perubahan keseluruhan",
-            "direction_improving": "Menurun",
-            "direction_worsening": "Meningkat",
-            "direction_stable": "Relatif stabil",
-            "direction_insufficient_data": "Pengukuran masih terlalu sedikit"
-        },
-        "analytics": {
-            "title": "Analitik Praktik",
-            "subtitle": "Pesanan, pendapatan, peringkat, dan kesejahteraan pasien Anda sekilas",
-            "totalAppointments": "Total janji temu",
-            "revenue6mo": "Pendapatan (6 bln)",
-            "cancellationRate": "Tingkat pembatalan",
-            "patientMood30d": "Suasana pasien (30 hr)",
-            "last6Months": "6 Bulan Terakhir",
-            "revenue": "Pendapatan (Rp)",
-            "completedSessions": "Sesi selesai",
-            "statusBreakdown": "Rincian Status",
-            "monthlyRating": "Tren Peringkat Bulanan",
-            "noRatings": "Belum ada ulasan dalam 6 bulan terakhir.",
-            "moodFootnote": "Suasana pasien menunjukkan rata-rata skor suasana yang dicatat oleh pasien yang menyelesaikan sesi dengan Anda dalam 30 hari terakhir."
-        },
-        "video": {
-            "back": "Kembali",
-            "badge": "Ruang Konsultasi Aman",
-            "opening": "Membuka ruangan Anda...",
-            "notAvailable": "Ruangan belum tersedia",
-            "notAvailableHint": "Anda akan menerima notifikasi saat lawan bicara bergabung. Sesi dibuka 15 menit sebelum waktu yang dijadwalkan.",
-            "sessionWithDoctor": "Sesi dengan",
-            "yourDoctor": "dokter Anda",
-            "yourPatient": "pasien",
-            "peerJoined": "Lawan bicara Anda telah bergabung ke ruangan!",
-            "peerWillBeNotified": "Lawan bicara Anda akan diberi tahu saat Anda bergabung",
-            "poweredBy": "Didukung oleh Jitsi Meet. Sesi bersifat pribadi antara Anda dan",
-            "opensIn": "Ruangan dibuka dalam {{minutes}} menit. Anda dapat bergabung 15 menit sebelum sesi dimulai.",
-            "badgeUnverified": "Sesi tidak terverifikasi",
-            "sessionWithPatient": "Sesi dengan",
-            "poweredByLiveKit": "Ter autentikasi ujung ke ujung dengan LiveKit. Sesi ini bersifat privat antara Anda dan",
-            "joinFailed": "Ruang konsultasi tidak dapat dibuka.",
-            "tryAgain": "Coba lagi",
-            "degradedNotice": "Sesi ini tidak terauthentikasi ujung ke ujung. IAction di hosting oleh pihak ketiga dan siapa pun yang memiliki tautan ini dapat bergabung. Pilih ruang privat jika memungkinkan.",
-            "roomTitle": "Ruang konsultasi",
-            "connecting": "Menghubungkan ke ruang konsultasi",
-            "mute": "Bisukan",
-            "unmute": "Aktifkan suara",
-            "startCamera": "Nyalakan kamera",
-            "stopCamera": "Matikan kamera",
-            "leave": "Keluar"
-        },
-        "moodFactors": {
-            "label": "Apa yang memengaruhi hari Anda? (opsional)",
-            "factorImpact": "Dampak faktor (rata-rata suasana)"
-        },
-        "reviewReply": {
-            "replyToReview": "Balas ulasan ini",
-            "placeholder": "Ucapkan terima kasih kepada pasien dan tanggapi masukan mereka secara profesional...",
-            "publish": "Terbitkan Balasan",
-            "reply": "Balas",
-            "editReply": "Edit balasan",
-            "cancel": "Batal",
-            "responseFrom": "Tanggapan dari"
-        },
-        "chat": {
-            "typing": "mengetik...",
-            "viewAttachment": "Lihat lampiran"
-        },
-        "sos": {
-            "title": "SOS — Saya butuh bantuan sekarang",
-            "subtitle": "Beri tahu dokter Anda dan lihat sumber daya krisis secara instan",
-            "confirm": "Ini akan memberi tahu dokter Anda dan menampilkan hotline krisis. Lanjutkan?",
-            "alerted": "Dokter Anda telah diberi tahu. Silakan hubungi hotline krisis jika Anda membutuhkan dukungan segera.",
-            "crisisHotlines": "Hotline krisis",
-            "myDoctor": "Dokter saya",
-            "notAlerted": "Kami tidak dapat menghubungi tim perawatan. Silakan hubungi salah satu nomor di bawah sekarang — tersedia 24 jam.",
-            "sendFailed": "Kami tidak dapat mengirim peringatan Anda. Silakan hubungi hotline langsung.",
-            "sending": "Mengirim…",
-            "alertDoctor": "Hubungi dokter saya",
-            "viewAllResources": "Lihat semua sumber daya krisis",
-            "offlineFallback": "Sepertinya Anda sedang offline, sehingga dokter Anda mungkin belum dihubungi. Silakan hubungi hotline sekarang."
-        },
-        "doctorProfile": {
-            "credentialsTitle": "Registrasi dan kredensial",
-            "credentialsStatusLabel": "Status",
-            "credentialsReviewed": "Profil ditinjau oleh MindEase",
-            "credentialsPending": "Menunggu peninjauan",
-            "credentialsLicenceLabel": "Lisensi",
-            "credentialsNotProvided": "Tidak disediakan",
-            "credentialsDisclaimer": "Profil yang telah ditinjau berarti administrator MindEase telah memeriksa informasi yang dikirimkan oleh klinisi. Peninjauan ini bukan pemeriksaan terhadap dewan lisensi, dan MindEase tidak terhubung dengan dewan lisensi mana pun. Jika nomor lisensi ditampilkan, itu adalah pernyataan klinisi sendiri dan belum dikonfirmasi secara independen. Jika Anda membutuhkan bukti registrasi, mintakan detail registrasinya kepada klinisi.",
-            "scheduleNotPublished": "Jadwal rutin klinisi ini belum dipublikasikan. Slot waktu yang tersedia ditampilkan di halaman pemesanan.",
-            "scheduleMayChange": "Ketersediaan dapat berubah sewaktu-waktu."
-        },
-        "riskQueue": {
-            "title": "Antrean risiko",
-            "intro": "Pengungkapan dari pasien Anda yang mungkin perlu ditangani hari ini.",
-            "includeResolved": "Tampilkan yang sudah diselesaikan",
-            "statUnresolved": "Belum diselesaikan",
-            "statUnacknowledged": "Belum dilihat",
-            "statUrgent": "Mendesak, belum dilihat",
-            "loading": "Memuat antrean",
-            "empty": "Tidak ada yang tertunda",
-            "emptyHint": "Tidak ada pengungkapan risiko yang belum diselesaikan untuk pasien yang Anda tangani.",
-            "urgent": "Mendesak",
-            "elevated": "Meningkat",
-            "acknowledged": "Sudah dilihat",
-            "unnamedPatient": "Pasien tanpa nama",
-            "latestScreening": "Skrining terbaru:",
-            "noteLabel": "Tindakan tercatat:",
-            "acknowledge": "Tandai sudah dilihat",
-            "resolve": "Selesaikan",
-            "confirmResolve": "Konfirmasi",
-            "notePlaceholder": "Apa yang Anda lakukan? (opsional)",
-            "openConversation": "Buka percakapan",
-            "resolvedToast": "Peringatan diselesaikan",
-            "actionFailed": "Tidak berhasil. Coba lagi.",
-            "newAlert": "Ada pengungkapan risiko baru yang perlu perhatian Anda",
-            "newUrgent": "Ada pengungkapan risiko mendesak yang perlu perhatian Anda",
-            "footerNote": "Kecocokan adalah sinyal kata kunci atau skrining, bukan penilaian klinis. Sinyal ini ada untuk mengingatkan Anda untuk melihatnya, bukan untuk bertindak atas nama Anda: tidak ada apa pun di sini yang menghubungi layanan darurat, dan setiap peringatan diselesaikan oleh manusia. Menandai sebagai dilihat mencatat bahwa Anda sudah melihatnya; menyelesaikan mencatat apa yang Anda lakukan. Keduanya tetap tersimpan di rekaman meskipun peringatan tersebut tidak lagi muncul di daftar ini.",
-            "loadFailed": "Antrean tidak dapat dimuat",
-            "retry": "Coba lagi",
-            "source_phq9": "Skrining PHQ-9",
-            "source_gad7": "Skrining GAD-7",
-            "source_sos": "Tombol SOS",
-            "source_message": "Pesan",
-            "source_mood": "Catatan suasana",
-            "severity_minimal": "Minimal",
-            "severity_mild": "Ringan",
-            "severity_moderate": "Sedang",
-            "severity_moderatelySevere": "Sedang hingga berat",
-            "severity_severe": "Berat"
-        },
-        "safetyPlan": {
-            "title": "Rencana keamanan saya",
-            "intro": "Dokumen yang Anda tulis sendiri, untuk saat Anda mungkin membutuhkannya dan tidak dapat berpikir jernih. Hanya Anda dan psikolog yang Anda temui yang dapat membacanya.",
-            "emptyHint": "Anda belum menulisnya. Tidak harus lengkap - isi yang bisa Anda isi dan kembali lagi kapan saja.",
-            "lastReviewed": "Terakhir ditinjau bersama psikolog:",
-            "warningSignsTitle": "Tanda-tanda awal",
-            "warningSignsHint": "Apa yang Anda rasakan pada diri sendiri sebelum keadaan memburuk. Dengan kata-kata Anda sendiri, bukan daftar gejala.",
-            "copingTitle": "Apa yang membantu",
-            "copingHint": "Apa yang benar-benar pernah membantu, bukan apa yang seharusnya membantu.",
-            "reasonsTitle": "Alasan untuk tetap bertahan",
-            "reasonsHint": "Orang, tempat, hal yang harus dilakukan. Rencana yang hanya memuat masalah adalah hal yang sulit dibaca.",
-            "contactsTitle": "Orang yang bisa saya hubungi",
-            "contactsHint": "Nama dan nomor orang yang bukan klinisi. Satu baris untuk setiap orang.",
-            "professionalTitle": "Profesional yang dihubungi lebih dulu",
-            "locationTitle": "Tempat yang aman, dan barang yang disiapkan",
-            "save": "Simpan",
-            "saved": "Rencana keamanan disimpan",
-            "saveFailed": "Gagal menyimpan. Coba lagi.",
-            "loading": "Memuat rencana keamanan Anda",
-            "showPreview": "Pratinjau",
-            "hidePreview": "Sembunyikan pratinjau",
-            "previewLabel": "Pratinjau",
-            "notWritten": "Belum ditulis",
-            "footerNote": "Rencana ini milik Anda. Tidak ada bagian yang ditulis untuk Anda, dan tidak ada yang dikirim ke model AI. Psikolog Anda dapat membacanya agar Anda dapat bahas bersama, dan peninjauan tercatat ketika hal itu terjadi."
-        },
-        "carePlan": {
-            "title": "Rencana perawatan saya",
-            "intro": "Apa yang sedang Anda dan psikolog tuju, disimpan di antara sesi sehingga tidak ada yang perlu memulai dari nol setiap kali.",
-            "reviewDue": "Tinjauan berikutnya:",
-            "addGoal": "Tambah tujuan",
-            "newGoalPlaceholder": "Tujuan yang sedang Anda kejar",
-            "empty": "Belum ada tujuan",
-            "emptyHint": "Tambahkan yang pertama. Yang singkat dan spesifik lebih baik daripada yang ambisius.",
-            "addStep": "Tambah langkah",
-            "newStepPlaceholder": "Tindakan kecil berikutnya",
-            "target": "Target:",
-            "statusLabel": "Status",
-            "status_open": "Belum dimulai",
-            "status_in_progress": "Sedang berjalan",
-            "status_achieved": "Tercapai",
-            "status_dropped": "Dihentikan",
-            "loading": "Memuat rencana perawatan Anda",
-            "actionFailed": "Tidak berhasil. Coba lagi.",
-            "footerNote": "Rencana ini milik Anda. Tujuan yang Anda putuskan sudah tidak tepat dapat ditandai dihentikan, bukan dihapus - berguna untuk bisa melihat bahwa sesuatu pernah dicoba dan arahnya diubah."
-        }
+    "reviewReply": {
+      "replyToReview": "Balas ulasan ini",
+      "placeholder": "Ucapkan terima kasih kepada pasien dan tanggapi masukan mereka secara profesional...",
+      "publish": "Terbitkan Balasan",
+      "reply": "Balas",
+      "editReply": "Edit balasan",
+      "cancel": "Batal",
+      "responseFrom": "Tanggapan dari"
     },
-    "staticPages": {
-        "crisis": {
-            "metaTitle": "Dukungan Krisis & Hotline",
-            "metaDescription": "Jika Anda atau seseorang yang Anda kenal sedang dalam krisis, hubungi sekarang. Nomor darurat, hotline krisis, dan sumber daya bantuan segera untuk pengguna Indonesia dan internasional.",
-            "title": "Anda tidak sendirian",
-            "subtitle": "Jika Anda atau seseorang yang Anda kenal sedang dalam krisis, hubungi sekarang. Bantuan tersedia 24/7.",
-            "immediateSteps": "Yang harus dilakukan sekarang",
-            "hotlinesTitle": "Hotline krisis",
-            "hotlinesNote": "Gratis, rahasia, dan tersedia sepanjang waktu.",
-            "reachOutTitle": "Hubungi untuk dukungan",
-            "reachOutBody": "Jika berbicara lewat telepon terasa sulit, kirim pesan atau ngobrol dengan orang yang Anda percaya. Anda juga dapat membuat janji temu dengan psikolog berlisensi di MindEase — tetapi jika ada bahaya langsung, selalu hubungi darurat terlebih dahulu.",
-            "hotlines": [
-                {
-                    "name": "Layanan Darurat (Ambulans & Polisi)",
-                    "number": "112",
-                    "note": "Hubungi segera jika ada bahaya langsung terhadap nyawa.",
-                    "whatsapp": false
-                },
-                {
-                    "name": "Kemenkes SEJIWA (Hotline Krisis Nasional)",
-                    "number": "119 ext 8",
-                    "note": "Kementerian Kesehatan RI — hotline krisis kesehatan jiwa 24/7.",
-                    "whatsapp": false
-                },
-                {
-                    "name": "Halo Kemenkes",
-                    "number": "1500-567",
-                    "note": "Layanan kesehatan umum — minta dihubungkan ke dukungan psikologis.",
-                    "whatsapp": false
-                },
-                {
-                    "name": "Into The Light Indonesia",
-                    "number": "+62 812-123-2012",
-                    "note": "Chat dukungan sebaya bagi yang mengalami tekanan (WhatsApp).",
-                    "whatsapp": true
-                },
-                {
-                    "name": "Bebas Bicara",
-                    "number": "+62 811-125-2424",
-                    "note": "Layanan pendengar dan rujukan gratis via WhatsApp.",
-                    "whatsapp": true
-                },
-                {
-                    "name": "988 Suicide & Crisis Lifeline (AS)",
-                    "number": "988",
-                    "note": "Untuk pengguna di Amerika Serikat — telepon atau SMS, 24/7.",
-                    "whatsapp": false
-                },
-                {
-                    "name": "Samaritans (UK & ROI)",
-                    "number": "116 123",
-                    "note": "Saluran bantuan 24/7 gratis bagi siapa saja yang sedang kesulitan.",
-                    "whatsapp": false
-                },
-                {
-                    "name": "Layanan Darurat (Internasional)",
-                    "number": "112",
-                    "note": "Nomor darurat standar di sebagian besar negara.",
-                    "whatsapp": false
-                }
-            ],
-            "steps": [
-                {
-                    "title": "1. Hubungi hotline sekarang",
-                    "description": "Jangan menunggu. Hotline krisis gratis, rahasia, dan tersedia 24/7. Teruslah berbicara sampai Anda merasa risiko langsung telah berlalu."
-                },
-                {
-                    "title": "2. Jangan sendirian",
-                    "description": "Jika memungkinkan, jangan sendirian. Hubungi teman atau keluarga yang dipercaya, atau pergilah ke tempat yang ada orang lain."
-                },
-                {
-                    "title": "3. Jauhkan bahaya langsung",
-                    "description": "Jika Anda memiliki akses ke sesuatu yang dapat membahayakan Anda, jauhkan diri Anda darinya — atau minta orang yang Anda percaya untuk memindahkannya."
-                }
-            ]
-        },
-        "faq": {
-            "title": "Pertanyaan yang sering",
-            "titleAccent": "diajukan",
-            "subtitle": "Semua yang perlu Anda ketahui tentang pemesanan, konsultasi, fitur AI, dan data Anda."
-        },
-        "help": {
-            "title": "Pusat Bantuan",
-            "subtitle": "Semua yang Anda butuhkan untuk memaksimalkan MindEase. Cari topik, atau gunakan asisten dukungan di pojok kanan bawah untuk jawaban instan."
-        },
-        "about": {
-            "title": "Perawatan kesehatan jiwa yang",
-            "titleAccent": "sesuai dengan hidup Anda",
-            "subtitle": "MindEase hadir untuk menjernihkan dukungan kesehatan jiwa. Kami menggabungkan jaringan psikolog berlisensi dengan alat AI klinis yang menyiapkan Anda dan dokter untuk setiap sesi — agar waktu bersama menjadi berharga."
-        },
-        "contact": {
-            "title": "Kami siap",
-            "titleAccent": "membantu",
-            "subtitle": "Hubungi tim yang tepat di bawah. Untuk hal mendesak, gunakan hotline krisis kami daripada email."
-        },
-        "disclaimer": {
-            "title": "Mohon baca ini",
-            "titleAccent": "dengan saksama",
-            "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan dan fitur AI MindEase"
-        },
-        "terms": {
-            "title": "Ketentuan yang jelas,",
-            "titleAccent": "perawatan yang adil.",
-            "subtitle": "Terakhir diperbarui: Agustus 2026 · Baca bersama Kebijakan Privasi kami"
-        },
-        "privacy": {
-            "title": "Privasi Anda",
-            "titleAccent": "sangat berharga.",
-            "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan MindEase"
-        },
-        "offline": {
-            "metaTitle": "Anda sedang offline — MindEase",
-            "metaDescription": "MindEase tidak dapat menjangkau jaringan.",
-            "title": "Sepertinya Anda sedang offline",
-            "body": "Kami tidak dapat menjangkau jaringan, jadi sebagian fitur MindEase tidak tersedia saat ini. Periksa koneksi Anda lalu coba lagi.",
-            "retry": "Coba lagi",
-            "crisisTitle": "Butuh bantuan sekarang?",
-            "crisisBody": "Nomor ini dapat dihubungi tanpa koneksi data. Jika Anda dalam bahaya segera, hubungi nomor darurat.",
-            "hotlines": [
-                {
-                    "name": "Layanan Darurat (Indonesia)",
-                    "dial": "112",
-                    "contact": "112 / 119"
-                },
-                {
-                    "name": "Kemenkes SEJIWA",
-                    "dial": "119",
-                    "contact": "119 ext 8"
-                },
-                {
-                    "name": "Halo Kemenkes",
-                    "dial": "1500567",
-                    "contact": "1500-567"
-                },
-                {
-                    "name": "Into The Light (WhatsApp)",
-                    "dial": "628121232012",
-                    "contact": "+62 812-123-2012"
-                }
-            ]
-        }
+    "chat": {
+      "typing": "mengetik...",
+      "viewAttachment": "Lihat lampiran"
+    },
+    "sos": {
+      "title": "SOS — Saya butuh bantuan sekarang",
+      "subtitle": "Beri tahu dokter Anda dan lihat sumber daya krisis secara instan",
+      "confirm": "Ini akan memberi tahu dokter Anda dan menampilkan hotline krisis. Lanjutkan?",
+      "alerted": "Dokter Anda telah diberi tahu. Silakan hubungi hotline krisis jika Anda membutuhkan dukungan segera.",
+      "crisisHotlines": "Hotline krisis",
+      "myDoctor": "Dokter saya",
+      "notAlerted": "Kami tidak dapat menghubungi tim perawatan. Silakan hubungi salah satu nomor di bawah sekarang — tersedia 24 jam.",
+      "sendFailed": "Kami tidak dapat mengirim peringatan Anda. Silakan hubungi hotline langsung.",
+      "sending": "Mengirim…",
+      "alertDoctor": "Hubungi dokter saya",
+      "viewAllResources": "Lihat semua sumber daya krisis",
+      "offlineFallback": "Sepertinya Anda sedang offline, sehingga dokter Anda mungkin belum dihubungi. Silakan hubungi hotline sekarang."
+    },
+    "doctorProfile": {
+      "credentialsTitle": "Registrasi dan kredensial",
+      "credentialsStatusLabel": "Status",
+      "credentialsReviewed": "Profil ditinjau oleh MindEase",
+      "credentialsPending": "Menunggu peninjauan",
+      "credentialsLicenceLabel": "Lisensi",
+      "credentialsNotProvided": "Tidak disediakan",
+      "credentialsDisclaimer": "Profil yang telah ditinjau berarti administrator MindEase telah memeriksa informasi yang dikirimkan oleh klinisi. Peninjauan ini bukan pemeriksaan terhadap dewan lisensi, dan MindEase tidak terhubung dengan dewan lisensi mana pun. Jika nomor lisensi ditampilkan, itu adalah pernyataan klinisi sendiri dan belum dikonfirmasi secara independen. Jika Anda membutuhkan bukti registrasi, mintakan detail registrasinya kepada klinisi.",
+      "scheduleNotPublished": "Jadwal rutin klinisi ini belum dipublikasikan. Slot waktu yang tersedia ditampilkan di halaman pemesanan.",
+      "scheduleMayChange": "Ketersediaan dapat berubah sewaktu-waktu."
+    },
+    "riskQueue": {
+      "title": "Antrean risiko",
+      "intro": "Pengungkapan dari pasien Anda yang mungkin perlu ditangani hari ini.",
+      "includeResolved": "Tampilkan yang sudah diselesaikan",
+      "statUnresolved": "Belum diselesaikan",
+      "statUnacknowledged": "Belum dilihat",
+      "statUrgent": "Mendesak, belum dilihat",
+      "loading": "Memuat antrean",
+      "empty": "Tidak ada yang tertunda",
+      "emptyHint": "Tidak ada pengungkapan risiko yang belum diselesaikan untuk pasien yang Anda tangani.",
+      "urgent": "Mendesak",
+      "elevated": "Meningkat",
+      "acknowledged": "Sudah dilihat",
+      "unnamedPatient": "Pasien tanpa nama",
+      "latestScreening": "Skrining terbaru:",
+      "noteLabel": "Tindakan tercatat:",
+      "acknowledge": "Tandai sudah dilihat",
+      "resolve": "Selesaikan",
+      "confirmResolve": "Konfirmasi",
+      "notePlaceholder": "Apa yang Anda lakukan? (opsional)",
+      "openConversation": "Buka percakapan",
+      "resolvedToast": "Peringatan diselesaikan",
+      "actionFailed": "Tidak berhasil. Coba lagi.",
+      "newAlert": "Ada pengungkapan risiko baru yang perlu perhatian Anda",
+      "newUrgent": "Ada pengungkapan risiko mendesak yang perlu perhatian Anda",
+      "footerNote": "Kecocokan adalah sinyal kata kunci atau skrining, bukan penilaian klinis. Sinyal ini ada untuk mengingatkan Anda untuk melihatnya, bukan untuk bertindak atas nama Anda: tidak ada apa pun di sini yang menghubungi layanan darurat, dan setiap peringatan diselesaikan oleh manusia. Menandai sebagai dilihat mencatat bahwa Anda sudah melihatnya; menyelesaikan mencatat apa yang Anda lakukan. Keduanya tetap tersimpan di rekaman meskipun peringatan tersebut tidak lagi muncul di daftar ini.",
+      "loadFailed": "Antrean tidak dapat dimuat",
+      "retry": "Coba lagi",
+      "source_phq9": "Skrining PHQ-9",
+      "source_gad7": "Skrining GAD-7",
+      "source_sos": "Tombol SOS",
+      "source_message": "Pesan",
+      "source_mood": "Catatan suasana",
+      "severity_minimal": "Minimal",
+      "severity_mild": "Ringan",
+      "severity_moderate": "Sedang",
+      "severity_moderatelySevere": "Sedang hingga berat",
+      "severity_severe": "Berat"
+    },
+    "safetyPlan": {
+      "title": "Rencana keamanan saya",
+      "intro": "Dokumen yang Anda tulis sendiri, untuk saat Anda mungkin membutuhkannya dan tidak dapat berpikir jernih. Hanya Anda dan psikolog yang Anda temui yang dapat membacanya.",
+      "emptyHint": "Anda belum menulisnya. Tidak harus lengkap - isi yang bisa Anda isi dan kembali lagi kapan saja.",
+      "lastReviewed": "Terakhir ditinjau bersama psikolog:",
+      "warningSignsTitle": "Tanda-tanda awal",
+      "warningSignsHint": "Apa yang Anda rasakan pada diri sendiri sebelum keadaan memburuk. Dengan kata-kata Anda sendiri, bukan daftar gejala.",
+      "copingTitle": "Apa yang membantu",
+      "copingHint": "Apa yang benar-benar pernah membantu, bukan apa yang seharusnya membantu.",
+      "reasonsTitle": "Alasan untuk tetap bertahan",
+      "reasonsHint": "Orang, tempat, hal yang harus dilakukan. Rencana yang hanya memuat masalah adalah hal yang sulit dibaca.",
+      "contactsTitle": "Orang yang bisa saya hubungi",
+      "contactsHint": "Nama dan nomor orang yang bukan klinisi. Satu baris untuk setiap orang.",
+      "professionalTitle": "Profesional yang dihubungi lebih dulu",
+      "locationTitle": "Tempat yang aman, dan barang yang disiapkan",
+      "save": "Simpan",
+      "saved": "Rencana keamanan disimpan",
+      "saveFailed": "Gagal menyimpan. Coba lagi.",
+      "loading": "Memuat rencana keamanan Anda",
+      "showPreview": "Pratinjau",
+      "hidePreview": "Sembunyikan pratinjau",
+      "previewLabel": "Pratinjau",
+      "notWritten": "Belum ditulis",
+      "footerNote": "Rencana ini milik Anda. Tidak ada bagian yang ditulis untuk Anda, dan tidak ada yang dikirim ke model AI. Psikolog Anda dapat membacanya agar Anda dapat bahas bersama, dan peninjauan tercatat ketika hal itu terjadi."
+    },
+    "carePlan": {
+      "title": "Rencana perawatan saya",
+      "intro": "Apa yang sedang Anda dan psikolog tuju, disimpan di antara sesi sehingga tidak ada yang perlu memulai dari nol setiap kali.",
+      "reviewDue": "Tinjauan berikutnya:",
+      "addGoal": "Tambah tujuan",
+      "newGoalPlaceholder": "Tujuan yang sedang Anda kejar",
+      "empty": "Belum ada tujuan",
+      "emptyHint": "Tambahkan yang pertama. Yang singkat dan spesifik lebih baik daripada yang ambisius.",
+      "addStep": "Tambah langkah",
+      "newStepPlaceholder": "Tindakan kecil berikutnya",
+      "target": "Target:",
+      "statusLabel": "Status",
+      "status_open": "Belum dimulai",
+      "status_in_progress": "Sedang berjalan",
+      "status_achieved": "Tercapai",
+      "status_dropped": "Dihentikan",
+      "loading": "Memuat rencana perawatan Anda",
+      "actionFailed": "Tidak berhasil. Coba lagi.",
+      "footerNote": "Rencana ini milik Anda. Tujuan yang Anda putuskan sudah tidak tepat dapat ditandai dihentikan, bukan dihapus - berguna untuk bisa melihat bahwa sesuatu pernah dicoba dan arahnya diubah."
     }
+  },
+  "staticPages": {
+    "crisis": {
+      "metaTitle": "Dukungan Krisis & Hotline",
+      "metaDescription": "Jika Anda atau seseorang yang Anda kenal sedang dalam krisis, hubungi sekarang. Nomor darurat, hotline krisis, dan sumber daya bantuan segera untuk pengguna Indonesia dan internasional.",
+      "title": "Anda tidak sendirian",
+      "subtitle": "Jika Anda atau seseorang yang Anda kenal sedang dalam krisis, hubungi sekarang. Bantuan tersedia 24/7.",
+      "immediateSteps": "Yang harus dilakukan sekarang",
+      "hotlinesTitle": "Hotline krisis",
+      "hotlinesNote": "Gratis, rahasia, dan tersedia sepanjang waktu.",
+      "reachOutTitle": "Hubungi untuk dukungan",
+      "reachOutBody": "Jika berbicara lewat telepon terasa sulit, kirim pesan atau ngobrol dengan orang yang Anda percaya. Anda juga dapat membuat janji temu dengan psikolog berlisensi di MindEase — tetapi jika ada bahaya langsung, selalu hubungi darurat terlebih dahulu.",
+      "hotlines": [
+        {
+          "name": "Layanan Darurat (Ambulans & Polisi)",
+          "number": "112",
+          "note": "Hubungi segera jika ada bahaya langsung terhadap nyawa.",
+          "whatsapp": false
+        },
+        {
+          "name": "Kemenkes SEJIWA (Hotline Krisis Nasional)",
+          "number": "119 ext 8",
+          "note": "Kementerian Kesehatan RI — hotline krisis kesehatan jiwa 24/7.",
+          "whatsapp": false
+        },
+        {
+          "name": "Halo Kemenkes",
+          "number": "1500-567",
+          "note": "Layanan kesehatan umum — minta dihubungkan ke dukungan psikologis.",
+          "whatsapp": false
+        },
+        {
+          "name": "Into The Light Indonesia",
+          "number": "+62 812-123-2012",
+          "note": "Chat dukungan sebaya bagi yang mengalami tekanan (WhatsApp).",
+          "whatsapp": true
+        },
+        {
+          "name": "Bebas Bicara",
+          "number": "+62 811-125-2424",
+          "note": "Layanan pendengar dan rujukan gratis via WhatsApp.",
+          "whatsapp": true
+        },
+        {
+          "name": "988 Suicide & Crisis Lifeline (AS)",
+          "number": "988",
+          "note": "Untuk pengguna di Amerika Serikat — telepon atau SMS, 24/7.",
+          "whatsapp": false
+        },
+        {
+          "name": "Samaritans (UK & ROI)",
+          "number": "116 123",
+          "note": "Saluran bantuan 24/7 gratis bagi siapa saja yang sedang kesulitan.",
+          "whatsapp": false
+        },
+        {
+          "name": "Layanan Darurat (Internasional)",
+          "number": "112",
+          "note": "Nomor darurat standar di sebagian besar negara.",
+          "whatsapp": false
+        }
+      ],
+      "steps": [
+        {
+          "title": "1. Hubungi hotline sekarang",
+          "description": "Jangan menunggu. Hotline krisis gratis, rahasia, dan tersedia 24/7. Teruslah berbicara sampai Anda merasa risiko langsung telah berlalu."
+        },
+        {
+          "title": "2. Jangan sendirian",
+          "description": "Jika memungkinkan, jangan sendirian. Hubungi teman atau keluarga yang dipercaya, atau pergilah ke tempat yang ada orang lain."
+        },
+        {
+          "title": "3. Jauhkan bahaya langsung",
+          "description": "Jika Anda memiliki akses ke sesuatu yang dapat membahayakan Anda, jauhkan diri Anda darinya — atau minta orang yang Anda percaya untuk memindahkannya."
+        }
+      ]
+    },
+    "faq": {
+      "title": "Pertanyaan yang sering",
+      "titleAccent": "diajukan",
+      "subtitle": "Semua yang perlu Anda ketahui tentang pemesanan, konsultasi, fitur AI, dan data Anda."
+    },
+    "help": {
+      "title": "Pusat Bantuan",
+      "subtitle": "Semua yang Anda butuhkan untuk memaksimalkan MindEase. Cari topik, atau gunakan asisten dukungan di pojok kanan bawah untuk jawaban instan."
+    },
+    "about": {
+      "title": "Perawatan kesehatan jiwa yang",
+      "titleAccent": "sesuai dengan hidup Anda",
+      "subtitle": "MindEase hadir untuk menjernihkan dukungan kesehatan jiwa. Kami menggabungkan jaringan psikolog berlisensi dengan alat AI klinis yang menyiapkan Anda dan dokter untuk setiap sesi — agar waktu bersama menjadi berharga."
+    },
+    "contact": {
+      "title": "Kami siap",
+      "titleAccent": "membantu",
+      "subtitle": "Hubungi tim yang tepat di bawah. Untuk hal mendesak, gunakan hotline krisis kami daripada email."
+    },
+    "disclaimer": {
+      "title": "Mohon baca ini",
+      "titleAccent": "dengan saksama",
+      "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan dan fitur AI MindEase"
+    },
+    "terms": {
+      "title": "Ketentuan yang jelas,",
+      "titleAccent": "perawatan yang adil.",
+      "subtitle": "Terakhir diperbarui: Agustus 2026 · Baca bersama Kebijakan Privasi kami"
+    },
+    "privacy": {
+      "title": "Privasi Anda",
+      "titleAccent": "sangat berharga.",
+      "subtitle": "Terakhir diperbarui: Agustus 2026 · Berlaku untuk semua layanan MindEase"
+    },
+    "offline": {
+      "metaTitle": "Anda sedang offline — MindEase",
+      "metaDescription": "MindEase tidak dapat menjangkau jaringan.",
+      "title": "Sepertinya Anda sedang offline",
+      "body": "Kami tidak dapat menjangkau jaringan, jadi sebagian fitur MindEase tidak tersedia saat ini. Periksa koneksi Anda lalu coba lagi.",
+      "retry": "Coba lagi",
+      "crisisTitle": "Butuh bantuan sekarang?",
+      "crisisBody": "Nomor ini dapat dihubungi tanpa koneksi data. Jika Anda dalam bahaya segera, hubungi nomor darurat.",
+      "hotlines": [
+        {
+          "name": "Layanan Darurat (Indonesia)",
+          "dial": "112",
+          "contact": "112 / 119"
+        },
+        {
+          "name": "Kemenkes SEJIWA",
+          "dial": "119",
+          "contact": "119 ext 8"
+        },
+        {
+          "name": "Halo Kemenkes",
+          "dial": "1500567",
+          "contact": "1500-567"
+        },
+        {
+          "name": "Into The Light (WhatsApp)",
+          "dial": "628121232012",
+          "contact": "+62 812-123-2012"
+        }
+      ]
+    }
+  }
 }
