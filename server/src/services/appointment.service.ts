@@ -748,7 +748,7 @@ export class AppointmentService {
         const appointment = await prisma.appointment.findUnique({
             where: { id },
             include: {
-                user: { select: { id: true, name: true } },
+                user: { select: { id: true, name: true, timezone: true } },
                 doctor: { include: { user: { select: { id: true, name: true } } } },
             },
         });
@@ -764,15 +764,35 @@ export class AppointmentService {
             throw forbidden("not a participant of this consultation");
         }
 
-        const start = new Date(appointment.appointmentDate);
-        const [h, m] = (appointment.startTime || "00:00").split(":").map(Number);
-        start.setHours(h || 0, m || 0, 0, 0);
+        // The window is judged in the *booker's* timezone, exactly as
+        // `createAppointment` judged it when the appointment was booked. Two
+        // things were wrong before:
+        //
+        //   - `new Date("2026-10-02")` parses an ISO date-only string as **UTC**
+        //     midnight, and the following `setHours` then applies the **host's**
+        //     local offset. On a UTC host the two cancel out; on a host in UTC+7 the
+        //     start instant moved by seven hours.
+        //   - Even where they cancelled, the answer depended on where the server
+        //     happened to run. Booking said "not in the past" using the user's zone
+        //     and joining said "opens in N minutes" using the host's, so the two
+        //     endpoints could disagree about the same appointment.
+        //
+        // A participant whose booking was accepted could be refused at the door, and
+        // the error - "The room opens in N minutes" - named a time hours away from
+        // the one they had agreed to.
+        const timezone = resolveTimezone(appointment.user.timezone);
+        const dayStart = startOfZonedDay(
+            localDateKey(parseLocalDate(appointment.appointmentDate)),
+            timezone
+        );
+
+        const startMinutes = timeToMinutes(appointment.startTime ?? "00:00");
+        const endMinutes = timeToMinutes(appointment.endTime ?? "00:00");
+        const start = new Date(dayStart.getTime() + startMinutes * 60 * 1000);
+        const end = new Date(dayStart.getTime() + endMinutes * 60 * 1000);
 
         const now = Date.now();
         const OPEN_EARLY_MS = 15 * 60 * 1000;
-        const closeMs = (appointment.endTime || "00:00").split(":").map(Number);
-        const end = new Date(appointment.appointmentDate);
-        end.setHours(closeMs[0] || 0, closeMs[1] || 0, 0, 0);
         const CLOSE_LATE_MS = 60 * 60 * 1000;
 
         if (now < start.getTime() - OPEN_EARLY_MS) {
