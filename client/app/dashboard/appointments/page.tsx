@@ -130,7 +130,7 @@ export default function AppointmentHistory() {
                 </div>
             ) : appointments.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4">
-                    {appointments.map((app: any, idx) => (
+                    {appointments.map((app: any, idx: number) => (
                         <motion.div
                                 key={app.id}
                                 initial={{ opacity: 0, y: 10 }}
@@ -280,8 +280,26 @@ export default function AppointmentHistory() {
 
                                         {app.status === "confirmed" && (
                                             <button
-                                                onClick={() => router.push(`/messages?with=${user.role === "doctor" ? app.user?.id : app.doctor?.userId}`)}
-                                                className="flex items-center gap-1 px-3 py-2 bg-indigo-500 text-white rounded-xl font-bold text-xs hover:bg-indigo-600 transition-all"
+                                                onClick={() => {
+                                                    // The conversation is keyed by the
+                                                    // counterpart's *user* id, which is
+                                                    // `doctor.user.id` — not `doctor.userId`,
+                                                    // which is the doctor's own profile id.
+                                                    // This read `app.doctor?.userId`, so the
+                                                    // link resolved to `?with=undefined` and the
+                                                    // thread never opened. Every other read of
+                                                    // the counterpart in this file goes through
+                                                    // `app.doctor.user.id`.
+                                                    const counterpartId =
+                                                        user.role === "doctor"
+                                                            ? app.user?.id
+                                                            : app.doctor?.user?.id;
+                                                    if (counterpartId) {
+                                                        router.push(`/messages?with=${counterpartId}`);
+                                                    }
+                                                }}
+                                                disabled={user.role === "doctor" ? !app.user?.id : !app.doctor?.user?.id}
+                                                className="flex items-center gap-1 px-3 py-2 bg-indigo-500 text-white rounded-xl font-bold text-xs hover:bg-indigo-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 <MessageCircle className="w-4 h-4" /> Chat
                                             </button>
@@ -413,15 +431,17 @@ export default function AppointmentHistory() {
             }
 
             <AnimatePresence>
-                {reviewTarget && (
-                    <ReviewModal
-                        doctorId={reviewTarget.doctor?.id || reviewTarget.doctorId}
-                        doctorName={reviewTarget.doctor?.user?.name || "Doctor"}
-                        appointmentId={reviewTarget.id}
-                        onClose={() => setReviewTarget(null)}
-                        onSuccess={() => queryClient.invalidateQueries({ queryKey: ["appointments", "mine"] })}
-                    />
-                )}
+                {/* `ReviewModal` is always mounted and owns its own presence via
+                    `Dialog`, so the exit animation runs. The other modals below
+                    still gate on their own state. */}
+                <ReviewModal
+                    open={reviewTarget !== null}
+                    doctorId={reviewTarget?.doctor?.id || reviewTarget?.doctorId || 0}
+                    doctorName={reviewTarget?.doctor?.user?.name || "Doctor"}
+                    appointmentId={reviewTarget?.id || 0}
+                    onClose={() => setReviewTarget(null)}
+                    onSuccess={() => queryClient.invalidateQueries({ queryKey: ["appointments", "mine"] })}
+                />
                 {rescheduleTarget && (
                     <RescheduleModal
                         appointment={rescheduleTarget}

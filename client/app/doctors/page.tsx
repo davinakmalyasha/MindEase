@@ -7,36 +7,9 @@ import { Star, Sparkles, Loader2 } from "lucide-react";
 import FilterSidebar from "@/components/doctors/FilterSidebar";
 import DoctorGrid from "@/components/doctors/DoctorGrid";
 import Navbar from "@/components/layout/Navbar";
+import AiSourceBadge from "@/components/ui/AiSourceBadge";
 import api from "@/lib/api";
-
-interface ApiDoctor {
-    id: number;
-    specialty: string;
-    bio: string;
-    experience: number;
-    rating: number;
-    price: number;
-    availability: string;
-    verificationStatus?: string;
-    user: { name?: string; avatar?: string; phone_number?: string };
-    reviews?: any[];
-}
-
-const mapDoctor = (d: ApiDoctor): any => ({
-    id: d.id,
-    name: d.user?.name || "Doctor",
-    specialty: d.specialty,
-    avatar: d.user?.avatar || "",
-    image: d.user?.avatar || "",
-    rating: d.rating || 0,
-    reviewCount: (d as any)._count?.reviews || d.reviews?.length || 0,
-    experience: d.experience || 0,
-    isAvailable: d.availability === "Available",
-    isVerified: d.verificationStatus === "approved",
-    bio: d.bio || "",
-    price: d.price || 0,
-    availability: d.availability,
-});
+import { mapDoctor, type ApiDoctor } from "@/lib/mapDoctor";
 
 const PRICE_RANGES: Record<string, { min?: number; max?: number }> = {
     under100: { max: 100000 },
@@ -57,6 +30,7 @@ function DoctorsContent() {
     const [aiMatches, setAiMatches] = useState<any[] | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
     const [aiCriteria, setAiCriteria] = useState<string>("");
+    const [aiSource, setAiSource] = useState<"model" | "fallback" | undefined>(undefined);
 
     // Filters live in the URL and are applied SERVER-SIDE (search, specialty,
     // price preset, experience, availability, sort) so pagination is correct.
@@ -145,6 +119,7 @@ function DoctorsContent() {
             const res = await api.post("/ai/match-doctors", { query });
             const data = res.data?.data;
             setAiMatches(data?.doctors || []);
+            setAiSource(data?.ai?.source);
             const c = data?.criteria;
             setAiCriteria(
                 [c?.specialty ? `specialty: ${c.specialty}` : "", c?.maxPrice ? `max price: Rp ${c.maxPrice.toLocaleString("id-ID")}` : "", c?.minExperience ? `min ${c.minExperience} yrs` : ""]
@@ -227,8 +202,9 @@ function DoctorsContent() {
                         <div className="mt-4 pt-4 border-t border-gray-100">
                             <div className="flex items-center justify-between mb-3">
                                 <p className="text-sm font-black text-gray-900">AI recommended {aiMatches.length} specialist{aiMatches.length === 1 ? "" : "s"}</p>
-                                {aiCriteria && <p className="text-[11px] text-gray-400 font-medium">{aiCriteria}</p>}
+                                <AiSourceBadge source={aiSource} />
                             </div>
+                            {aiCriteria && <p className="text-[11px] text-gray-400 font-medium">{aiCriteria}</p>}
                             {aiMatches.length === 0 ? (
                                 <p className="text-sm text-gray-400 py-4 text-center">No specialists matched your description. Try browsing manually below.</p>
                             ) : (

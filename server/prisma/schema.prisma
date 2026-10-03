@@ -62,9 +62,33 @@ model User {
   referralReceived Referral?    @relation("ReferralReceived")
   pushSubscriptions PushSubscription[]
   riskAlerts RiskAlert[]
+  // Patient-owned clinical continuity. See CarePlan for why the plan belongs
+  // to the patient rather than to the clinician.
+  //
+  // A list, not a single plan: a plan closes and a new one starts across a
+  // treatment episode, and the closed one is part of the history. Collapsing
+  // them would lose the only record of what was agreed earlier.
+  carePlans  CarePlan[]
+  // A single safety plan, deliberately. See SafetyPlan for why.
+  safetyPlan SafetyPlan?
   doctorProfile Doctor?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+
+  // Cron scan indexes. The mood-nudge and decline-nudge jobs look for patients
+  // past a per-user timestamp within a role, and the weekly report looks for
+  // opted-in patients by role. All three were full table scans on every run, on
+  // every replica, before these existed.
+  @@index([role, lastMoodNudgeAt])
+  @@index([role, lastDeclineNudgeAt])
+  @@index([weeklyReportEnabled, role])
+  // The admin user list sorts by `createdAt desc` with an optional `role`
+  // filter, and there was no `createdAt` index on this model at all - so every
+  // page click was a full scan plus a filesort.
+  @@index([createdAt])
+  @@index([role, createdAt])
+  // The care check-in jobs scan `role = 'patient'` ordered by `id`.
+  @@index([role, id])
 }
 
 model Doctor {
@@ -99,6 +123,15 @@ model Doctor {
   awayUntil     DateTime?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
+
+  // Directory indexes. Every directory query filters on `verificationStatus`
+  // (unapproved clinicians are hidden) and then filters or sorts on one of
+  // specialty / price / rating / experience, optionally excluding clinicians
+  // inside an `awayUntil` window.
+  @@index([verificationStatus, rating])
+  @@index([specialty, price])
+  @@index([experience])
+  @@index([verificationStatus, awayUntil])
 }
 
 model Appointment {
@@ -115,7 +148,12 @@ model Appointment {
   consultationType String   @default("video") // video, voice, chat
   status          String   @default("pending") // pending, confirmed, cancelled, completed
   notes           String?  @db.Text
-  meetingLink     String?
+  meetingLink String?
+  /// Per-appointment random component of the video room name. Persisted so the
+  /// two participants, who join independently, land in the same room. Created
+  /// when the appointment is confirmed and cleared on reschedule, because a new
+  /// slot is a new session and must not inherit the old room.
+  roomSeed String?
   idempotencyKey  String?  @unique
   reminderSentAt  DateTime?
   checkinSentAt   DateTime?
@@ -130,6 +168,22 @@ model Appointment {
 
   @@index([doctorId, appointmentDate, status])
   @@index([userId, status])
+  // The reminder and post-session check-in jobs claim work with a conditional
+  // update on these column sets (sent-timestamp IS NULL, date in window, status
+  // in set). Without them each claim scanned the whole appointments table, on
+  // every replica, every ten minutes.
+  @@index([reminderSentAt, appointmentDate, status])
+  // The admin list is unfiltered and sorts by (appointmentDate, startTime).
+  // Every other appointmentDate-leading index starts with a doctor or user
+  // equality this query does not supply, so MySQL filesorted the whole table.
+  @@index([appointmentDate, startTime])
+  @@index([checkinSentAt, appointmentDate, status])
+  // Status first so the reminder and check-in jobs get an equality followed by a
+  // range. Leading with the nullable `*SentAt` column means every unsent row is
+  // in one NULL block that MySQL must scan and filter.
+  @@index([status, reminderSentAt, appointmentDate])
+  @@index([status, checkinSentAt, appointmentDate])
+  @@index([userId, appointmentDate])
 }
 
 model Review {
@@ -147,6 +201,9 @@ model Review {
   hidden        Boolean  @default(false)
   reports       ReviewReport[]
   createdAt     DateTime @default(now())
+
+  // Public review listings filter on `hidden` and order by date.
+  @@index([doctorId, hidden, createdAt])
 }
 
 model ReviewReport {
@@ -179,7 +236,17 @@ model Message {
   createdAt  DateTime @default(now())
 
   @@index([senderId, receiverId, createdAt])
+  // `getMessages` paginates on `id desc` with an `id: { lt: before }` cursor.
+  // Neither message index above ends in `id`, so every page of a thread was a
+  // filesort of the whole conversation - and the client polls this every 5s.
+  @@index([senderId, receiverId, id])
+  @@index([receiverId, senderId, id])
+  // `getConversations` orders by `createdAt` across a two-sided OR, which the
+  // composite above can only serve as a prefix.
+  @@index([senderId, createdAt])
   @@index([receiverId, senderId])
+  // Unread-badge and conversation-list queries.
+  @@index([receiverId, isRead])
 }
 
 model Notification {
@@ -193,6 +260,10 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
+  // `orderBy: [{ createdAt: desc }, { id: desc }]` - without `id` the
+  // tiebreaker alone forces a filesort. Polled every 15s per user.
+  @@index([userId, createdAt, id])
 }
 
 model ConsultationSlot {
@@ -233,6 +304,20 @@ model PreSessionData {
   questionsJson String?  @db.Text
   answersJson   String?  @db.Text
   briefingText  String?  @db.Text
+
+  /**
+   * Where `briefingText` came from: "model" or "fallback".
+   *
+   * A clinical briefing is read asynchronously, sometimes days after it was
+   * written, so a provenance flag that only lived on the HTTP response would
+   * have been lost by the time anyone looked. Storing the origin alongside
+   * the text is what lets a clinician reading a cached briefing still see
+   * that it was a deterministic platform summary rather than a model's
+   * synthesis. Defaults to "model" because every row written before this
+   * column existed was produced by a live model.
+   */
+  briefingSource String  @default("model")
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -251,17 +336,40 @@ model RiskAlert {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   level     String   // "elevated" | "urgent"
   reason    String   @db.Text
-  sourceType String  // e.g. "phq9"
+  sourceType String  // "phq9" | "gad7" | "sos" | "message" | "mood"
   sourceId  Int?
-  // Set once a clinician has seen and accepted the alert.
+  // Set once a clinician has seen and accepted the alert. "Seen" and
+  // "dealt with" are different acts: an alert can be acknowledged on a
+  // Monday and still need follow-up on Friday, and collapsing the two into
+  // one timestamp is what made the queue unable to express a backlog.
   acknowledgedAt   DateTime?
   acknowledgedById Int?
+  // Set when the clinician has finished with it. A resolved alert stays in
+  // the table because "we raised this and dealt with it" is the record a
+  // clinician needs when a patient returns; deleting it would erase the fact
+  // that a disclosure happened.
+  resolvedAt   DateTime?
+  resolvedById Int?
+  // What was actually done. Optional, because sometimes the right note is
+  // "spoke to them on the phone"; it is recorded rather than inferred.
+  resolutionNote String? @db.Text
+  // Who was told. Several channels fire at once, so this is not the same as
+  // who owns the work.
   notifiedDoctorUserId Int?
+  // Whose queue this sits in. Distinct from notifiedDoctorUserId: an alert
+  // raised at 23:00 may page the on-call admin, but it belongs to the
+  // clinician who is actually treating the patient, and that clinician is who
+  // works the list.
+  assignedDoctorUserId Int?
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([acknowledgedAt])
   @@index([createdAt])
+  // The queue query. `resolvedAt` first because an unresolved alert is what a
+  // clinician opens the page for, and assignedDoctorUserId because the queue is
+  // always somebody's.
+  @@index([assignedDoctorUserId, resolvedAt, createdAt])
 }
 
 model RefreshToken {
@@ -303,7 +411,7 @@ model JournalEntry {
   aiSummary String?  @db.Text
   createdAt DateTime @default(now())
 
-  @@index([userId])
+  @@index([userId, createdAt])
 }
 
 model Assessment {
@@ -316,7 +424,135 @@ model Assessment {
   severity   String // minimal, mild, moderate, moderately-severe, severe
   createdAt  DateTime @default(now())
 
+  // Per-instrument history, and the ordered "your results over time" list.
   @@index([userId, type])
+  @@index([userId, createdAt])
+}
+
+/**
+ * A plan that outlives any single consultation.
+ *
+ * The gap this fills is continuity. Every other clinical surface in the product
+ * is scoped to one appointment: a briefing is generated for a session, a
+ * pre-session questionnaire is asked before it, an assessment belongs to a
+ * moment. A patient returning after three weeks therefore starts from nothing,
+ * and the clinician spends the first ten minutes of the next session
+ * reconstructing what the last one concluded.
+ *
+ * A CarePlan is owned by the *patient*, not the clinician. That is a deliberate
+ * reversal: a clinician can leave, and the patient's plan should survive that.
+ * `doctorUserId` records who is currently responsible without making them the
+ * author of everything in it.
+ *
+ * It is never generated. A model can restate a patient's own words, but a plan
+ * of goals is a clinical judgement made with the person in front of you.
+ */
+model CarePlan {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The clinician currently responsible. Null while unassigned: a patient can
+  // start a plan before they have ever booked.
+  doctorUserId Int?
+  title  String @default("My care plan") @db.VarChar(160)
+  // active | completed | paused
+  status String @default("active")
+  // A short plain-language statement of where things stand. Not a clinical
+  // summary - that is what the AI briefing is for, and it is labelled as
+  // possibly-generated. This one is written by a person.
+  summary String? @db.Text
+  // When the next review is due. This is what "let's look again in three
+  // weeks" actually means, and it is what makes a plan longitudinal rather
+  // than a to-do list that is abandoned.
+  reviewAt DateTime?
+  closedAt DateTime?
+  goals  CareGoal[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([doctorUserId])
+}
+
+model CareGoal {
+  id         Int      @id @default(autoincrement())
+  carePlanId Int
+  carePlan   CarePlan @relation(fields: [carePlanId], references: [id], onDelete: Cascade)
+  title      String   @db.VarChar(200)
+  detail     String?  @db.Text
+  // open | in_progress | achieved | paused | dropped
+  //
+  // `dropped` is not `achieved`. A goal abandoned because it was wrong, or
+  // because the treatment changed, has to be distinguishable from one that
+  // was met, or a plan reads as more successful than it was.
+  status     String   @default("open")
+  targetDate DateTime?
+  order      Int      @default(0)
+  steps      CareStep[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([carePlanId, order])
+}
+
+model CareStep {
+  id         Int      @id @default(autoincrement())
+  careGoalId Int
+  careGoal   CareGoal @relation(fields: [careGoalId], references: [id], onDelete: Cascade)
+  title      String   @db.VarChar(200)
+  done       Boolean  @default(false)
+  doneAt     DateTime?
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([careGoalId, order])
+}
+
+/**
+ * A crisis plan the patient owns.
+ *
+ * The content is written by the patient or by their clinician together with
+ * them, and it is never generated. A support bot that offers to write someone's
+ * safety plan has misunderstood what the document is for: it is a thing a
+ * person may need to read alone, at the worst possible moment, and it has to be
+ * in their own words and about their own life.
+ *
+ * It is one row per patient rather than per episode. During a crisis the last
+ * thing anyone needs is to choose the current version.
+ */
+model SafetyPlan {
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The things a person notices in themselves before a crisis, in their words.
+  // Clinical language here is worse than useless: a checklist of symptoms is
+  // not recognisable from the inside.
+  warningSigns String? @db.Text
+  // What has actually helped before, as opposed to what ought to help.
+  copingStrategies String? @db.Text
+  // Included because it is the field a person most wants available and least
+  // often volunteers, and because a plan that only lists problems is a
+  // demoralising document to read in a crisis.
+  reasonsToLive String? @db.Text
+  // JSON array of { name, phone, relationship }. A string column rather than a
+  // table: the list is read and written as a unit, is bounded to a handful of
+  // people, and is never queried by any field within it.
+  contacts String? @db.Text
+  // Who to call first among professionals - the clinician who wrote it, or a
+  // service. Kept as free text because "my therapist" is the useful answer and
+  // a foreign key to a specific clinician would go stale the moment they leave.
+  professionalContact String? @db.VarChar(255)
+  // Where to be, and what to have to hand. Explicitly optional: asking for it
+  // is reasonable, insisting is not.
+  locationToBeSafe String? @db.VarChar(255)
+  // Set when a clinician has read it with the patient. Reviewing it together is
+  // the point; writing it alone is much weaker, and the timestamp is how a
+  // clinician can tell the difference.
+  lastReviewedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastReviewedAt])
 }
 
 model AuditLog {
@@ -331,6 +567,7 @@ model AuditLog {
 
   @@index([actorId])
   @@index([targetType, targetId])
+  @@index([createdAt])
 }
 
 model FollowUp {
@@ -347,8 +584,10 @@ model FollowUp {
   status    String   @default("pending") // pending, accepted, declined, expired
   createdAt DateTime @default(now())
 
-  // `status` and `doctorId` indexes were dropped: follow-ups are only ever
-  // fetched by `appointmentId` or `id`, so both were pure write amplification.
+  // `status` is not indexed: follow-ups are only ever fetched by
+  // `appointmentId` or `id`, so it was pure write amplification on a hot table.
+  // `doctorId` *is* indexed, and cannot be otherwise — MySQL requires an index
+  // backing `FollowUp_doctorId_fkey` and rejects the ALTER without one.
 }
 
 model WaitlistEntry {
@@ -391,29 +630,75 @@ model PackagePurchase {
   package      Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
   userId       Int
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessionsLeft Int
-  status       String   @default("active") // active, completed
-  // Set when a payment has been verified. A grant with no `paidAt` and no
-  // `grantedByUserId` is not a legitimate entitlement.
-  paidAt           DateTime?
-  grantedByUserId  Int?
-  appointments Appointment[]
-  createdAt    DateTime @default(now())
+    sessionsLeft Int
+    status       String   @default("active") // pending, active, completed
+    // Set when a payment has been verified. A grant with no `paidAt` and no
+    // `grantedByUserId` is not a legitimate entitlement.
+    paidAt           DateTime?
+    grantedByUserId  Int?
+    // Price snapshot, so a later edit to `Package.totalPrice` cannot change what
+    // a patient is credited against, and so a callback's amount can be re-checked
+    // against what was actually ordered.
+    totalPrice       Int      @default(0)
+    sessionCount     Int      @default(0)
+    // Provider transaction reference, retained for reconciliation.
+    reference        String?
+    appointments Appointment[]
+    paymentOrder PaymentOrder?
+    createdAt    DateTime @default(now())
+  
+    @@index([userId, createdAt])
+    @@index([userId, status])
+    // Serves the fallback lookup for callbacks whose order mapping predates
+    // `PaymentOrder`.
+    @@index([reference])
+  }
 
-  @@index([userId, createdAt])
-  @@index([userId, status])
-}
+  /**
+   * A checkout in flight.
+   *
+   * The provider is told an `orderId` before the patient is redirected, and that
+   * same id comes back on the callback. Holding the mapping explicitly — rather
+   * than overloading a purchase column — keeps the callback path a single indexed
+   * lookup and leaves room to record provider status transitions for
+   * reconciliation.
+   */
+model PaymentOrder {
+    id         Int      @id @default(autoincrement())
+    orderId    String   @unique @db.VarChar(64)
+    purchaseId Int      @unique
+    purchase   PackagePurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+    amount     Int
+    currency   String   @default("IDR")
+    // pending, paid, failed, expired
+    status     String   @default("pending")
+    // Provider transaction id, once known.
+    reference  String?  @db.VarChar(128)
+    // Present only when the simulator settled the order.
+    simulated  Boolean  @default(false)
+    createdAt  DateTime @default(now())
+    settledAt  DateTime?
+
+    @@index([status])
+    @@index([createdAt])
+  }
 
 model PushSubscription {
   id        Int      @id @default(autoincrement())
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint  String   @unique @db.VarChar(500)
+  // Unique per (user, endpoint), not globally unique. A globally unique
+  // endpoint with an upsert that never wrote `userId` let a second user on a
+  // shared device overwrite the first user's key pair, silently breaking their
+  // notifications. Browsers also rotate keys for an unchanged endpoint, which
+  // the per-user key handles in place.
+  endpoint  String   @db.VarChar(500)
   p256dh    String   @db.VarChar(500)
   auth      String   @db.VarChar(500)
   userAgent String?
   createdAt DateTime @default(now())
 
+  @@unique([userId, endpoint])
   @@index([userId])
 }
 

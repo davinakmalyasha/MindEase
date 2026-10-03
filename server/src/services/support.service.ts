@@ -1,5 +1,6 @@
-import { AIService } from "./ai.service";
+import { AIService, type AiSource } from "./ai.service";
 import { sanitize } from "../utils/sanitize";
+import { detectFreeTextRisk } from "./crisisText.service";
 
 export interface ChatMessage {
     role: "user" | "assistant";
@@ -7,13 +8,20 @@ export interface ChatMessage {
 }
 
 export interface SupportReply {
-    reply: string;
-    crisis: boolean;
-    escalated: boolean;
+  reply: string;
+  crisis: boolean;
+  escalated: boolean;
+  /**
+   * Whether the model wrote this reply, or it came from the fixed
+   * `FALLBACK_ANSWERS` list.
+   *
+   * This is the surface where an invisible fallback does the most damage: a
+   * distressed person asking for help cannot tell a considered response from a
+   * regex match. The fallback reply now says so in its own text as well, and
+   * this flag lets the client mark the transcript.
+   */
+  source: AiSource;
 }
-
-const CRISIS_PATTERNS =
-    /(suicide|suicidal|kill\s*myself|end\s*my\s*life|want\s*to\s*die|don'?t\s*want\s*to\s*live|self[- ]harm|hurt\s*myself|harm\s*myself|overdose|bunuh\s*diri|mengakhiri\s*hidup|menyakiti\s*diri|ingin\s*mati|akhiri\s*hidup)/i;
 
 const ESCALATION_PATTERNS =
     /(human|agent|customer\s*service|real\s*person|talk\s*to\s*someone|support\s*team|contact\s*support|orang\s*asli|petugas|manusia|tim\s*dukung|hubungi\s*cs)/i;
@@ -53,6 +61,24 @@ Rules:
 - For booking/account problems you can't resolve, suggest contacting support@mindease.id.
 - Never invent features or prices. If unsure, say you'll check with the team.`;
 
+/**
+ * Appended to an informational canned reply.
+ *
+ * The reply text is chosen by a keyword regex and is *not* composed from what
+ * the person actually wrote, so presenting it as a conversation invites a
+ * misreading that matters most to someone who is already struggling. Saying so
+ * is the honest version, and it routes them to a human rather than implying a
+ * live assistant understood them.
+ *
+ * Deliberately NOT applied to `CRISIS_REPLY` or `ESCALATION_REPLY`. Those are
+ * fixed safety instructions carrying emergency numbers; a "this is an automated
+ * reply" caveat adds no truth about AI authorship and risks undermining
+ * guidance someone may act on at their worst moment. They still report
+ * `source: "fallback"` so the client can mark them.
+ */
+const FALLBACK_DISCLOSURE =
+    "\n\n_(This is a standard reply selected from our help topics rather than a live answer — if you'd prefer a person, email support@mindease.id and we'll reply within one business day.)_";
+
 const FALLBACK_ANSWERS: { keywords: RegExp; answer: string }[] = [
     {
         keywords: /(book|booking|jadwal|reserv|session|konsultasi|buat.*janji|janji temu)/i,
@@ -81,13 +107,30 @@ const FALLBACK_ANSWERS: { keywords: RegExp; answer: string }[] = [
     },
     {
         keywords: /(privacy|private|data|pribadi|confidential|aman)/i,
+        /**
+         * Accurate, and narrower than it was.
+         *
+         * This previously told a user their data was "encrypted in transit and
+         * at rest". There is no application-level at-rest encryption anywhere in
+         * the schema — no field cipher, no envelope encryption, no KMS — so the
+         * only encryption is TLS plus whatever the infrastructure provider does
+         * with its disks. A false security claim, delivered by a language model,
+         * to someone who asked because they are worried about their mental
+         * health records, is not an acceptable trade for a friendlier sentence.
+         */
         answer:
-            "Your data is protected: encrypted in transit and at rest, with strict access control. Health-related data is only visible to you and your assigned psychologist. We never sell personal data — full details on the privacy page: /privacy.",
+            "Your data is encrypted in transit (HTTPS) and access to your health records is restricted to you and your assigned psychologist. We never sell personal data, and deleting your account purges your journals, mood logs and screening results. Full details on the privacy page: /privacy.",
     },
     {
         keywords: /(verify|verified|license|izin|str|sip|tersertifikasi)/i,
+        /**
+         * Describes what the verification step actually is: an administrator
+         * reviewing a licence the clinician submitted. It does not claim
+         * registry confirmation or independent credential checking, because
+         * neither happens.
+         */
         answer:
-            "Every psychologist on MindEase is reviewed before appearing in the directory. Approved profiles show a verified badge, and each doctor's specialty and experience are displayed on their profile page.",
+            "Every psychologist submits their licence number and issuing body, and our team reviews their profile before it appears in the directory. Approved profiles show a verified badge, and each doctor's licence, speciality and experience are listed on their profile page.",
     },
     {
         keywords: /(doctor|psychologist|psikolog|spesialis|join|menjadi dokter)/i,
@@ -100,26 +143,32 @@ export class SupportService {
     static async chat(message: string, history: ChatMessage[] = []): Promise<SupportReply> {
         const clean = sanitize(message);
 
-        if (CRISIS_PATTERNS.test(clean)) {
-            return { reply: CRISIS_REPLY, crisis: true, escalated: false };
+        // Shared with the message path so the support bot and a patient-to-
+        // clinician message cannot disagree about what counts as a crisis. This
+        // used to be a second, separately maintained copy of the same patterns.
+        if (detectFreeTextRisk(clean)) {
+            return { reply: CRISIS_REPLY, crisis: true, escalated: false, source: "fallback" };
         }
         if (ESCALATION_PATTERNS.test(clean)) {
-            return { reply: ESCALATION_REPLY, crisis: false, escalated: true };
+            return { reply: ESCALATION_REPLY, crisis: false, escalated: true, source: "fallback" };
         }
 
         const recent = history.slice(-10);
         const aiReply = await AIService.chat(SYSTEM_PROMPT, [...recent, { role: "user", content: clean }]);
-        if (aiReply) {
-            return { reply: aiReply, crisis: false, escalated: false };
+        if (aiReply.data) {
+            return { reply: aiReply.data, crisis: false, escalated: false, source: aiReply.source };
         }
 
         const match = FALLBACK_ANSWERS.find((f) => f.keywords.test(clean));
         return {
             reply:
-                match?.answer ||
-                "Thanks for reaching out! I can help with booking sessions, pricing, mood tracking, privacy, and more. If you'd rather talk to a person, email support@mindease.id and our team will get back to you within one business day.",
+                (match?.answer ||
+                    "Thanks for reaching out! I can help with booking sessions, pricing, mood tracking, privacy, and more.") + FALLBACK_DISCLOSURE,
             crisis: false,
             escalated: false,
+            // Both branches are canned text written in advance, not a reply
+            // composed for what this person actually said.
+            source: "fallback",
         };
     }
 }

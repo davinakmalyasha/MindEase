@@ -3,9 +3,24 @@ import { createUser, createDoctor } from "./helpers";
 import { prisma } from "../src/app";
 import { runReminders } from "../src/jobs/reminders";
 
-const inTwoHours = () => {
-    const d = new Date(Date.now() + 2 * 3_600_000);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/**
+ * A confirmed session that starts `hours` from now.
+ *
+ * `appointmentDate` and `startTime` are stored separately — the job rebuilds the
+ * instant with `setHours` on the stored date — so both halves have to be derived
+ * from the same instant. Deriving only the time-of-day from "now + N hours" broke
+ * this suite every evening: at 22:00 local, "now + 2h" wraps to "00:21", which
+ * combined with *today's* date resolved to 22 hours in the past, so eligibility
+ * correctly rejected it and the test failed for reasons unrelated to the job.
+ */
+const startingIn = (hours: number) => {
+    const at = new Date(Date.now() + hours * 3_600_000);
+    const date = new Date(at);
+    date.setHours(0, 0, 0, 0);
+    return {
+        date,
+        startTime: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`,
+    };
 };
 
 describe("Appointment reminder job", () => {
@@ -17,8 +32,8 @@ describe("Appointment reminder job", () => {
             data: {
                 userId: patient.id,
                 doctorId: doctor.doctorId,
-                appointmentDate: new Date(),
-                startTime: inTwoHours(),
+                appointmentDate: startingIn(2).date,
+                startTime: startingIn(2).startTime,
                 endTime: "23:59",
                 consultationType: "video",
                 status: "confirmed",
@@ -72,8 +87,8 @@ describe("Appointment reminder job", () => {
             data: {
                 userId: patient.id,
                 doctorId: doctor.doctorId,
-                appointmentDate: new Date(),
-                startTime: inTwoHours(),
+                appointmentDate: startingIn(2).date,
+                startTime: startingIn(2).startTime,
                 endTime: "23:59",
                 consultationType: "video",
                 status: "confirmed",

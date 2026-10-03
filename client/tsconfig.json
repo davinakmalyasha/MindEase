@@ -1,23 +1,31 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ES2022",
     "lib": [
       "dom",
       "dom.iterable",
       "esnext"
     ],
-    "allowJs": true,
+    "allowJs": false,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "incremental": true,
     "module": "esnext",
     "esModuleInterop": true,
-    "moduleResolution": "node",
+    // `bundler`, not the legacy `node`/`node10`. TypeScript 7 removes node10
+    // outright, and `bundler` is what Next.js expects: it honours the `exports`
+    // map and the `import` condition, which is how Next ships subpath types.
+    // `node10` silently ignores `exports`, so a package can resolve one way to
+    // tsc and another way to webpack.
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
+    // No `baseUrl`. It is deprecated for TypeScript 7 and was never needed:
+    // `paths` may resolve relative to the tsconfig that declares it since TS
+    // 4.1. Previously the alias was anchored by `baseUrl: "."`, so it worked
+    // only because nothing ever moved this file.
     "paths": {
       "@/*": [
         "./*"

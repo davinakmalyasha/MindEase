@@ -14,6 +14,27 @@
 export type SupportedLocale = "en" | "id";
 
 /**
+ * The calendar day a `Date` falls on, in the reader's own timezone, as
+ * `YYYY-MM-DD`.
+ *
+ * This exists because `toISOString().split("T")[0]` is the *UTC* day, and the
+ * two disagree for every user east or west of Greenwich. A doctor in WIB
+ * (UTC+7) opening their schedule at local Monday 28 September sees
+ * `new Date(2026, 8, 28)` — whose ISO form is `2026-09-27T17:00Z` — so keying
+ * their calendar by UTC labelled every column with the previous day. Their slots,
+ * keyed from the server's calendar date, never matched, and the entire week
+ * rendered empty with no error anywhere.
+ *
+ * Anything that groups by calendar day must use this, on both sides of the
+ * comparison. It is the same rule the server's `dayKey` applies, which is what
+ * keeps "one mood log per day" and the doctor's day view in agreement.
+ */
+export const localDayKey = (date: Date): string =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+        date.getDate()
+    ).padStart(2, "0")}`;
+
+/**
  * Indonesian Rupiah.
  *
  * Whole units: a session price is never a fractional rupiah amount, and

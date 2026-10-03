@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import createNextIntlPlugin from "next-intl/plugin";
 
 /**
  * @typedef {import('next').NextConfig} NextConfig
@@ -128,7 +129,15 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
+      // connect-src is where the realtime socket and the video transport live.
+      // `wss:` is required for the LiveKit signalling connection, which is a
+      // separate host from this app. Narrowing this to a specific host is
+      // possible but has to be edited per deployment; the comment on the video
+      // env block in .env.example says so.
       "connect-src 'self' https://api.dicebear.com https://*.up.railway.app wss:",
+      // Only the degraded jitsi fallback needs a frame source. A livekit
+      // session connects with the SDK and frames nothing, so on a fully
+      // configured deployment this can be removed outright.
       "frame-src https://meet.jit.si",
       "media-src 'self' blob:",
       "object-src 'none'",
@@ -177,4 +186,12 @@ const nextConfig = {
 
 stampServiceWorker();
 
-export default nextConfig;
+/**
+ * `createNextIntlPlugin` is what makes `getTranslations()` resolve on the
+ * server. Without it the client half of next-intl still works (the root layout
+ * imports `messages/*.json` directly), which is why the missing plugin was not
+ * obvious: every Server Component calling `getTranslations` threw instead.
+ */
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+
+export default withNextIntl(nextConfig);

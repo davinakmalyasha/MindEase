@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { WellnessService } from "../services/wellness.service";
+import { WellnessService, type AssessmentType } from "../services/wellness.service";
 import { publicMessageFor } from "../utils/appError";
 
 export class WellnessController {
@@ -13,8 +13,8 @@ export class WellnessController {
             const entry = await WellnessService.logMood(userId, mood, notes, factors);
             res.status(201).json({ status: "success", data: entry });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to log mood.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to log mood.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -27,8 +27,8 @@ export class WellnessController {
             const entries = await WellnessService.getMoodHistory(userId, days);
             res.json({ status: "success", data: entries });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to get mood history.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to get mood history.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -39,8 +39,8 @@ export class WellnessController {
             const stats = await WellnessService.getMoodStats(userId, days);
             res.json({ status: "success", data: stats });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to get mood stats.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to get mood stats.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -51,8 +51,8 @@ export class WellnessController {
             const entry = await WellnessService.createJournalEntry(userId, content);
             res.status(201).json({ status: "success", data: entry });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to save journal entry.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to save journal entry.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -65,8 +65,7 @@ export class WellnessController {
             const entry = await WellnessService.updateJournalEntry(userId, entryId, content);
             res.json({ status: "success", data: entry });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to update journal entry.";
-            const status = message.includes("not found") ? 404 : 400;
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to update journal entry.", status: 400 };
             res.status(status).json({ status: "error", message });
         }
     }
@@ -79,8 +78,7 @@ export class WellnessController {
             const result = await WellnessService.deleteJournalEntry(userId, entryId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to delete journal entry.";
-            const status = message.includes("not found") ? 404 : 400;
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to delete journal entry.", status: 400 };
             res.status(status).json({ status: "error", message });
         }
     }
@@ -92,8 +90,8 @@ export class WellnessController {
             const entries = await WellnessService.getJournalEntries(userId, limit);
             res.json({ status: "success", data: entries });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to fetch journal entries.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to fetch journal entries.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -103,8 +101,8 @@ export class WellnessController {
             const result = await WellnessService.summarizeJournal(userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to summarize journal.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to summarize journal.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -117,8 +115,8 @@ export class WellnessController {
             // crisis resources before the user navigates away.
             res.status(201).json({ status: "success", data: { ...assessment, risk } });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to submit assessment.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to submit assessment.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -130,8 +128,30 @@ export class WellnessController {
             const assessments = await WellnessService.getAssessments(userId, type, limit);
             res.json({ status: "success", data: assessments });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to fetch assessments.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to fetch assessments.", status: 500 };
+            res.status(status).json({ status: "error", message });
+        }
+    }
+
+    /**
+     * Trajectory for one instrument, for the patient's own dashboard.
+     *
+     * Scoped to `req.user` rather than a query parameter: a screening history
+     * is clinical data, and there is no version of this endpoint that returns
+     * somebody else's.
+     */
+    static async getAssessmentTrajectory(req: Request, res: Response) {
+        try {
+            const type = req.query.type as AssessmentType;
+            const limit = parseInt(req.query.limit as string) || 24;
+            const data = await WellnessService.getAssessmentTrajectory(req.user!.id, type, limit);
+            res.json({ status: "success", data });
+        } catch (error: unknown) {
+            const { message, status } = publicMessageFor(error) ?? {
+                message: "Failed to fetch the assessment trajectory.",
+                status: 500,
+            };
+            res.status(status).json({ status: "error", message });
         }
     }
 }

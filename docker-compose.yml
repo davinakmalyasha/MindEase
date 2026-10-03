@@ -39,12 +39,38 @@ services:
       DATABASE_URL: mysql://mindease:${MYSQL_PASSWORD:-mindease_secure}@mysql:3306/mindease_db
       JWT_SECRET: ${JWT_SECRET}
       REFRESH_SECRET: ${REFRESH_SECRET}
+      # Required in production: the API refuses to boot without it, and it must
+      # differ from JWT_SECRET. It was previously missing here, so `docker compose
+      # up` crash-looped the API.
+      TWO_FACTOR_SECRET: ${TWO_FACTOR_SECRET:-local_dev_two_factor_secret_change_me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # AI call resilience: bound a single call, and stop retrying a provider
+      # that is already down.
+      AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-20000}
+      AI_CIRCUIT_THRESHOLD: ${AI_CIRCUIT_THRESHOLD:-5}
+      AI_CIRCUIT_COOLDOWN_MS: ${AI_CIRCUIT_COOLDOWN_MS:-60000}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       REDIS_URL: redis://redis:6379
+      # Video transport, and the credentials for it. The API mints the room
+      # token, so these belong here and not on the realtime service.
+      # `livekit` needs all three of LIVEKIT_*; without them the API falls back
+      # to the unauthenticated jitsi path and reports the downgrade.
+      VIDEO_PROVIDER: ${VIDEO_PROVIDER:-jitsi}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
       NODE_ENV: production
       TZ: Asia/Jakarta
       FRONTEND_URL: http://localhost:3000
+      # The local stack runs the in-process payment simulator so a fresh clone
+      # works without a merchant account. NODE_ENV is `production` here (it is
+      # what the image is built for), and the config layer refuses the simulator
+      # in production unless this explicit opt-in is present — so this is a
+      # deliberate local-only choice, not an accident. Set real
+      # PAYMENT_PROVIDER/PAYMENT_SERVER_KEY to take actual payments.
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-simulator}
+      PAYMENT_SERVER_KEY: ${PAYMENT_SERVER_KEY:-}
+      ALLOW_PAYMENT_SIMULATOR: ${ALLOW_PAYMENT_SIMULATOR:-true}
     depends_on:
       mysql:
         condition: service_healthy
@@ -70,6 +96,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
       FRONTEND_URL: http://localhost:3000
+      # Connection caps: per-user (multi-tab) and process-wide.
+      MAX_CONNECTIONS_PER_USER: ${MAX_CONNECTIONS_PER_USER:-5}
+      MAX_TOTAL_CONNECTIONS: ${MAX_TOTAL_CONNECTIONS:-10000}
     depends_on:
       redis:
         condition: service_healthy
@@ -82,18 +111,57 @@ services:
       retries: 5
 
   web:
-    build: ./client
-    container_name: mindease-web
+    build:
+      context: ./client
+      # `NEXT_PUBLIC_*` values are inlined into the browser bundle at BUILD time.
+      # Declaring them under `environment:` only set them inside the container,
+      # where the already-built bundle cannot see them, so the shipped app silently
+      # used the hard-coded localhost fallbacks. They have to be build args.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000/api}
+        NEXT_PUBLIC_REALTIME_URL: ${NEXT_PUBLIC_REALTIME_URL:-ws://localhost:8080/ws}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     restart: unless-stopped
+    # Read at runtime by the edge proxy that checks session cookies.
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:5000/api
-      NEXT_PUBLIC_REALTIME_URL: ws://localhost:8080/ws
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
       api:
         condition: service_healthy
     ports:
       - "3000:3000"
+    # Without this the `web` service is the last one `docker compose up --wait`
+    # stops waiting on, so compose reports the stack ready while Next.js is
+    # still compiling or has already crashed. The other four services all
+    # declare one; this one was the gap.
+    #
+    # Probing `/offline` rather than `/`: the homepage is dynamic, server-renders,
+    # and fetches the API using NEXT_PUBLIC_API_URL, which is inlined at build
+    # time as http://localhost:5000/api - right for a browser on the host, wrong
+    # inside the compose network where `localhost` is this container. So `/`
+    # rendered a 500, and a liveness probe should not be asking whether the API
+    # is reachable anyway. The API has its own two checks.
+    #
+    # `127.0.0.1` rather than `localhost`, and `-O /dev/null` rather than `-O-`.
+    # Measured with a diagnostic probe added to the CI job, not guessed:
+    #
+    #     curl  http://localhost:3000/offline    ->  200
+    #     wget  127.0.0.1:3000/offline (inside)  ->  HTTP/1.1 200 OK
+    #     docker compose ps  ->  mindease-web-1 ... (unhealthy)
+    #
+    # The page renders and Docker still calls the container unhealthy, so the
+    # healthcheck *command* was exiting non-zero. `localhost` needs name
+    # resolution inside the container, where it can prefer ::1 while the server
+    # binds IPv4 only (HOSTNAME=0.0.0.0); and `-O-` streams the whole ~53 KB
+    # page into the healthcheck's stdout buffer over a chunked response. Removing
+    # both makes the check exactly the request observed returning 200.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/offline"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   mysql_data:

@@ -75,7 +75,16 @@ WHERE `moodDate` IS NULL;
 
 -- A user with several entries on one day collapses to the latest, so the
 -- unique key below can be created without deduplicating by hand.
-DELETE `moodEntry` FROM `MoodEntry`
+--
+-- The delete target is spelled `MoodEntry`, not `moodEntry`. In a multi-table
+-- DELETE the leading name is a *table reference*, not an alias, so it is
+-- resolved under the server's `lower_case_table_names` setting: on Windows and
+-- macOS MySQL that is case-insensitive and the typo is invisible, but on Linux -
+-- which is what Docker, Railway and the CI service container all run - table
+-- names are case-sensitive and this failed with
+-- `Unknown table 'moodEntry' in MULTI DELETE`. Every other reference in this
+-- migration was already correctly cased; this one line was not.
+DELETE `MoodEntry` FROM `MoodEntry`
 JOIN (
     SELECT `userId`, `moodDate`, MAX(`id`) AS `keepId`
     FROM `MoodEntry`
@@ -170,4 +179,15 @@ CREATE INDEX `Message_receiverId_isRead_idx` ON `Message`(`receiverId`, `isRead`
 
 -- Never used by any query; pure write amplification on a hot table.
 DROP INDEX `FollowUp_status_idx` ON `FollowUp`;
-DROP INDEX `FollowUp_doctorId_idx` ON `FollowUp`;
+
+-- `FollowUp_doctorId_idx` is deliberately NOT dropped. It was created in
+-- `round3` alongside the `FollowUp_doctorId_fkey` foreign key, and MySQL refuses
+-- to drop an index a live foreign key depends on:
+--
+--   ERROR 1553: Cannot drop index 'FollowUp_doctorId_idx': needed in a foreign
+--   key constraint
+--
+-- An earlier revision of this migration dropped it anyway, which made
+-- `prisma migrate deploy` fail on every clean database. The quick start avoided
+-- the problem only because it used `db:push`, which never runs migrations, so
+-- the broken file was never executed until a fresh `migrate deploy` was tried.

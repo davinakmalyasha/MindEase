@@ -22,9 +22,13 @@
  *      JavaScript and RSC payloads across deploys.
  */
 
+// Namespace every cache this worker owns. `activate` prunes by this prefix, so a
+// change here invalidates all previous caches at once.
+const CACHE_PREFIX = "mindease-";
+
 // Replaced at build time with a value derived from the commit or, locally, from
 // this file's own content. See `next.config.mjs`.
-const BUILD = (self.__MINDSW_BUILD__ = "a980c5965acf");
+const BUILD = (self.__MINDSW_BUILD__ = "3f866658e5a6");
 const CACHE = `${CACHE_PREFIX}${BUILD}`;
 
 /** Public, unauthenticated routes. No `/dashboard`, no `/messages`. */
@@ -160,7 +164,16 @@ self.addEventListener("fetch", (event) => {
  * Anything that renders a signed-in user's data is excluded.
  */
 const PUBLIC_PAGES = new Set(["/", "/crisis", "/faq", "/help", "/about", "/doctors", "/appointments"]);
-const isPublicPage = (url) => PUBLIC_PAGES.has(url.pathname);
+
+/**
+ * `/doctors/<id>` is a public profile — name, bio, rating, price, availability
+ * only. The detail endpoint deliberately selects an allowlist that excludes
+ * email, phone and hidden reviews, so the shell is safe to keep offline. The
+ * page is a client component and its data still comes from the network.
+ */
+const isPublicDoctorProfile = (url) => /^\/doctors\/\d+$/.test(url.pathname);
+
+const isPublicPage = (url) => PUBLIC_PAGES.has(url.pathname) || isPublicDoctorProfile(url);
 
 /* ------------------------------------------------------------------ *
  * Web push

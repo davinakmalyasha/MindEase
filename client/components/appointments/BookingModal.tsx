@@ -7,7 +7,8 @@ import { ChevronLeft, ChevronRight, Check } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { isSameDay } from "date-fns";
 import { Doctor } from "@/lib/types/doctor";
-import api, { getErrorMessage } from "@/lib/api";
+import { getErrorMessage } from "@/lib/api";
+import { localDayKey } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 import Dialog from "@/components/ui/Dialog";
@@ -16,7 +17,7 @@ import TimeSlots, { RealSlot } from "./TimeSlots";
 import PatientForm from "./PatientForm";
 import BookingSummary from "./BookingSummary";
 import { useBookAppointment } from "@/hooks/queries/useAppointmentsQuery";
-import { useDoctorSlots } from "@/hooks/queries/useDoctorsQuery";
+import { useDoctorSlots, useMyPackages } from "@/hooks/queries/useDoctorsQuery";
 
 interface BookingModalProps {
     doctor: Doctor;
@@ -43,31 +44,34 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     const [isBooking, setIsBooking] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [usePackage, setUsePackage] = useState(false);
-    const [myPackages, setMyPackages] = useState<any[]>([]);
     const { toast } = useToast();
     const bookMutation = useBookAppointment();
 
+    /**
+     * The caller's unused entitlements with this doctor. A failure here is
+     * surfaced rather than swallowed: the previous `.catch(() => {})` hid a
+     * wrong-URL 404 behind a "best-effort" comment, so package-aware booking was
+     * silently dead and nobody could report it.
+     */
+    const {
+        data: myPackages = [],
+        isError: packagesError,
+    } = useMyPackages(doctor.id);
+
     useEffect(() => {
-        let cancelled = false;
-        api
-            .get("/packages/my")
-            .then((res) => {
-                if (cancelled) return;
-                const purchases = (res.data?.data || []).filter(
-                    (p: any) =>
-                        p.status === "active" &&
-                        p.sessionsLeft > 0 &&
-                        p.package?.doctor?.id === doctor.id
-                );
-                setMyPackages(purchases);
-            })
-            .catch(() => {
-                /* Package lookup is best-effort; booking still works without it. */
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [doctor.id]);
+        if (packagesError) {
+            toast("Could not load your session packages.", "error");
+        }
+    }, [packagesError, toast]);
+
+// Never charge the toggle on if the entitlement list fails or empties.
+  //
+  // Derived, not corrected by an effect. The old version stored `usePackage`
+  // and then did `if (usePackage && myPackages.length === 0) setUsePackage(false)`
+  // in an effect, which renders one frame with the toggle on and the entitlement
+  // gone, and had to be re-run whenever `myPackages` arrived. Reading it straight
+  // off the query means there is no invalid state to correct.
+  const usePackageEffective = usePackage && myPackages.length > 0;
 
     const { data: rawSlots = [], isFetching: slotsLoading } = useDoctorSlots(doctor.id);
 
@@ -93,16 +97,33 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
         [slots, selectedDate]
     );
 
+    /** The entitlement the booking will consume, or null if not using one. */
+    const selectedPackage = usePackageEffective ? (myPackages[0] ?? null) : null;
+
     const handleBooking = useCallback(async () => {
         if (!selectedSlot) {
             toast("That time is no longer available. Please pick another slot.", "error");
+            return;
+        }
+        // A slot can only be picked after a date is chosen, but the state is
+        // independently nullable and `localDayKey` requires a real Date, so the
+        // invariant is asserted here rather than assumed. Without it a booking
+        // reached with no date selected would throw on `getFullYear()`.
+        if (!selectedDate) {
+            toast("Please choose a date first.", "error");
             return;
         }
         setIsBooking(true);
         try {
             await bookMutation.mutateAsync({
                 doctorId: doctor.id,
-                appointmentDate: selectedDate,
+                // Sent as a calendar day, not a `Date`. A `Date` serialises to
+                // a full ISO instant whose UTC offset depends on the reader's
+                // timezone, so a patient in WIB selecting the 28th sent
+                // "2026-09-27T17:00:00.000Z" and the server had to guess which
+                // day was meant. The API now validates `YYYY-MM-DD`, which is
+                // the same key the doctor's schedule view is grouped by.
+                appointmentDate: localDayKey(selectedDate),
                 startTime: selectedTime,
                 endTime: selectedSlot.endTime,
                 consultationType: patientInfo.type,
@@ -111,7 +132,10 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                 idempotencyKey:
                     crypto.randomUUID?.() ??
                     `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-                packagePurchaseId: usePackage ? myPackages[0]?.id : undefined,
+                // Resolved from an explicit nullable, not `myPackages[0]?.id`,
+                // so a package that disappears between render and submit cannot
+                // silently book a paid session as a credit one.
+                packagePurchaseId: selectedPackage?.id,
             });
             setIsSuccess(true);
         } catch (error: any) {
@@ -122,13 +146,12 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     }, [
         bookMutation,
         doctor.id,
-        myPackages,
         patientInfo,
         selectedDate,
+        selectedPackage,
         selectedSlot,
         selectedTime,
         toast,
-        usePackage,
     ]);
 
     const onSelectTime = (time: string) => {
@@ -290,7 +313,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                                 </span>
                                 <input
                                     type="checkbox"
-                                    checked={usePackage}
+                                    checked={usePackageEffective}
                                     onChange={(e) => setUsePackage(e.target.checked)}
                                     className="h-5 w-5 accent-emerald-500"
                                 />

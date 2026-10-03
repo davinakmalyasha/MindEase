@@ -88,6 +88,31 @@ export class SupportController {
         const patientName = user.name || "a patient";
         const alertText = `Your patient (${patientName}) pressed the SOS button and needs support. Please check in with them.`;
 
+        // The SOS button is the most unambiguous disclosure in the product: a
+        // person pressed the thing marked "I need help now". It used to page the
+        // clinician through four channels and write only an AuditLog row, which
+        // meant it never appeared in the triage queue - so a clinician working
+        // their queue could not see the one signal that was certainly genuine.
+        //
+        // Raised as a RiskAlert first, so the queue is the single place work is
+        // tracked. The four channels below still fire; this is additive, not a
+        // replacement, and a failure to record must not suppress the paging.
+        let sosAlertId: number | null = null;
+        try {
+            const alert = await prisma.riskAlert.create({
+                data: {
+                    userId: user.id,
+                    level: "urgent",
+                    reason: "Patient pressed the SOS button and requested immediate support.",
+                    sourceType: "sos",
+                    assignedDoctorUserId: doctorUserId,
+                },
+            });
+            sosAlertId = alert.id;
+        } catch (err: any) {
+            logger.error({ err: err.message, userId: user.id }, "Failed to record SOS as a risk alert");
+        }
+
         // --- Channel 1: in-app notification (must succeed to count as alerted)
         try {
             await NotificationService.create({
@@ -143,8 +168,8 @@ export class SupportController {
         await AuditService.log({
             action: "sos.triggered",
             actorId: user.id,
-            targetType: "User",
-            targetId: doctorUserId,
+            targetType: "RiskAlert",
+            targetId: sosAlertId ?? doctorUserId,
             meta: { doctorAlerted: true },
         }).catch(() => {});
 

@@ -1,6 +1,8 @@
 import { prisma } from "../lib/prisma";
 import { invalidateDoctorCache } from "./doctor.service";
 import crypto from "crypto";
+import { badRequest } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 
 
@@ -20,6 +22,15 @@ export class UserService {
                 weeklyReportEnabled: true,
                 referralCode: true,
                 sessionCredits: true,
+                // The client rehydrates its session from this endpoint on every
+                // load, so anything the UI needs must be here. `totpEnabled` was
+                // missing: the security page then showed 2FA as "Off" after any
+                // refresh, and the account-deletion flow had no way to know it
+                // had to ask for a second-factor code. The flag is safe to
+                // expose — `totpSecret` never leaves the database.
+                totpEnabled: true,
+                isVerified: true,
+                timezone: true,
                 doctorProfile: true,
             },
         });
@@ -35,7 +46,7 @@ export class UserService {
     }
 
     static async updateProfile(userId: number, data: any, avatarPath?: string) {
-        if (!data) throw new Error("Data is undefined");
+        if (!data) throw badRequest("Data is undefined");
         const {
             name,
             phone_number,
@@ -58,7 +69,7 @@ export class UserService {
         // E.164 phone validation — the WhatsApp flows deep-link this field
         if (phone_number !== undefined && phone_number !== null && String(phone_number).trim() !== "") {
             if (!/^\+[1-9]\d{7,14}$/.test(String(phone_number).trim())) {
-                throw new Error("Phone number must be in international format, e.g. +6281234567890");
+                throw badRequest("Phone number must be in international format, e.g. +6281234567890");
             }
         }
 
@@ -93,15 +104,15 @@ export class UserService {
                 ...(experience !== undefined && { experience }),
                 ...(licenseNumber !== undefined && { licenseNumber: String(licenseNumber).trim() || null }),
                 ...(licenseIssuer !== undefined && { licenseIssuer: String(licenseIssuer).trim() || null }),
-                ...(bio !== undefined && { bio: String(bio) }),
-                ...(specialty !== undefined && { specialty: String(specialty) }),
+                ...(bio !== undefined && { bio: sanitize(String(bio)) }),
+                ...(specialty !== undefined && { specialty: sanitize(String(specialty)) }),
                 ...(languages !== undefined && { languages: String(languages) || null }),
-                ...(education !== undefined && { education: String(education) || null }),
+                ...(education !== undefined && { education: sanitize(String(education)) || null }),
                 ...(price !== undefined && { price }),
                 ...(bankName !== undefined && { bankName: String(bankName) || null }),
                 ...(bankAccount !== undefined && { bankAccount: String(bankAccount) || null }),
                 ...(bankHolder !== undefined && { bankHolder: String(bankHolder) || null }),
-                ...(availability !== undefined && { availability: String(availability) }),
+                ...(availability !== undefined && { availability: sanitize(String(availability)) }),
             };
 
             await prisma.doctor.upsert({

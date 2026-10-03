@@ -5,9 +5,60 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The end-to-end step is opt-in. See the `docker` job for why.
+  workflow_dispatch:
+
+# Least privilege. Stated once, at the top, and narrowed per job where a job needs
+# more - so the default for anything added later is read-only rather than the
+# repository's default token. Only `docker` widens, because it uploads Playwright
+# traces.
+permissions:
+  contents: read
+
+# One run per ref. A second push cancels the first instead of racing it: two
+# complete five-job runs would both burn the full runner budget, and the slower
+# one is what ends up reporting on the commit.
+#
+# Contrast `cd.yml`, where `cancel-in-progress` is false - two deploys must never
+# interleave, because `prisma migrate deploy` is not re-entrant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # --------------------------------------------------------------------
+  # Compose file validation
+  #
+  # Runs first, costs about ten seconds, and needs nothing but the
+  # checkout. It exists because a single mis-indented key in
+  # docker-compose.yml made the file unparseable, which made
+  # `docker compose build` fail on the first step of the `docker` job and
+  # left every later step - four health checks, the database seed, all
+  # 12 Playwright tests - permanently unreachable. Nothing in the
+  # pipeline noticed, because a job whose first step fails simply reports
+  # red and the unreachable steps are never examined.
+  #
+  # A schema error in the compose file should cost ten seconds, not a full
+  # three-job test run.
+  compose:
+    # `docker compose config` parses one file. Nothing else.
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    name: Compose (validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # `-q` validates and exits non-zero on any error without printing the
+      # resolved config, so a failure shows the parse error and nothing else.
+      - name: Validate docker-compose.yml
+        run: docker compose config -q
+
   server:
+    # Installs dependencies, migrates, runs 415 tests against MySQL. Generous because a cold `npm ci` plus a full suite is genuinely slow.
+    permissions:
+      contents: read
+    timeout-minutes: 25
     name: Server (lint, typecheck, test)
     runs-on: ubuntu-latest
     services:
@@ -24,71 +75,367 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - run: npx prisma generate
+
+      # The encoding guard is the one that is wired as a required check. It
+      # catches real damage that has happened here before: a bulk text repair
+      # left mojibake in user-facing strings, and it is cheap and currently
+      # green.
+      - name: Encoding guard (whole repo)
+        working-directory: .
+        run: node scripts/check-encoding.js
+
+      # The other two guards are advisory, and that is a known gap rather than a
+      # judgement that they are unimportant.
+      #
+      # `check-dependencies.js` exits 0 without `--write`, so it reports and
+      # never fails - but it has false positives today: it does not scan
+      # `eslint.config.mjs`, so it calls `@eslint/js` and `typescript-eslint`
+      # unused, and it does not know that jsdom and testing-library are pulled in
+      # by vitest's config rather than imported.
+      #
+      # `check-operators.js` is genuinely broken and reports 195 false positives.
+      # It declares a `CODE_POSITION` regex and never uses it; what it actually
+      # checks is "does any typographic dash survive stripping", and it only
+      # strips `//` comments, not `/* */` block comments. Every one of the 190
+      # findings is prose in a doc comment, JSX text, or an email template. It
+      # has never been run in any automated process, which is why nobody has seen
+      # that. Making it a required check would redden main on the first run for
+      # no real finding.
+      #
+      # Both need fixing before they can gate anything; they are tracked in the
+      # README's known limitations.
+      - name: Unused dependency check (advisory)
+        continue-on-error: true
+        run: node scripts/check-dependencies.js
+      - name: Migration table-case check
+        # Not advisory, and not for style: a migration referenced
+        # `moodEntry` where the table is `MoodEntry`. That resolves on
+        # Windows and macOS MySQL and fails on Linux with `Unknown table` -
+        # and Docker, Railway and this service container are all Linux, so it
+        # passed every local run and broke the first deploy. It failed here
+        # instead, which is the entire point of having CI.
+        run: node scripts/check-migration-case.js
+
+      - name: UI hygiene (advisory)
+        # Counts, never fails. Three things this codebase has been quietly losing
+        # ground on, and all three are invisible until someone counts them:
+        #
+        #   hardcoded UI strings  English text in JSX that `useTranslations` was
+        #                        meant to cover, so the Indonesian build silently
+        #                        falls back to English
+        #   locale bypasses       `toLocaleDateString()` and friends, which render
+        #                        in the *viewer's* locale and timezone rather than
+        #                        the one the user chose. `lib/format.ts` exists to
+        #                        centralise exactly this
+        #   <img> without alt     a screen reader announces the file path
+        #
+        # Advisory on purpose. A gate with 180 existing violations is a gate nobody
+        # turns on, and enabling it before fixing them would block every PR. This
+        # prints a number so the direction is visible and the count can be held flat
+        # or driven down as strings are migrated.
+        #
+        # UI_HYGIENE_VERBOSE=1 lists every finding.
+        #
+        # `working-directory: .` because this job defaults to `server/` and the
+        # script lives in `client/scripts/`. Without it the step fails with module
+        # not found - which is how a guard that is supposed to never fail ended up
+        # turning the build red on its first run.
+        working-directory: .
+        run: node client/scripts/check-ui-hygiene.js
+        env:
+          UI_HYGIENE_VERBOSE: ${{ vars.UI_HYGIENE_VERBOSE }}
+
+      - name: Dashed-operator check (advisory, known false positives)
+        continue-on-error: true
+        run: node scripts/check-operators.js
+
+      - name: Lint
+        run: npm run lint
       - run: npx tsc --noEmit
       - name: Prepare test DB via migrations
-        run: npx prisma migrate deploy --skip-generate
+        # No `--skip-generate`: `migrate deploy` does not accept it in Prisma 6.
+        # Passing it printed the command's help text and exited 1, so this step
+        # failed without running a single migration - and because the job stops
+        # here, the drift check and all 415 tests below it never ran either. The
+        # test wipe in `tests/setup.ts` means they would have reported against
+        # an empty schema.
+        run: npx prisma migrate deploy
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
       - name: Check for schema drift (schema must match committed migrations)
+        # This is the highest-value step in the pipeline: it fails when
+        # `schema.prisma` and the committed migrations disagree, which is how a
+        # hand-written index that only exists in a migration gets silently
+        # dropped by the next `migrate dev`.
         run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel ./prisma/schema.prisma --exit-code
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
       - name: Run tests
+        # TZ is pinned to UTC: that is what GitHub runners use and what a
+        # developer machine usually does not - and the difference was hiding
+        # two real bugs rather than causing flaky ones. `features.test.ts` built
+        # an appointment window from the *host* clock while the server reads it
+        # in the *user* timezone, so it passed on a WIB machine and failed here.
+        # `joinRoom` had the mirror problem and judged the same window in the
+        # *host* zone, so booking and joining could disagree about a single
+        # appointment. Pinning it also makes any CI failure reproducible locally
+        # with TZ=UTC.
         run: npm test
         env:
-          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
+          # `tests/setup.ts` derives the test connection from TEST_DATABASE_URL and
+          # overwrites DATABASE_URL with it. It previously fell back to a
+          # passwordless localhost URL, which cannot authenticate against this
+          # service container — so every test in this job failed at the database
+          # wipe in beforeEach. Both variables are set to the same value so the
+          # migration step and the test run cannot disagree.
+          TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
           JWT_SECRET: ci-jwt-secret
           REFRESH_SECRET: ci-refresh-secret
+          TWO_FACTOR_SECRET: ci-two-factor-secret
+          # Empty on purpose: the suite must never make a live, billable Gemini
+          # call, and the tests assert the degraded-path behaviour.
+          GEMINI_API_KEY: ""
           NODE_ENV: test
+          TZ: UTC
 
   client:
-    name: Client (lint, build)
+    # Lint, unit tests and a production build. The build is the slow part.
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    name: Client (lint, test, build)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
+      - name: Encoding guard (whole repo)
+        working-directory: .
+        run: node scripts/check-encoding.js
+      - name: Unused dependency check (advisory, known false positives)
+        continue-on-error: true
+        run: node scripts/check-dependencies.js
       - run: npm run lint
+      # The vitest suite was never run in CI, so the api-session and
+      # notifications-store regression tests only ever ran locally.
+      - run: npm test
       - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
 
   realtime:
-    name: Realtime (Go build, test)
+    # go vet, build and race tests on a 532-line service.
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    name: Realtime (Go vet, build, test)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: server-realtime
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
       - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v6
+        # v9, not v6. v6 resolves its own binary version and picked
+        # v1.64.8, which is built with go1.24 and refuses to load a module
+        # declaring `go 1.26`: it exits 3 with "the Go language version used
+        # to build golangci-lint is lower than the targeted Go version".
+        # The version is pinned below for the same reason - a floating
+        # resolver is what picked a binary that cannot read this go.mod.
+        uses: golangci/golangci-lint-action@v9
         with:
+          version: v2.14.0
           working-directory: server-realtime
+      - run: go vet ./...
       - run: go build ./...
-      - run: go test ./...
+      # `-race` is the whole point: hub_test.go's concurrency cases exist to catch
+      # data races, and the suite was previously compiled without the flag.
+      - name: Test with race detector
+        run: go test -race -cover ./...
 
   docker:
+    # Builds all three images, boots the stack, and uploads Playwright traces on
+    # failure - so it needs to write a check run, and nothing else. The only job
+    # in this workflow that is not read-only, and deliberately so: it is the one
+    # that runs third-party actions.
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+    timeout-minutes: 45
     name: Docker build
     runs-on: ubuntu-latest
-    needs: [server, client, realtime]
+    # `compose` first: a malformed compose file should fail here rather than
+    # after the server, client and realtime suites have all run.
+    needs: [compose, server, client, realtime]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # ----------------------------------------------------------------
+      # Opt-in for the end-to-end step
+      #
+      # The Playwright suite had never been executed by any automated
+      # process: the `docker` job's first step was `docker compose build`,
+      # and it failed, so every later step was unreachable.
+      #
+      # It therefore runs now for the first time, on selectors that have
+      # never been exercised. Making that a required check on the first
+      # run would report a selector failure as though it were a
+      # regression, which is exactly the wrong signal to send. So the
+      # step runs on demand - dispatch this workflow, or label a PR `e2e` -
+      # and gets promoted to required once it is green.
+      #
+      # Everything above it (build, boot, four health checks, seed) is not
+      # gated: that is the part with a known-good expectation, and a red
+      # there is always a real defect.
+      - name: Decide whether to run end-to-end journeys
+        id: e2e
+        env:
+          # `contains(github.event.pull_request.labels.*.name, 'e2e')` is
+          # empty for a push, which `contains` would otherwise treat as a
+          # match, so the event type is checked first.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "reason=workflow_dispatch" >> "$GITHUB_OUTPUT"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_LABELS" != "[]" ] && echo "$PR_LABELS" | grep -q '"e2e"'; then
+            echo "reason=pr-label" >> "$GITHUB_OUTPUT"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reason=not-requested" >> "$GITHUB_OUTPUT"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build images
         run: docker compose build
+      # `build` alone never proved the stack works: the API refused to boot
+      # (missing TWO_FACTOR_SECRET) and the realtime service could not reach
+      # Redis, so compose reported success for a stack that could not start.
+      - name: Boot the full stack
+        run: docker compose up -d --wait
+        env:
+          # The API refuses to boot in production without these three, and
+          # compose.yml passes JWT_SECRET and REFRESH_SECRET through with no
+          # default - so "docker compose up" with no environment here hands it
+          # empty strings and the container exits immediately. Compose then
+          # reports "mindease-api is unhealthy" 75 seconds later, which says
+          # nothing about why.
+          #
+          # Throwaway values, safe to commit and shared with nothing: an
+          # ephemeral container on an ephemeral runner. The config layer also
+          # requires all three to differ from each other in production, so they
+          # are deliberately different strings.
+          JWT_SECRET: ci-docker-jwt-secret
+          REFRESH_SECRET: ci-docker-refresh-secret
+          TWO_FACTOR_SECRET: ci-docker-two-factor-secret
+      - name: API liveness
+        run: curl -fsS http://localhost:5000/api/health
+      - name: API database check (the endpoint that actually queries MySQL)
+        run: curl -fsS http://localhost:5000/api/health/db
+      - name: Realtime reports Redis reachable
+        run: curl -fsS http://localhost:8080/health
+      - name: Web responds
+        run: curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/
+
+      # ----------------------------------------------------------------
+      # End-to-end journeys
+      #
+      # The suite requires seeded data and nothing in compose or CI ever
+      # seeded the database, so the seed is closed first.
+      #
+      # Seeding runs from the runner rather than inside the API container: the
+      # production image installs `--omit=dev` (so no `ts-node`) and copies only
+      # `scripts/start.sh`, not `scripts/seed.ts`. The runner has the full
+      # checkout with devDependencies, and compose publishes MySQL on 3306.
+      #
+      # Note the seed creates zero reviews. It used to invent a 4.2-4.9 rating
+      # for every clinician with zero reviews, which made "Top Rated" rank
+      # the most-liked-looking profiles first; that data was removed because
+      # demo data should not model the bug. One journey depends on a review
+      # existing and builds its own by completing a consultation.
+      - name: Install server dependencies (for the seed)
+        working-directory: server
+        run: npm ci
+      - name: Seed the database
+        working-directory: server
+        env:
+          DATABASE_URL: mysql://root:mindease_secure_root@127.0.0.1:3306/mindease_db
+        run: npx prisma migrate deploy && npm run db:seed
+      - name: Install Playwright browser
+        if: steps.e2e.outputs.run == 'true'
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+      - name: Run end-to-end journeys
+        if: steps.e2e.outputs.run == 'true'
+        working-directory: client
+        run: npx playwright test
+      - name: Upload Playwright traces on failure
+        if: failure() && steps.e2e.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: client/test-results/
+          retention-days: 7
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      # `docker compose up --wait` only ever reports "container X is unhealthy".
+      # That names a symptom, not a cause, and the last three rounds of this job
+      # were spent guessing: a missing secret, a missing Prisma client, and a
+      # bind address all produced the identical one-line message.
+      #
+      # This prints what each service actually returns, so the next failure is
+      # diagnosed from the log rather than by another hypothesis. It runs before
+      # teardown and never fails the job itself, because it is a diagnostic.
+      - name: Probe every service (diagnostics)
+        if: failure()
+        continue-on-error: true
+        run: |
+          for probe in \
+            "web|http://localhost:3000/offline" \
+            "web-ip|http://127.0.0.1:3000/offline" \
+            "web-static|http://localhost:3000/robots.txt" \
+            "api|http://localhost:5000/api/health" \
+            "api-db|http://localhost:5000/api/health/db" \
+            "realtime|http://localhost:8080/health"
+          do
+            name="${probe%%|*}"
+            url="${probe#*|}"
+            echo "--- ${name}  ${url}"
+            # `-S` prints the status line, `-O-` to stdout. Never let the probe's
+            # own exit code abort the loop: a failure here *is* the finding.
+            curl -sS -S --max-time 10 -o /dev/null -w '    status=%{http_code} time=%{time_total}s\n' \
+              "$url" || echo "    curl exit=$?"
+          done
+          echo "--- from inside the web container"
+          docker compose exec -T web sh -c \
+            'wget -S -O /dev/null http://127.0.0.1:3000/offline 2>&1 | head -20' \
+            || echo "    exec failed"
+          echo "--- container health state"
+          docker compose ps --format '{{.Name}}  {{.State}}  {{.Status}}' || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

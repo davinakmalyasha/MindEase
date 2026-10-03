@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { resolvePostLoginPath } from "@/lib/postLogin";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslations } from "next-intl";
 import { getErrorMessage } from "@/lib/api";
@@ -15,8 +16,10 @@ import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
 import {
     RegisterSchema,
     LoginSchema,
+    toRegisterPayload,
+    type LoginFormInput,
     type LoginFormData,
-    type RegisterFormData,
+    type RegisterFormInput,
 } from "@/lib/validations/auth";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
@@ -45,13 +48,13 @@ function AuthForm() {
     const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
     const redirectByRole = (role: string) => {
-        const target =
-            nextPath && nextPath.startsWith("/")
-                ? nextPath
-                : role === "patient"
-                ? "/dashboard/mood"
-                : "/dashboard";
-        window.location.href = target;
+        // `isSafeInternalPath`, not `startsWith("/")`. The old check let
+        // `//evil.example` through, which is a protocol-relative URL, so
+        // `/login?next=//evil.example` collected real credentials on the genuine
+        // page and then navigated the authenticated user off-origin - and
+        // because `redirectByRole` also runs after the second factor, the bounce
+        // happened at the point of maximum trust. See `lib/postLogin.ts`.
+        window.location.href = resolvePostLoginPath(nextPath, role);
     };
 
     const verify2FA = async () => {
@@ -95,7 +98,7 @@ function AuthForm() {
         register: loginRegister,
         handleSubmit: handleLoginSubmit,
         formState: { errors: loginErrors },
-    } = useForm<LoginFormData>({ resolver: zodResolver(LoginSchema) });
+    } = useForm<LoginFormInput>({ resolver: zodResolver(LoginSchema) });
 
     const {
         register: registerRegister,
@@ -103,7 +106,7 @@ function AuthForm() {
         setValue,
         watch,
         formState: { errors: registerErrors },
-    } = useForm<RegisterFormData>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
+    } = useForm<RegisterFormInput>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
 
     const selectedRole = watch("role");
 
@@ -124,13 +127,14 @@ function AuthForm() {
         }
     };
 
-    const onRegister = async (data: RegisterFormData) => {
+    const onRegister = async (data: RegisterFormInput) => {
         setIsLoading(true);
         setError(null);
         try {
             // Preserve referral attribution from invite links (?ref=CODE)
             const refCode = searchParams.get("ref");
-            const user = await register({ ...data, referralCode: refCode || undefined });
+            // Applies the schema's transforms (empty phone -> undefined).
+            const user = await register({ ...toRegisterPayload(data), referralCode: refCode || undefined });
             redirectByRole(user.role);
         } catch (err: any) {
             setError(getErrorMessage(err, "Registration failed"));

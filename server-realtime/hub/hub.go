@@ -4,8 +4,35 @@
 package hub
 
 import (
+	"errors"
 	"sync"
 )
+
+// ErrTooManyConnections is returned by Register when a connection would exceed
+// either the per-user or the global connection cap. The caller is expected to
+// reject the socket and not start its pumps.
+var ErrTooManyConnections = errors.New("connection limit reached")
+
+// Default connection caps. Overridable via env so an operator can size the
+// service for their own memory budget.
+const (
+	DefaultMaxPerUserConnections = 5
+	DefaultMaxTotalConnections   = 10000
+)
+
+// Limits bounds how many concurrent sockets the hub will hold.
+type Limits struct {
+	MaxPerUser int
+	MaxTotal   int
+}
+
+// DefaultLimits returns the built-in caps.
+func DefaultLimits() Limits {
+	return Limits{
+		MaxPerUser: DefaultMaxPerUserConnections,
+		MaxTotal:   DefaultMaxTotalConnections,
+	}
+}
 
 // Event is a message pushed to a connected user.
 type Event struct {
@@ -23,21 +50,61 @@ type Client struct {
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[int64]map[*Client]bool
+	total   int
+	limits  Limits
+
+	// Drop accounting. `PublishToUser` drops rather than blocks, which is the
+	// right call - one stalled socket must not stall the hub - but it made the
+	// behaviour invisible. A clinician whose risk alert silently vanished, or a
+	// patient whose message never arrived, looked identical to a bug in their
+	// own client. These counters are the difference between "the socket was
+	// slow" and "we have no idea".
+	//
+	// Split by class because the two are not equally serious and an operator
+	// should be able to tell them apart at a glance.
+	droppedCritical uint64 // risk alerts, messages, crisis events
+	droppedCosmetic uint64 // typing indicators and similar
 }
 
-// New creates an empty hub.
-func New() *Hub {
-	return &Hub{clients: make(map[int64]map[*Client]bool)}
+// New creates an empty hub with the given limits. Non-positive limits fall
+// back to the defaults so a misconfigured env can never disable the cap.
+func New(limits Limits) *Hub {
+	if limits.MaxPerUser <= 0 {
+		limits.MaxPerUser = DefaultMaxPerUserConnections
+	}
+	if limits.MaxTotal <= 0 {
+		limits.MaxTotal = DefaultMaxTotalConnections
+	}
+	return &Hub{
+		clients: make(map[int64]map[*Client]bool),
+		limits:  limits,
+	}
 }
 
 // Register adds a client to the user's room.
-func (h *Hub) Register(userID int64, c *Client) {
+//
+// It returns ErrTooManyConnections — and registers nothing — when either cap
+// would be exceeded. The check and the insert happen under one lock so two
+// concurrent connections cannot both observe a free slot.
+func (h *Hub) Register(userID int64, c *Client) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.clients[userID] == nil {
-		h.clients[userID] = make(map[*Client]bool)
+
+	room := h.clients[userID]
+	if len(room) >= h.limits.MaxPerUser {
+		return ErrTooManyConnections
 	}
-	h.clients[userID][c] = true
+	if h.total >= h.limits.MaxTotal {
+		return ErrTooManyConnections
+	}
+
+	if room == nil {
+		room = make(map[*Client]bool)
+		h.clients[userID] = room
+	}
+	room[c] = true
+	h.total++
+	return nil
 }
 
 // Unregister removes a client, cleaning up empty rooms. It is safe to call
@@ -51,6 +118,7 @@ func (h *Hub) Unregister(userID int64, c *Client) {
 		if _, ok := room[c]; ok {
 			delete(room, c)
 			close(c.Send)
+			h.total--
 			if len(room) == 0 {
 				delete(h.clients, userID)
 			}
@@ -58,16 +126,72 @@ func (h *Hub) Unregister(userID int64, c *Client) {
 	}
 }
 
+// criticalTypes are the events where a dropped delivery is a clinical or
+// communication failure rather than a cosmetic one.
+//
+// The distinction drives two things: which counter a drop lands in, and the
+// fact that a caller can ask for priority. But note what priority cannot do:
+// if a socket's buffer is full, it is full. A critical event cannot displace
+// an already-queued one - the channel is FIFO and there is no room made for
+// it. So this classification improves *reporting*, and gives the caller a
+// cheap signal, but it does not claim to guarantee delivery under back
+// pressure. Pretending otherwise would be worse than the silent drop.
+var criticalTypes = map[string]bool{
+	"message:new":        true,
+	"risk:new":           true,
+	"risk:updated":       true,
+	"appointment:new":    true,
+	"appointment:update": true,
+	"crisis":             true,
+}
+
+// IsCritical reports whether an event type is one whose loss matters beyond
+// the screen it would have updated.
+func IsCritical(eventType string) bool {
+	return criticalTypes[eventType]
+}
+
 // PublishToUser delivers an event to every connection of the user.
+//
+// Non-blocking: a socket whose buffer is full is skipped rather than allowed
+// to stall the hub for every other user. That trade is right - one stalled
+// client must not become a service-wide outage - but it used to be silent, so
+// the drop is counted by class and readable via DropStats.
 func (h *Hub) PublishToUser(userID int64, event Event) {
+	critical := IsCritical(event.Type)
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients[userID] {
 		select {
 		case c.Send <- event:
 		default:
-			// Slow consumer — drop the event to avoid blocking the hub.
+			// Slow consumer - drop the event to avoid blocking the hub.
+			// Counted under the write lock we already hold, so this needs no
+			// second lock and cannot race with itself.
+			if critical {
+				h.droppedCritical++
+			} else {
+				h.droppedCosmetic++
+			}
 		}
+	}
+}
+
+// DropStats reports how many events have been dropped, by class, since the
+// hub was created. Returned to the /health endpoint so the number is visible
+// without a debugger attached.
+type DropStats struct {
+	Critical uint64 `json:"droppedCritical"`
+	Cosmetic uint64 `json:"droppedCosmetic"`
+}
+
+func (h *Hub) DropStats() DropStats {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return DropStats{
+		Critical: h.droppedCritical,
+		Cosmetic: h.droppedCosmetic,
 	}
 }
 
@@ -76,4 +200,11 @@ func (h *Hub) UserCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
+}
+
+// ConnectionCount returns the total number of open sockets across all users.
+func (h *Hub) ConnectionCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.total
 }

@@ -34,7 +34,7 @@ export default function CookieBanner() {
             <p className="text-sm text-gray-500 leading-relaxed mb-5">
                 We use essential cookies to keep you signed in and remember your preferences. We do not
                 use advertising cookies, and we never sell your data.{" "}
-                <Link href="/privacy#cookies" className="text-indigo-600 font-bold underline underline-offset-2">
+                <Link href="/privacy#cookies-storage" className="text-indigo-600 font-bold underline underline-offset-2">
                     Learn more
                 </Link>
             </p>

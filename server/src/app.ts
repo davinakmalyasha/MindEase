@@ -7,7 +7,6 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
-import rateLimit from "express-rate-limit";
 import path from "path";
 import crypto from "crypto";
 import { logger } from "./utils/logger";
@@ -28,10 +27,14 @@ import messageRoutes from "./routes/message.routes";
 import supportRoutes from "./routes/support.routes";
 import followUpRoutes from "./routes/followUp.routes";
 import pushRoutes from "./routes/push.routes";
+import realtimeRoutes from "./routes/realtime.routes";
+import paymentRoutes from "./routes/payment.routes";
+import carePlanRoutes from "./routes/carePlan.routes";
 import { csrfProtect, csrfTokenHandler } from "./middleware/csrf.middleware";
 import { openApiDocument } from "./docs/openapi";
 import { captureError } from "./utils/sentry";
 import swaggerUi from "swagger-ui-express";
+import { sharedLimiter } from "./middleware/rateLimit.middleware";
 
 export { prisma };
 
@@ -71,7 +74,22 @@ export const createApp = () => {
             credentials: true,
         })
     );
-    app.use(express.json({ limit: "1mb" }));
+    app.use(
+        express.json({
+            limit: "1mb",
+            // Keep the byte-for-byte payload on the request. Payment provider
+            // signatures (Midtrans included) are computed over the exact bytes
+            // they sent; a parsed-then-re-serialised body reorders keys and
+            // changes whitespace, so signature verification against
+            // `req.body` fails on legitimate callbacks. The cost is a string
+            // copy per JSON request, which only the webhook route reads.
+            verify: (req, _res, buf) => {
+                if (buf && buf.length) {
+                    (req as unknown as { rawBody?: string }).rawBody = buf.toString("utf8");
+                }
+            },
+        })
+    );
     app.use(cookieParser());
     // Structured access logging, so a request can be joined to its log lines
     // and its Sentry event by `requestId`. The previous `morgan("dev")` wrote a
@@ -95,29 +113,74 @@ export const createApp = () => {
         })
     );
 
-    // General API rate limit: 300 requests / 15 min / IP (disabled in tests)
+    // General API rate limit: 300 requests / 15 min / IP.
+    //
+    // `sharedLimiter` rather than a bare `rateLimit({...})`. This one was missed
+    // when the Redis-backed store was introduced, so it kept the default
+    // per-process `MemoryStore` - meaning the ceiling most requests are actually
+    // governed by was doubled on two replicas and reset on every rolling deploy,
+    // while `docs/security.md` listed it as Redis-backed. The store is now
+    // something you get by using the one constructor, and
+    // `tests/rate-limit-store.test.ts` proves no bare `rateLimit({` is left.
+    //
+    // Defined outside the NODE_ENV guard because `/api/docs` reuses it below.
+    // Skipping in tests keeps the suite from having to share one IP's budget
+    // across several hundred assertions, which is the only reason the mount is
+    // conditional.
+    const generalLimiter = sharedLimiter("general", {
+        windowMs: 15 * 60 * 1000,
+        max: 300,
+        message: { status: "error", message: "Too many requests, please slow down" },
+    });
+
     if (process.env.NODE_ENV !== "test") {
-        const generalLimiter = rateLimit({
-            windowMs: 15 * 60 * 1000,
-            max: 300,
-            message: { status: "error", message: "Too many requests, please slow down" },
-            standardHeaders: true,
-            legacyHeaders: false,
-        });
         app.use("/api", (req, res, next) => {
-            // Health checks and CSRF bootstrap are exempt (monitoring must always work)
-            if (req.path.startsWith("/health") || req.path === "/csrf-token" || req.path === "/docs") {
+            // Health checks and CSRF bootstrap are exempt (monitoring must always
+            // work). `/docs` is no longer exempt: it now has its own limiter
+            // rather than none at all.
+            if (req.path.startsWith("/health") || req.path === "/csrf-token") {
                 return next();
             }
             return generalLimiter(req, res, next);
         });
     }
 
-    // CSRF protection for all mutating API routes (double-submit token)
-    app.use("/api", csrfProtect);
+    // CSRF protection for all mutating API routes (double-submit token).
+    //
+    // The payment provider's callback is exempt: the caller is a payment
+    // gateway with no cookie and no header, and CSRF is a defence against a
+    // browser being induced to issue an authenticated request. That threat does
+    // not apply here — the route is authenticated by the provider's own
+    // signature, verified in the provider implementation.
+    app.use("/api", (req, res, next) => {
+        if (req.path === "/payments/notification") return next();
+        return csrfProtect(req, res, next);
+    });
     app.get("/api/csrf-token", csrfTokenHandler);
 
-    app.use("/uploads", express.static(path.join(__dirname, "../public/uploads")));
+    app.use(
+    "/uploads",
+    express.static(path.join(__dirname, "../public/uploads"), {
+        setHeaders: (res, filePath) => {
+            // Served from the API's own origin, which is the origin that holds
+            // the session cookies. `httpOnly` stops script reading them, but the
+            // file is still same-origin content.
+            //
+            // `Content-Security-Policy: default-src 'none'; sandbox` means that
+            // even if someone later adds `.svg` to an upload allowlist, the
+            // result is an inert file rather than a script that runs on the
+            // credential origin. It is one allowlist entry away from being stored
+            // XSS today, which is the part worth defending against.
+            res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+            res.setHeader("X-Content-Type-Options", "nosniff");
+            // Anything that is not an image is a download rather than something
+            // the browser renders in place. Images stay inline so avatars work.
+            if (!/\.(png|jpe?g|webp|gif)$/i.test(filePath)) {
+                res.setHeader("Content-Disposition", "attachment");
+            }
+        },
+    })
+);
 
     // Health checks
     app.get("/api/health", (req, res) => {
@@ -134,7 +197,33 @@ export const createApp = () => {
     });
 
     // API documentation (Swagger UI)
-    app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+    //
+    // Served only outside production, and behind the same per-IP limiter as the
+    // rest of the API.
+    //
+    // It was mounted unconditionally and *exempted* from the general limiter, so
+    // the entire attack surface was anonymously readable - every route, every
+    // request schema, the exact cookie and CSRF header names, and the fact that
+    // the payment webhook is signature-authenticated rather than
+    // session-authenticated. An exemption is the wrong tool here: it removes a
+    // ceiling rather than adding one.
+    //
+    // In production the spec is still available, machine-readable, at
+    // `/api/openapi.json` - which is what a client generator or a reviewer
+    // actually wants, and which is not a browsable UI.
+    if (!env.isProd) {
+        app.use(
+            "/api/docs",
+            generalLimiter,
+            swaggerUi.serve,
+            swaggerUi.setup(openApiDocument)
+        );
+    }
+    // The document itself is not sensitive, and gating it would break the
+    // generated clients a portfolio reviewer will point at this.
+    app.get("/api/openapi.json", (_req, res) => {
+        res.json(openApiDocument);
+    });
 
     // Routes
     app.use("/api/auth", authRoutes);
@@ -150,7 +239,10 @@ export const createApp = () => {
     app.use("/api/messages", messageRoutes);
     app.use("/api/support", supportRoutes);
     app.use("/api", followUpRoutes);
-    app.use("/api/push", pushRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/realtime", realtimeRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api", carePlanRoutes);
 
     // 404 handler
     app.use((req, res) => {
@@ -160,7 +252,9 @@ export const createApp = () => {
     });
 
     // Global Error Handler
-    app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    // Express identifies an error handler by its four-parameter arity, so `next`
+    // has to stay even though this handler always terminates the response.
+    app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
         const requestId = (req as express.Request & { requestId?: string }).requestId;
         logger.error({ err: err?.stack || String(err), path: req.path, requestId }, "Unhandled error");
         captureError(err, { path: req.path, method: req.method, requestId });

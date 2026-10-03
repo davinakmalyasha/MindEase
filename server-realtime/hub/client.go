@@ -56,20 +56,25 @@ func checkOrigin(r *http.Request) bool {
 	return false
 }
 
-// ServeWS upgrades the connection, authenticates via token (cookie or query),
-// and registers the client with the hub.
+// ServeWS authenticates, then upgrades the connection and registers the client
+// with the hub.
+//
+// Authentication deliberately happens *before* the upgrade. The previous order
+// completed a 101 handshake first and only then validated the token, so an
+// unauthenticated caller held a live socket for the duration of the auth check
+// and the client could not tell a rejected handshake from a normal disconnect —
+// its reconnect loop would retry a bad ticket indefinitely.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	claims, err := authenticateRequest(r)
 	if err != nil {
-		log.Printf("upgrade error: %v", err)
+		log.Printf("auth rejected: %v", err)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	claims, err := authenticateRequest(r)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("auth error: %v", err)
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()))
-		conn.Close()
+		log.Printf("upgrade error: %v", err)
 		return
 	}
 
@@ -77,7 +82,21 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		ID:   claims.UserID,
 		Send: make(chan Event, 64),
 	}
-	h.Register(claims.UserID, client)
+	if err := h.Register(claims.UserID, client); err != nil {
+		log.Printf("connection limit reached for user %d: %v", claims.UserID, err)
+		// Best-effort, but not silent. A failed close frame leaves the peer
+		// hanging on a socket we are about to drop, with no explanation.
+		if err := conn.WriteMessage(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"),
+		); err != nil {
+			log.Printf("user %d over cap: close frame failed: %v", claims.UserID, err)
+		}
+		if err := conn.Close(); err != nil {
+			log.Printf("user %d over cap: close failed: %v", claims.UserID, err)
+		}
+		return
+	}
 
 	log.Printf("user %d connected (role=%s)", claims.UserID, claims.Role)
 
@@ -106,22 +125,35 @@ func (h *Hub) writePump(conn *websocket.Conn, c *Client) {
 	defer func() {
 		ticker.Stop()
 		h.Unregister(c.ID, c)
-		conn.Close()
+		// Errors here mean the socket was already gone. Returning is correct
+		// either way; logging it is what distinguishes a clean disconnect from
+		// one the network ate.
+		if err := conn.Close(); err != nil {
+			log.Printf("user %d write pump: close: %v", c.ID, err)
+		}
 	}()
 
 	for {
 		select {
 		case event, ok := <-c.Send:
-			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("user %d write pump: set deadline: %v", c.ID, err)
+				return
+			}
 			if !ok {
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					log.Printf("user %d write pump: close frame: %v", c.ID, err)
+				}
 				return
 			}
 			if err := conn.WriteJSON(event); err != nil {
 				return
 			}
 		case <-ticker.C:
-			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("user %d write pump: ping deadline: %v", c.ID, err)
+				return
+			}
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -132,13 +164,23 @@ func (h *Hub) writePump(conn *websocket.Conn, c *Client) {
 func (h *Hub) readPump(conn *websocket.Conn, c *Client) {
 	defer func() {
 		h.Unregister(c.ID, c)
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			log.Printf("user %d read pump: close: %v", c.ID, err)
+		}
 	}()
 
 	conn.SetReadLimit(maxMsgSize)
-	conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Printf("user %d read pump: initial deadline: %v", c.ID, err)
+		return
+	}
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
+		// A failed deadline extension means the pong was not honoured, so the
+		// connection is already suspect; surfacing it beats letting the stale
+		// deadline quietly reap a healthy client later.
+		if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			return err
+		}
 		return nil
 	})
 

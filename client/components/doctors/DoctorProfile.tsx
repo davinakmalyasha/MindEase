@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Doctor } from "@/lib/types/doctor";
 import ReviewCard from "@/components/doctors/ReviewCard";
 import Spinner from "@/components/ui/Spinner";
 import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { formatIDR } from "@/lib/format";
+import { formatPublishedSchedule, hasPublishedSchedule } from "@/lib/doctorSchedule";
 import { useAuth } from "@/context/AuthContext";
 import {
     Star,
@@ -90,8 +93,11 @@ function ReviewReplyForm({ reviewId, onDone }: { reviewId: number; onDone: () =>
 
 export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfileProps) {
     const tr = useTranslations("features.reviewReply");
+    const t = useTranslations("features.doctorProfile");
     const { toast } = useToast();
     const { user } = useAuth();
+    const confirm = useConfirm();
+    const locale = useLocale();
     const [waitlistState, setWaitlistState] = useState<"idle" | "checking" | "on" | "off">("idle");
     const [waitlistBusy, setWaitlistBusy] = useState(false);
     const [showAllReviews, setShowAllReviews] = useState(false);
@@ -204,30 +210,54 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
         }
     };
 
+    /**
+     * Opens a checkout for a package and follows the provider redirect.
+     *
+     * This used to call `POST /api/packages/:id/purchase` — a path that was
+     * never mounted, and whose only real implementation refused every
+     * self-service purchase anyway. The growth feature the README advertised
+     * could not be completed by any user.
+     */
     const purchasePackage = async (pkg: any) => {
         if (!user) {
             toast("Please sign in to purchase a package", "error");
             return;
         }
-        if (!confirm(`Purchase "${pkg.name}" (${pkg.sessionCount} sessions, Rp ${pkg.totalPrice.toLocaleString("id-ID")})?`)) return;
+        const ok = await confirm({
+            title: "Purchase this package?",
+            message: `${pkg.name} — ${pkg.sessionCount} session${pkg.sessionCount === 1 ? "" : "s"} with ${doctor.name} for ${formatIDR(pkg.totalPrice, locale)}.`,
+            confirmLabel: "Continue to payment",
+            danger: false,
+        });
+        if (!ok) return;
+
         setPackageBusy(true);
         try {
-            await api.post(`/packages/${pkg.id}/purchase`);
-            toast("Package purchased — use a session when booking!", "success");
+            const res = await api.post(`/payments/packages/${pkg.id}/checkout`);
+            const checkoutUrl = res.data?.data?.checkoutUrl;
+            if (!checkoutUrl) {
+                toast("Checkout is unavailable right now.", "error");
+                return;
+            }
+            // With the simulator configured, settlement is immediate, so the
+            // checkout URL is a local redirect. Following it lands the patient
+            // back on their profile with the entitlement already granted.
+            window.location.href = checkoutUrl;
         } catch (err: any) {
-            toast(getErrorMessage(err, "Failed to purchase package"), "error");
+            toast(getErrorMessage(err, "Failed to start checkout"), "error");
         } finally {
             setPackageBusy(false);
         }
     };
-    const treatments = [
-        "Anxiety Disorder",
-        "Depression",
-        "Stress Management",
-        "Personal Development",
-        "Work-Life Balance",
-        "Relationship Issues"
-    ];
+
+    /**
+     * Removed: a hardcoded list of six clinical focus areas rendered on every
+     * profile as though it described that specific clinician. It was a
+     * site-wide constant, so it told a patient that every psychologist in the
+     * directory specialises in trauma, depression and relationships — a claim
+     * about a real person's clinical scope that nothing in the data supported.
+     * A clinician's stated focus has to come from their own profile.
+     */
 
     return (
         <motion.div
@@ -367,17 +397,110 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                     >
                         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
                             <HeartPulse className="w-7 h-7 text-rose-500" />
-                            Specialization & Focus
+                            Clinical Background
                         </h2>
-                        <div className="flex flex-wrap gap-3">
-                            {treatments.map((t, idx) => (
-                                <span
-                                    key={idx}
-                                    className="px-6 py-3 bg-white border border-gray-100 rounded-2xl text-gray-700 font-bold text-sm hover:border-indigo-200 hover:bg-indigo-50/30 transition-all cursor-default"
-                                >
-                                    {t}
+                        {/* Renders only what the clinician actually entered. A
+                            previous version listed six fixed focus areas on
+                            every profile, which asserted a clinical scope for
+                            every psychologist in the directory regardless of
+                            their stated specialisation. */}
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-baseline gap-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                    Speciality
                                 </span>
-                            ))}
+                                <span className="text-lg font-extrabold text-gray-900">
+                                    {doctor.specialty}
+                                </span>
+                            </div>
+                            {doctor.languages && (
+                                <div className="flex flex-wrap items-baseline gap-3">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        Languages
+                                    </span>
+                                    <span className="text-sm font-semibold text-gray-700">
+                                        {doctor.languages}
+                                    </span>
+                                </div>
+                            )}
+                            {doctor.education && (
+                                <div>
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        Education &amp; training
+                                    </span>
+                                    <p className="mt-1.5 text-sm leading-relaxed text-gray-700">
+                                        {doctor.education}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </motion.section>
+
+                    {/* Credentials.
+                        The licence fields existed in the schema and were
+                        write-only: a clinician entered them and no patient could
+                        see them. What is displayed is what they actually stated,
+                        and the verification badge is described for what it really
+                        is - see the wording below. */}
+                    <motion.section
+                        initial={{ y: 20, opacity: 0 }}
+                        whileInView={{ y: 0, opacity: 1 }}
+                        viewport={{ once: true }}
+                        className="mb-12"
+                    >
+                        <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-3">
+                            <ShieldCheck className="w-7 h-7 text-indigo-500" />
+                            {t("credentialsTitle")}
+                        </h2>
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-baseline gap-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                    {t("credentialsStatusLabel")}
+                                </span>
+                                {doctor.isVerified ? (
+                                    <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700">
+                                        <BadgeCheck className="h-4 w-4" />
+                                        {t("credentialsReviewed")}
+                                    </span>
+                                ) : (
+                                    <span className="text-sm font-bold text-amber-700">
+                                        {t("credentialsPending")}
+                                    </span>
+                                )}
+                            </div>
+
+                            {doctor.licenseNumber ? (
+                                <div className="flex flex-wrap items-baseline gap-3">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        {t("credentialsLicenceLabel")}
+                                    </span>
+                                    <span className="text-sm font-semibold text-gray-700">
+                                        {doctor.licenseNumber}
+                                        {doctor.licenseIssuer ? ` · ${doctor.licenseIssuer}` : ""}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="flex flex-wrap items-baseline gap-3">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                        {t("credentialsLicenceLabel")}
+                                    </span>
+                                    <span className="text-sm font-medium text-gray-400 italic">
+                                        {t("credentialsNotProvided")}
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* The one thing on this page most likely to be
+                                misread. `verificationStatus: approved` is an
+                                administrative decision inside this platform -
+                                it is not a check against a licence board, and
+                                there is no integration with one. Saying so
+                                plainly is the difference between a useful
+                                disclosure and a reassurance the platform cannot
+                                actually give. */}
+                            <p className="text-xs leading-relaxed text-gray-500 bg-gray-50 rounded-2xl p-4">
+                                {t("credentialsDisclaimer")}
+                            </p>
                         </div>
                     </motion.section>
 
@@ -551,12 +674,21 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                         </div>
 
                         <div className="space-y-4 mb-8">
-                            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
-                                <Calendar className="w-5 h-5 text-indigo-500" />
-                                <span className="text-sm font-bold text-gray-700">{doctor.availability || "Mon - Fri, 09:00 - 17:00"}</span>
+                            <div className="flex items-start gap-4 p-4 bg-gray-50 rounded-2xl">
+                                <Calendar className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
+                                <div className="min-w-0">
+                                    <span className="text-sm font-bold text-gray-700">
+                                        {formatPublishedSchedule(doctor)}
+                                    </span>
+                                    {!hasPublishedSchedule(doctor) && (
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            {t("scheduleNotPublished")}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                             <p className="text-xs text-center text-gray-400 font-medium">
-                                *Schedule availability may change at any time.
+                                {t("scheduleMayChange")}
                             </p>
                         </div>
 

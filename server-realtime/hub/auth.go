@@ -12,8 +12,22 @@ import (
 type Claims struct {
 	UserID int64  `json:"userId"`
 	Role   string `json:"role"`
+	// Purpose is one of "access" or "ws-ticket". The realtime service accepts
+	// nothing else, so a refresh token or a pending two-factor ticket can never
+	// open a socket.
+	Purpose string `json:"purpose"`
+	// TotpVerified is true when the session completed a second factor, or the
+	// account needs none. The Node API enforces this on every REST request; this
+	// service has no database, so the claim is the only thing standing between a
+	// pre-two-factor session and the realtime channel.
+	TotpVerified *bool `json:"totpVerified"`
 	jwt.RegisteredClaims
 }
+
+const (
+	purposeAccess   = "access"
+	purposeWsTicket = "ws-ticket"
+)
 
 var secret []byte
 
@@ -28,7 +42,7 @@ func init() {
 	}
 }
 
-// Authenticate verifies the shared access token and returns the user ID.
+// Authenticate verifies a realtime credential and returns the user ID.
 func Authenticate(tokenString string) (*Claims, error) {
 	if tokenString == "" {
 		return nil, errors.New("missing token")
@@ -52,6 +66,22 @@ func Authenticate(tokenString string) (*Claims, error) {
 	// Reject expired tokens defensively (parser already checks exp)
 	if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
 		return nil, errors.New("token expired")
+	}
+
+	switch claims.Purpose {
+	case purposeWsTicket:
+		// Minted by the API only after a full session re-check, so the second
+		// factor was already enforced at that point.
+	case purposeAccess:
+		// An access token opens a socket only if the session completed a second
+		// factor (or needed none). Without this check the realtime channel was a
+		// way around the REST two-factor gate, and it carries SOS alerts, risk
+		// alerts and private chat.
+		if claims.TotpVerified == nil || !*claims.TotpVerified {
+			return nil, errors.New("two-factor verification required")
+		}
+	default:
+		return nil, errors.New("unsupported token purpose")
 	}
 
 	return claims, nil

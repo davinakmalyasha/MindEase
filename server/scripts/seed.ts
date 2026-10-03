@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
+import { dayKey } from "../src/lib/date";
 
 const prisma = new PrismaClient();
 
@@ -86,7 +87,13 @@ async function main() {
                 bio: BIOS[i],
                 experience: 3 + (i % 12),
                 price: 150000 + i * 75000,
-                rating: Math.round((4.2 + (i % 8) * 0.1) * 10) / 10,
+                // `rating` and `totalReviews` are deliberately left at their
+                // defaults. This seed previously invented a 4.2–4.9 rating for
+                // every clinician with zero reviews, which is exactly the
+                // fabricated-5.0 policy that `ReviewService.recalcDoctorRating`
+                // and the `Doctor.rating` column comment exist to prevent — and
+                // it made the "Top Rated" sort rank the most-liked-looking
+                // profiles first. Demo data should not model the bug.
                 availability: i % 3 === 0 ? "Busy" : "Available",
                 verificationStatus: "approved",
                 licenseNumber: `STR-DEMO-${100000 + i}`,
@@ -121,6 +128,11 @@ async function main() {
     // Seed mood history for the demo patient
     const moodCount = await prisma.moodEntry.count({ where: { userId: patient.id } });
     if (moodCount === 0) {
+        // `moodDate` is NOT NULL and carries a unique (userId, moodDate) key, so
+        // every insert must supply the calendar day in the *user's* timezone.
+        // Omitting it made `npm run db:seed` — step 2 of the documented quick
+        // start — throw, and the fourteen days of demo history with it.
+        const timezone = patient.timezone || "Asia/Jakarta";
         for (let i = 13; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
@@ -131,6 +143,8 @@ async function main() {
                     mood: 2 + ((i * 7) % 4),
                     notes: ["Feeling productive today.", "A bit anxious about work.", "Enjoyed time with family.", ""][i % 4],
                     createdAt: date,
+                    moodDate: dayKey(date, timezone),
+                    factors: JSON.stringify([["sleep", "exercise", "social", "work", "stress"][i % 5]]),
                 },
             });
         }

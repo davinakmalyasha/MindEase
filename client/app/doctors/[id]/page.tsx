@@ -6,6 +6,8 @@ import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import DoctorProfile from "@/components/doctors/DoctorProfile";
 import api from "@/lib/api";
+import { mapDoctor } from "@/lib/mapDoctor";
+import { jsonLdScript } from "@/lib/jsonLd";
 import { useAuth } from "@/context/AuthContext";
 
 interface ApiReview {
@@ -27,24 +29,6 @@ const mapReview = (r: ApiReview) => ({
     comment: r.comment,
     reply: r.reply,
     repliedAt: r.repliedAt,
-});
-
-const mapDoctor = (d: any) => ({
-    id: d.id,
-    userId: d.user?.id,
-    name: d.user?.name || "Doctor",
-    specialty: d.specialty,
-    avatar: d.user?.avatar || "",
-    image: d.user?.avatar || "",
-    rating: d.rating || 0,
-    reviewCount: d.reviews?.length || 0,
-    experience: d.experience || 0,
-    isAvailable: d.availability === "Available",
-    isVerified: d.verificationStatus === "approved",
-    bio: d.bio || "",
-    price: d.price || 0,
-    availability: d.availability,
-    consultationSlots: d.consultationSlots || [],
 });
 
 export default function DoctorDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -102,7 +86,11 @@ export default function DoctorDetailPage({ params }: { params: Promise<{ id: str
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
-                    __html: JSON.stringify({
+                    // Not a plain `JSON.stringify`: `name` and `specialty` are
+                    // clinician-supplied and this renders on the public profile
+                    // page, and an unescaped `</script` inside a value would end
+                    // the element and hand the rest to the HTML parser.
+                    __html: jsonLdScript({
                         "@context": "https://schema.org",
                         "@type": "MedicalBusiness",
                         name: doctor.name,

@@ -13,8 +13,8 @@ export class AccountController {
             const result = await AccountService.changePassword(userId, currentPassword, newPassword);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to change password.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to change password.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -34,8 +34,8 @@ export class AccountController {
             const result = await AccountService.resetPassword(email, otp, newPassword);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to reset password.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to reset password.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -76,8 +76,8 @@ export class AccountController {
             res.clearCookie("accessToken");
             res.json({ status: "success", message: "Account deleted." });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to delete account.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to delete account.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -137,8 +137,8 @@ export class AccountController {
             res.setHeader("Content-Disposition", `attachment; filename="mindease-data-${userId}.json"`);
             res.json(exportData);
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to export data.";
-            res.status(500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to export data.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -158,8 +158,8 @@ export class AccountController {
             const result = await AccountService.verifyEmail(email, otp);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Verification failed.";
-            res.status(400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Verification failed.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 }

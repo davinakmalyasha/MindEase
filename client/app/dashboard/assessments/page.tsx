@@ -4,14 +4,15 @@ import { Suspense, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { ClipboardCheck, ShieldAlert, ChevronLeft, ChevronRight, CheckCircle2, Printer } from "lucide-react";
+import { ClipboardCheck, ShieldAlert, ChevronLeft, ChevronRight, CheckCircle2, Printer, TrendingUp } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Spinner from "@/components/ui/Spinner";
 import AIDisclaimer from "@/components/ui/AIDisclaimer";
+import TrajectoryChart from "@/components/assessments/TrajectoryChart";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { ASSESSMENTS, OPTION_LABELS, severityLabel } from "@/lib/data/assessments";
-import { useAssessments, useSubmitAssessment } from "@/hooks/queries/useMoodQuery";
+import { useAssessments, useSubmitAssessment, useAssessmentTrajectory } from "@/hooks/queries/useMoodQuery";
 
 const SEVERITY_STYLES: Record<string, string> = {
     minimal: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -93,6 +94,7 @@ function AssessmentsContent() {
     const [result, setResult] = useState<any>(null);
 
     const { data: history = [], isLoading } = useAssessments(activeType, 10);
+const { data: trajectory } = useAssessmentTrajectory(activeType);
     const submit = useSubmitAssessment();
 
     if (searchParams.get("print") === "1") {
@@ -196,9 +198,7 @@ function AssessmentsContent() {
                         </div>
                     ) : (
                         <>
-                            <p className="text-xs text-gray-400 mb-6">
-                                <strong>Over the last two weeks</strong>, how often have you been bothered by the following?
-                            </p>
+                            <p className="text-sm text-gray-500 text-center mb-6">{t("questionHint")}</p>
                             <div className="space-y-5">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-bold text-gray-500">Question {step + 1} of {meta.questions.length}</p>
@@ -255,6 +255,65 @@ function AssessmentsContent() {
 
                 {/* History */}
                 <div className="lg:col-span-2 space-y-4">
+                    {/* Trajectory. The history list below shows every sitting;
+                        this shows whether the line is going anywhere, which is the
+                        question the list cannot answer. */}
+                    {trajectory && trajectory.points.length > 0 && (
+                        <div className="bg-white rounded-3xl border border-gray-100 p-6">
+                            <h3 className="font-extrabold text-gray-900 mb-1 flex items-center gap-2">
+                                <TrendingUp className="w-4 h-4 text-indigo-500" /> {t("trajectoryTitle")}
+                            </h3>
+                            <p className="text-xs text-gray-500 mb-4">{t("trajectoryHint")}</p>
+                            <TrajectoryChart
+                                points={trajectory.points}
+                                instrument={trajectory.instrument}
+                                label={`${meta.name} (0-${trajectory.instrument.max})`}
+                            />
+                            <div className="mt-4 flex flex-wrap items-center gap-4 text-xs">
+                                <span className="font-bold text-gray-500">
+                                    {t("sittings")}: {trajectory.summary.sittings}
+                                </span>
+                                {trajectory.summary.latest !== null && (
+                                    <span className="font-bold text-gray-500">
+                                        {t("latestScore")}: {trajectory.summary.latest}
+                                    </span>
+                                )}
+                                {trajectory.summary.totalChange !== null && (
+                                    <span className="font-bold text-gray-500">
+                                        {t("change")}:{" "}
+                                        <span
+                                            className={cn(
+                                                trajectory.summary.totalChange < 0
+                                                    ? "text-emerald-600"
+                                                    : trajectory.summary.totalChange > 0
+                                                      ? "text-rose-600"
+                                                      : "text-gray-500"
+                                            )}
+                                        >
+                                            {trajectory.summary.totalChange > 0 ? "+" : ""}
+                                            {trajectory.summary.totalChange}
+                                        </span>
+                                    </span>
+                                )}
+                                <span
+                                    className={cn(
+                                        "rounded-full px-2.5 py-1 font-bold",
+                                        trajectory.summary.direction === "improving"
+                                            ? "bg-emerald-50 text-emerald-700"
+                                            : trajectory.summary.direction === "worsening"
+                                              ? "bg-rose-50 text-rose-700"
+                                              : "bg-gray-100 text-gray-600"
+                                    )}
+                                >
+                                    {t(`direction_${trajectory.summary.direction.replace("-", "_")}`)}
+                                </span>
+                            </div>
+                            <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
+                                {t("trajectoryDisclaimer")}
+                            </p>
+                        </div>
+                    )}
+
                     <div className="bg-white rounded-3xl border border-gray-100 p-6">
                         <h3 className="font-extrabold text-gray-900 mb-4 flex items-center gap-2">
                             <ShieldAlert className="w-4 h-4 text-amber-500" /> {meta.name} {t("history")}

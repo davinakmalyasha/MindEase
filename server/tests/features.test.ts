@@ -9,22 +9,13 @@ import {
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
+import { DEFAULT_TIMEZONE } from "../src/lib/date";
 
 const futureDate = (days = 3) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     return d.toISOString().split("T")[0];
 };
-
-/**
- * A `YYYY-MM-DD` calendar day read in the host's own zone.
- *
- * Deriving the day from `toISOString()` (UTC) while pairing it with a
- * wall-clock time taken from `getHours()` (local) mixes two zones, and near
- * midnight the resulting day and time can disagree by 24 hours.
- */
-const localDay = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const bookFor = async (patient: any, doctor: any, extra: Record<string, any> = {}) => {
     return patient.agent
@@ -45,6 +36,68 @@ const confirmAppointment = async (appId: number, doctor: any) => {
         .put(`/api/appointments/${appId}/status`)
         .set("X-CSRF-Token", doctor.csrf)
         .send({ status: "confirmed" });
+};
+
+/**
+ * A consultation window that starts shortly from now and stays on one calendar
+ * day, expressed in the timezone the *server* reads it in.
+ *
+ * ## Why the timezone has to be the server's, not the host's
+ *
+ * `startTime`/`endTime` are wall-clock `HH:mm` strings paired with a single
+ * `appointmentDate`. `AppointmentService.createAppointment` deliberately
+ * interprets them in the *booker's* timezone, falling back to `DEFAULT_TIMEZONE`
+ * (`Asia/Jakarta`) when the user has not set one - see the comment above the
+ * past-booking check in `appointment.service.ts`. Building the window with the
+ * host's `getHours()` therefore only works when the host happens to sit in the
+ * same zone as the default. It did not:
+ *
+ *     host Asia/Bangkok (UTC+7)   window built as 13:51 -> read as 13:51 WIB -> ok
+ *     host UTC (CI)               window built as 06:51 -> read as 06:51 WIB
+ *                                 = 23:51 *yesterday* -> "Cannot book
+ *                                 appointments in the past"
+ *
+ * So the suite was green on a developer machine in WIB and red in CI, for a
+ * reason that had nothing to do with what the test checks. This reads the clock
+ * in the server's zone directly, which makes it correct on any host.
+ *
+ * The day-wrap hazard is handled too: a window computed as "now + 70 minutes"
+ * crosses local midnight at 23:10, producing start "23:20" against end "00:20",
+ * which the API correctly rejects as `start >= end`. The end is clamped to the
+ * last minute of the same day.
+ */
+const imminentWindow = () => {
+    const zone = DEFAULT_TIMEZONE;
+    // Read "now" as wall-clock parts in `zone`, so the arithmetic below is done
+    // on the same clock the server will read the result back on.
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: zone,
+        hour12: false,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).formatToParts(new Date());
+    const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    const hour = get("hour") % 24; // en-GB renders midnight as 24
+    const minute = get("minute");
+
+    // Minutes since midnight in the server's zone.
+    const nowMinutes = hour * 60 + minute;
+    const startMinutes = nowMinutes + 10;
+    const sameDay = startMinutes + 60 < 24 * 60;
+    const endMinutes = sameDay ? startMinutes + 60 : 24 * 60 - 1;
+
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const hhmm = (m: number) =>
+        `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+    return { date, startTime: hhmm(startMinutes), endTime: hhmm(endMinutes) };
 };
 
 describe("Journal", () => {
@@ -243,26 +296,38 @@ describe("Consultation rooms (video/voice join)", () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();
 
-        const start = new Date(Date.now() + 10 * 60000);
-        const end = new Date(Date.now() + 70 * 60000);
-        const fmt = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        const win = imminentWindow();
 
         const book = await patient.agent
             .post("/api/appointments/book")
             .set("X-CSRF-Token", patient.csrf)
             .send({
                 doctorId: doctor.doctorId,
-                appointmentDate: localDay(start),
-                startTime: fmt(start),
-                endTime: fmt(end),
+                appointmentDate: win.date,
+                startTime: win.startTime,
+                endTime: win.endTime,
                 consultationType: "voice",
             });
+        expect(book.status).toBe(201);
         const appId = book.body.data.id;
         await confirmAppointment(appId, doctor);
 
         const join = await patient.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", patient.csrf);
         expect(join.status).toBe(200);
-        expect(join.body.data.meetingLink).toContain("meet.jit.si");
+        // LiveKit, because that is what the suite is configured with and what
+        // production runs. This asserts the whole grant contract on the HTTP
+        // path: a provider, an opaque room name, and a short-lived token. The
+        // previous assertion (`meetingLink` contains "meet.jit.si") only ever
+        // exercised the unauthenticated fallback, so the token-minting branch of
+        // `joinRoom` had no HTTP coverage at all.
+        expect(join.body.data.provider).toBe("livekit");
+        expect(join.body.data.degraded).toBe(false);
+        expect(join.body.data.room).toBeTruthy();
+        expect(join.body.data.token).toBeTruthy();
+        // The room is not a URL. A URL here would mean the public provider is
+        // still being used under a livekit configuration.
+        expect(join.body.data.room).not.toContain("http");
+        expect(join.body.data.meetingLink).toBeNull();
         expect(join.body.data.consultationType).toBe("voice");
 
         const doctorJoin = await doctor.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", doctor.csrf);
@@ -573,7 +638,9 @@ describe("Rebook assist", () => {
 
 describe("AI doctor matching", () => {
     it("matches doctors from a natural-language query (fallback mode)", async () => {
-        const doctor = await createDoctor();
+        // Seed a doctor so the directory is not empty; the fallback matcher
+        // scores against real profiles rather than returning a fixed list.
+        await createDoctor();
         const patient = await createUser("patient");
         const res = await patient.agent
             .post("/api/ai/match-doctors")

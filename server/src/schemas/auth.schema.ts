@@ -20,16 +20,11 @@ export const passwordRules = z
     .regex(/[0-9]/, "Password must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character");
 
-/**
- * The inner shape of a MySQL INT primary key path parameter. Rejects `NaN`,
- * zero, negatives and junk strings.
- */
-export const idObject = z.object({
-    id: z.coerce.number().int().positive("Invalid id").max(2_147_483_647, "Invalid id"),
-});
+import { idObject, idParam } from "./params.schema";
 
-/** Route-level schema for a path that is only an `:id`. */
-export const idParam = z.object({ params: idObject });
+// Re-exported so existing imports keep working; the definitions now live in one
+// place rather than being duplicated per schema file.
+export { idObject, idParam };
 
 export const RegisterSchema = z.object({
     body: z
@@ -151,14 +146,6 @@ export const DeleteAccountSchema = z.object({
         .strict(),
 });
 
-export const RescheduleSchema = z.object({
-    body: z
-        .object({
-            appointmentDate: z.string().min(1, "Date is required").max(40),
-            startTime: z.string().min(1, "Start time is required").max(10),
-            endTime: z.string().min(1, "End time is required").max(10),
-            slotId: z.coerce.number().int().positive().optional(),
-        })
-        .strict(),
-    params: idObject,
-});
+// `RescheduleSchema` now lives in `appointment.schema.ts` alongside the other
+// appointment bodies, so the `HH:mm` and `YYYY-MM-DD` rules are defined once.
+

@@ -15,8 +15,8 @@ export class FollowUpController {
             });
             res.status(201).json({ status: "success", data: followUp });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to suggest follow-up.";
-            res.status(message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to suggest follow-up.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -26,8 +26,8 @@ export class FollowUpController {
             const followUp = await FollowUpService.get(appointmentId, req.user!);
             res.json({ status: "success", data: followUp });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to fetch follow-up.";
-            res.status(message.includes("Forbidden") ? 403 : 500).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to fetch follow-up.", status: 500 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -37,8 +37,8 @@ export class FollowUpController {
             const result = await FollowUpService.respond(followUpId, req.user!.id, true);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to accept follow-up.";
-            res.status(message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to accept follow-up.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 
@@ -48,8 +48,8 @@ export class FollowUpController {
             const result = await FollowUpService.respond(followUpId, req.user!.id, false);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
-            const message = publicMessageFor(error)?.message ?? "Failed to decline follow-up.";
-            res.status(message.includes("Forbidden") ? 403 : 400).json({ status: "error", message });
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to decline follow-up.", status: 400 };
+            res.status(status).json({ status: "error", message });
         }
     }
 }

@@ -7,31 +7,32 @@ process.env.NODE_ENV = "test";
 
 import { afterEach, beforeEach } from "vitest";
 import { prisma } from "../src/app";
+import { Prisma } from "@prisma/client";
 
-const TABLES = [
-    "AuditLog",
-    "RiskAlert",
-    "RefreshToken",
-    "PreSessionData",
-    "ReviewReport",
-    "Review",
-    "Message",
-    "Notification",
-    "MoodEntry",
-    "JournalEntry",
-    "Assessment",
-    "ConsultationSlot",
-    "AvailabilityPattern",
-    "FollowUp",
-    "WaitlistEntry",
-    "PackagePurchase",
-    "Package",
-    "PushSubscription",
-    "Referral",
-    "Appointment",
-    "Doctor",
-    "User",
-];
+/**
+ * Every model, read from the generated Prisma client rather than listed by hand.
+ *
+ * This was a hand-maintained array of 27 names and it had already fallen behind
+ * the schema: `PaymentOrder` was added and never added here. The failure is
+ * quiet - foreign key checks are disabled for the wipe, so a table that is
+ * skipped is not an error, it is an orphan row that survives into the next test
+ * and surfaces much later as a count that is one too high, or a unique-constraint
+ * failure in an unrelated case.
+ *
+ * Deriving it means a new model is wiped the day it is created, because
+ * `prisma generate` runs before the suite.
+ */
+const TABLES = Prisma.dmmf.datamodel.models.map((model) => model.name);
+
+// Sanity check: a silently empty list would turn `wipeDb` into a no-op that
+// leaves every test running against the previous test's data, which is far worse
+// than a loud failure. Assert rather than trust.
+if (TABLES.length === 0) {
+    throw new Error(
+        "wipeDb: Prisma.dmmf.datamodel.models is empty. The client was not generated " +
+            "(run `npx prisma generate`), so the database is not being reset between tests."
+    );
+}
 
 // Runs on a single connection (interactive transaction). DELETE is used
 // instead of TRUNCATE because TRUNCATE implicitly commits — which would

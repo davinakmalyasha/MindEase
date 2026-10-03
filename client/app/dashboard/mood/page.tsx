@@ -21,6 +21,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import MoodChart from "@/components/mood/MoodChart";
 import Spinner from "@/components/ui/Spinner";
 import AIDisclaimer from "@/components/ui/AIDisclaimer";
+import AiSourceBadge from "@/components/ui/AiSourceBadge";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import {
@@ -68,7 +69,8 @@ export default function MoodPage() {
     const { data: stats } = useMoodStats();
     const logMood = useLogMood();
     const suggestionsMutation = useWellnessSuggestions();
-    const suggestions = suggestionsMutation.data || [];
+    const suggestions = suggestionsMutation.data?.suggestions || [];
+    const suggestionsSource = suggestionsMutation.data?.source;
 
     const toggleFactor = (factor: string) =>
         setFactors((prev) => (prev.includes(factor) ? prev.filter((f) => f !== factor) : [...prev, factor]));
@@ -110,7 +112,7 @@ export default function MoodPage() {
                     {/* Log mood */}
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-3xl border border-gray-100 p-6">
                         <h2 className="text-lg font-extrabold text-gray-900 mb-4 flex items-center gap-2">
-                            <HeartPulse className="w-5 h-5 text-rose-500" /> How are you feeling?
+                            <HeartPulse className="w-5 h-5 text-rose-500" /> {tm("howFeeling")}
                         </h2>
                         <div className="grid grid-cols-5 gap-2 mb-5">
                             {MOOD_OPTIONS.map((m) => (
@@ -247,6 +249,9 @@ export default function MoodPage() {
                 </div>
                 {suggestions.length > 0 ? (
                     <>
+                        <div className="mb-4">
+                            <AiSourceBadge source={suggestionsSource} />
+                        </div>
                         <div className="grid md:grid-cols-3 gap-5">
                         {suggestions.map((s, i) => {
                             const Icon = RESOURCE_ICONS[s.type] || Sparkles;
@@ -274,7 +279,7 @@ export default function MoodPage() {
                 ) : (
                     <div className="bg-white border border-dashed border-gray-200 rounded-3xl py-12 text-center">
                         <Sparkles className="w-10 h-10 text-gray-300 mx-auto mb-4" />
-                        <p className="text-gray-500 font-medium">Get AI-powered activity suggestions based on your recent mood history.</p>
+                        <p className="text-gray-500 font-medium">{tm("suggestionsHint")}</p>
                         <button
                             onClick={() => suggestionsMutation.mutate()}
                             disabled={suggestionsMutation.isPending}

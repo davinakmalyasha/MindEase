@@ -94,6 +94,21 @@ export const raiseRiskAlert = async (input: {
         clinicianNotified: false,
     };
 
+    // Resolved before the row is written, so `assignedDoctorUserId` can be set
+    // in the same insert. The clinician is looked up first deliberately: an
+    // alert that exists but is addressed to nobody is the failure this column
+    // was added to prevent, so the write and the addressing have to be one
+    // decision rather than two that can disagree.
+    const appointment = await prisma.appointment
+        .findFirst({
+            where: { userId: input.userId, status: { in: ["confirmed", "completed"] } },
+            orderBy: { appointmentDate: "desc" },
+            select: { doctor: { select: { userId: true, user: { select: { name: true } } } } },
+        })
+        .catch(() => null);
+
+    const assignedDoctorUserId = appointment?.doctor.userId ?? null;
+
     let alertId: number | null = null;
     try {
         const alert = await prisma.riskAlert.create({
@@ -103,6 +118,7 @@ export const raiseRiskAlert = async (input: {
                 reason: input.reason,
                 sourceType: input.sourceType,
                 sourceId: input.sourceId ?? null,
+                assignedDoctorUserId,
             },
         });
         alertId = alert.id;
@@ -111,14 +127,6 @@ export const raiseRiskAlert = async (input: {
         // attempted, but the failure must be visible.
         logger.error({ err: err.message, userId: input.userId }, "Failed to persist risk alert");
     }
-
-    const appointment = await prisma.appointment
-        .findFirst({
-            where: { userId: input.userId, status: { in: ["confirmed", "completed"] } },
-            orderBy: { appointmentDate: "desc" },
-            select: { doctor: { select: { userId: true, user: { select: { name: true } } } } },
-        })
-        .catch(() => null);
 
     if (!appointment) {
         await AuditService.log({

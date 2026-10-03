@@ -126,6 +126,52 @@ export const cacheDel = async (...keys: string[]) => {
 };
 
 /**
+ * Atomic increment, setting the TTL on first write.
+ *
+ * Exists for the shared rate-limit store, which needs a counter that two API
+ * replicas increment correctly - `redis@5`'s `INCR` is atomic, so this is a
+ * real shared limit rather than a per-process one.
+ *
+ * `null` means "Redis is not available", which is not the same as zero. The
+ * caller decides what to do about it; a rate limiter that treats an unreachable
+ * Redis as "no requests made yet" would fail open on every deploy that has not
+ * configured it.
+ */
+export const cacheIncr = async (
+    key: string,
+    ttlSeconds: number
+): Promise<{ count: number; resetAtMs: number } | null> => {
+    try {
+        const c = await getClient();
+        if (!c) return null;
+
+        const count = await c.incr(key);
+        if (count === 1) {
+            // First write in this window: give it an expiry. `NX` because a
+            // concurrent replica may have set it between the INCR and here, and
+            // re-setting the TTL on every hit would make a fixed window slide.
+            await c.expire(key, ttlSeconds, "NX");
+        }
+        const ttl = await c.ttl(key);
+        const resetAtMs = Date.now() + Math.max(ttl, 0) * 1000;
+        return { count, resetAtMs };
+    } catch {
+        return null;
+    }
+};
+
+/** Remaining TTL in seconds, or null when unavailable. */
+export const cacheTtl = async (key: string): Promise<number | null> => {
+    try {
+        const c = await getClient();
+        if (!c) return null;
+        return await c.ttl(key);
+    } catch {
+        return null;
+    }
+};
+
+/**
  * Coalesces concurrent cache misses for the same key onto one loader.
  *
  * Without it, a popular key expiring produces a thundering herd: every
@@ -176,7 +222,7 @@ export const closeCache = async () => {
 export const acquireLock = async (key: string, ttlSeconds = 600): Promise<boolean> => {
     const redisKey = `lock:${key}`;
 
-    let client: RedisClient | null = null;
+    let client: RedisClient | null;
     try {
         client = await getClient();
     } catch {

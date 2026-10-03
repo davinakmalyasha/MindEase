@@ -43,17 +43,11 @@ export const JournalListSchema = z.object({
  * zero, negatives and junk strings — previously these reached Prisma as `NaN`
  * and surfaced as a 500 carrying an internal error string.
  */
-export const idObject = z.object({
-    id: z.coerce.number().int().positive("Invalid id").max(2_147_483_647),
-});
+import { idObject, idParam } from "./params.schema";
 
-/**
- * Route-level schema for a path that is only an `:id`. Every schema in this
- * project is wrapped as `{ body?, query?, params? }`, so this must nest under
- * `params` too — validating the bare `{ id }` shape silently matched nothing
- * and rejected every request.
- */
-export const idParam = z.object({ params: idObject });
+// Re-exported so existing imports keep working; the definitions now live in one
+// place rather than being duplicated per schema file.
+export { idObject, idParam };
 
 /**
  * `days` is bounded. It was previously an unconstrained numeric string, so
@@ -101,6 +95,39 @@ export const AssessmentListSchema = z.object({
     query: z.object({
         type: z.enum(["phq9", "gad7"]).optional(),
         limit: z.coerce.number().int().min(1).max(100).optional(),
+    }),
+});
+
+/**
+ * Closes a risk alert.
+ *
+ * The note is optional and short. It is not required because sometimes the
+ * honest entry is "spoke to them by phone"; it is bounded because this is a
+ * triage field, not a clinical record, and an unbounded free-text box on the
+ * highest-consequence screen in the product is an invitation to paste anything.
+ */
+export const ResolveRiskAlertSchema = z.object({
+    body: z
+        .object({
+            note: z.string().max(1000, "Note too long").optional(),
+        })
+        .strict(),
+});
+
+/**
+ * Longitudinal screening trajectory.
+ *
+ * `type` is required rather than optional: returning both instruments in one
+ * response invites a client to plot two incompatible scales on one axis, since
+ * PHQ-9 tops out at 27 and GAD-7 at 21.
+ */
+export const TrajectorySchema = z.object({
+    query: z.object({
+        type: z.enum(["phq9", "gad7"]),
+        // Bounded so a chart cannot be asked to render a decade of points, and
+        // so the query cannot be used to pull a patient's whole screening
+        // history by walking the window.
+        limit: z.coerce.number().int().min(2).max(100).default(24),
     }),
 });
 

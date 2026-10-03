@@ -13,6 +13,8 @@ import { MailerService } from "./mailer.service";
 import { publishEvent } from "./realtime.service";
 import { WaitlistService } from "./waitlist.service";
 import { NotificationService } from "./notification.service";
+import { activeProvider, buildGrant } from "./video.service";
+import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/appError";
 
 const formatDate = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 
@@ -43,7 +45,7 @@ export class AppointmentService {
                 where: { idempotencyKey: data.idempotencyKey },
             });
             if (existing) {
-                if (existing.userId !== data.userId) throw new Error("This idempotency key is already in use");
+                if (existing.userId !== data.userId) throw conflict("This idempotency key is already in use");
                 return existing;
             }
         }
@@ -52,9 +54,9 @@ export class AppointmentService {
             where: { id: data.doctorId },
             include: { user: { select: { id: true } } },
         });
-        if (!doctor) throw new Error("Doctor not found");
+        if (!doctor) throw notFound("Doctor not found");
         if (doctor.verificationStatus !== "approved") {
-            throw new Error("This doctor is not accepting bookings yet");
+            throw badRequest("This doctor is not accepting bookings yet");
         }
 
         // Package session: verify ownership, active status, and doctor match.
@@ -69,30 +71,30 @@ export class AppointmentService {
                 include: { package: { select: { doctorId: true } } },
             });
             if (!purchase || purchase.userId !== data.userId || purchase.status !== "active" || purchase.sessionsLeft < 1) {
-                throw new Error("Package session is not available");
+                throw badRequest("Package session is not available");
             }
             if (purchase.package.doctorId !== data.doctorId) {
-                throw new Error("This package belongs to a different doctor");
+                throw badRequest("This package belongs to a different doctor");
             }
             packageReservationId = purchase.id;
         }
 
         const date = parseLocalDate(data.appointmentDate);
-        if (isNaN(date.getTime())) throw new Error("Invalid appointment date");
+        if (isNaN(date.getTime())) throw badRequest("Invalid appointment date");
 
         // Away mode: sessions starting inside an away window are not bookable
         if (doctor.awayUntil) {
             const awayEnd = new Date(doctor.awayUntil);
             awayEnd.setHours(23, 59, 59, 999);
             if (date <= awayEnd) {
-                throw new Error("This doctor is currently away and not accepting bookings");
+                throw badRequest("This doctor is currently away and not accepting bookings");
             }
         }
 
         const start = timeToMinutes(data.startTime);
         const end = timeToMinutes(data.endTime);
         if (isNaN(start) || isNaN(end) || start >= end) {
-            throw new Error("Invalid appointment time");
+            throw badRequest("Invalid appointment time");
         }
 
         // Block booking in the past.
@@ -107,7 +109,7 @@ export class AppointmentService {
         const zonedDayStart = startOfZonedDay(localDateKey(date), timezone);
         const slotStart = new Date(zonedDayStart.getTime() + start * 60 * 1000);
         if (slotStart.getTime() < Date.now() - 60_000) {
-            throw new Error("Cannot book appointments in the past");
+            throw badRequest("Cannot book appointments in the past");
         }
 
         let slotId: number | undefined;
@@ -121,7 +123,7 @@ export class AppointmentService {
                 where: { id: packageReservationId, status: "active", sessionsLeft: { gte: 1 } },
                 data: { sessionsLeft: { decrement: 1 } },
             });
-            if (reserved.count === 0) throw new Error("Package session is not available");
+            if (reserved.count === 0) throw badRequest("Package session is not available");
             // Exhausted packages flip to completed immediately
             await prisma.packagePurchase
                 .updateMany({ where: { id: packageReservationId, sessionsLeft: 0 }, data: { status: "completed" } })
@@ -134,8 +136,15 @@ export class AppointmentService {
             });
             creditApplied = claimed.count === 1;
         }
-        const refundReservations = () =>
-            Promise.all([
+        // Idempotent by construction. Every exit path after a reservation has
+        // already run must be able to call this without risking a double refund,
+        // so the single try/catch below owns every failure and the individual
+        // paths no longer unwind piecemeal.
+        let refunded = false;
+        const refundReservations = async () => {
+            if (refunded) return;
+            refunded = true;
+            await Promise.all([
                 packagePurchaseId
                     ? prisma.packagePurchase
                           .update({
@@ -150,56 +159,61 @@ export class AppointmentService {
                           .catch(() => {})
                     : Promise.resolve(),
             ]);
+        };
 
-        if (data.slotId) {
-            const slot = await prisma.consultationSlot.findFirst({
-                where: { id: data.slotId, doctorId: data.doctorId },
-            });
-            if (!slot) throw new Error("Slot not found for this doctor");
-
-            if (localDateKey(slot.date) !== localDateKey(date)) {
-                throw new Error("Slot date does not match appointment date");
-            }
-
-            // Atomic claim: updateMany only succeeds when the slot is still
-            // free, so two concurrent bookings cannot both win the race.
-            const claimed = await prisma.consultationSlot.updateMany({
-                where: { id: slot.id, isBooked: false },
-                data: { isBooked: true },
-            });
-            if (claimed.count === 0) throw new Error("Slot is already booked");
-            slotId = slot.id;
-        }
-
-        // Detect double-booking for the same doctor at the same time.
-        // Times are compared numerically so unpadded strings ("9:00")
-        // cannot slip through lexicographic comparison.
-        const dayStart = new Date(date);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-
-        const sameDay = await prisma.appointment.findMany({
-            where: {
-                doctorId: data.doctorId,
-                appointmentDate: { gte: dayStart, lt: dayEnd },
-                status: { in: ["pending", "confirmed"] },
-            },
-            select: { startTime: true, endTime: true },
-        });
-        const hasConflict = sameDay.some((a) =>
-            overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
-        );
-        if (hasConflict) {
+        const releaseSlot = async () => {
             if (slotId) {
-                await prisma.consultationSlot.updateMany({ where: { id: slotId }, data: { isBooked: false } }).catch(() => {});
+                await prisma.consultationSlot
+                    .updateMany({ where: { id: slotId }, data: { isBooked: false } })
+                    .catch(() => {});
             }
-            await refundReservations();
-            throw new Error("This time is already booked for that doctor");
-        }
+        };
 
         let appointment;
         try {
+            if (data.slotId) {
+                const slot = await prisma.consultationSlot.findFirst({
+                    where: { id: data.slotId, doctorId: data.doctorId },
+                });
+                if (!slot) throw notFound("Slot not found for this doctor");
+
+                if (localDateKey(slot.date) !== localDateKey(date)) {
+                    throw badRequest("Slot date does not match appointment date");
+                }
+
+                // Atomic claim: updateMany only succeeds when the slot is still
+                // free, so two concurrent bookings cannot both win the race.
+                const claimed = await prisma.consultationSlot.updateMany({
+                    where: { id: slot.id, isBooked: false },
+                    data: { isBooked: true },
+                });
+                if (claimed.count === 0) throw conflict("Slot is already booked");
+                slotId = slot.id;
+            }
+
+            // Detect double-booking for the same doctor at the same time.
+            // Times are compared numerically so unpadded strings ("9:00")
+            // cannot slip through lexicographic comparison.
+            const dayStart = new Date(date);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(dayStart);
+            dayEnd.setDate(dayEnd.getDate() + 1);
+
+            const sameDay = await prisma.appointment.findMany({
+                where: {
+                    doctorId: data.doctorId,
+                    appointmentDate: { gte: dayStart, lt: dayEnd },
+                    status: { in: ["pending", "confirmed"] },
+                },
+                select: { startTime: true, endTime: true },
+            });
+            const hasConflict = sameDay.some((a) =>
+                overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
+            );
+            if (hasConflict) {
+                throw conflict("This time is already booked for that doctor");
+            }
+
             appointment = await prisma.appointment.create({
                 data: {
                     userId: data.userId,
@@ -217,13 +231,27 @@ export class AppointmentService {
                 },
             });
         } catch (err) {
-            // Never strand a claimed slot or reservation when the create fails
-            if (slotId) {
-                await prisma.consultationSlot.updateMany({ where: { id: slotId }, data: { isBooked: false } }).catch(() => {});
-            }
+            // Never strand a claimed slot or a paid reservation. Previously the
+            // three throws in the slot block — unknown slot, date mismatch, and
+            // already booked — escaped without refunding, so a patient with a
+            // one-session package who double-clicked an occupied slot silently
+            // lost the session they had paid for.
+            await releaseSlot();
             await refundReservations();
             throw err;
         }
+
+        // The reservation is now carried by a real appointment row. If the
+        // process dies before this point the reservation is still lost, so the
+        // refund is the *only* compensation path and it must be reachable from
+        // every failure — which the single catch above now guarantees.
+        refunded = true;
+
+        // Settle any waitlist entry this booking fulfils. Without this the entry
+        // stayed in `waiting`, so the daily maintenance job re-queued it and the
+        // patient was notified about another opening for a slot they had already
+        // taken — the `markBooked` method existed for this and was never called.
+        await WaitlistService.markBooked(data.doctorId, data.userId).catch(() => {});
 
         this.sendBookingReceivedEmail(appointment, doctor, data.userId);
 
@@ -341,7 +369,7 @@ export class AppointmentService {
 
         if (user.role === "doctor") {
             const doctor = await prisma.doctor.findUnique({ where: { userId: user.id } });
-            if (!doctor) throw new Error("Doctor profile not found");
+            if (!doctor) throw notFound("Doctor profile not found");
             const [rows, total] = await Promise.all([
                 prisma.appointment.findMany({
                     where: { doctorId: doctor.id },
@@ -409,31 +437,31 @@ export class AppointmentService {
 
     static async updateStatus(id: number, status: string, actor: { id: number; role: string }) {
         const appointment = await prisma.appointment.findUnique({ where: { id } });
-        if (!appointment) throw new Error("Appointment not found");
+        if (!appointment) throw notFound("Appointment not found");
 
         const ALLOWED = ["confirmed", "cancelled", "completed"];
-        if (!ALLOWED.includes(status)) throw new Error("Invalid status");
+        if (!ALLOWED.includes(status)) throw badRequest("Invalid status");
 
         // Terminal states are immutable — no cancelling/completing a session
         // that already finished, and no resurrecting cancelled ones.
         if (["cancelled", "completed"].includes(appointment.status)) {
-            throw new Error(`Cannot change an appointment that is already ${appointment.status}`);
+                throw conflict(`Cannot change an appointment that is already ${appointment.status}`);
         }
 
         if (actor.role === "doctor") {
             const doctor = await prisma.doctor.findUnique({ where: { userId: actor.id } });
             if (!doctor || doctor.id !== appointment.doctorId) {
-                throw new Error("Forbidden: not your appointment");
+                throw forbidden("not your appointment");
             }
             if (appointment.status === "pending" && status === "completed") {
-                throw new Error("Cannot complete a pending appointment");
+                throw badRequest("Cannot complete a pending appointment");
             }
         } else if (actor.role === "patient") {
             if (appointment.userId !== actor.id) {
-                throw new Error("Forbidden: not your appointment");
+                throw forbidden("not your appointment");
             }
             if (status !== "cancelled") {
-                throw new Error("Patients can only cancel appointments");
+                throw badRequest("Patients can only cancel appointments");
             }
             if (appointment.status === "confirmed") {
                 // Grace window: a confirmed session stays cancellable by the
@@ -442,17 +470,17 @@ export class AppointmentService {
                 const [h, m] = (appointment.startTime || "00:00").split(":").map(Number);
                 start.setHours(h || 0, m || 0, 0, 0);
                 if (start.getTime() - Date.now() < 24 * 60 * 60 * 1000) {
-                    throw new Error(
+                    throw badRequest(
                         "This session starts in less than 24 hours — please contact your doctor to reschedule or cancel"
                     );
                 }
             } else if (appointment.status !== "pending") {
-                throw new Error("Only pending appointments can be cancelled by the patient");
+                throw badRequest("Only pending appointments can be cancelled by the patient");
             }
         } else if (actor.role === "admin") {
-            if (status === "completed") throw new Error("Admins cannot complete appointments");
+            if (status === "completed") throw badRequest("Admins cannot complete appointments");
         } else {
-            throw new Error("Unauthorized role");
+            throw unauthorized("role");
         }
 
         const updated = await prisma.appointment.update({
@@ -460,11 +488,24 @@ export class AppointmentService {
             data: { status },
         });
 
-        // Attach a meeting link when confirmed (video and voice calls both use a Jitsi room)
-        if (status === "confirmed" && !updated.meetingLink && ["video", "voice"].includes(updated.consultationType)) {
-            const link = generateMeetingLink(id);
-            await prisma.appointment.update({ where: { id }, data: { meetingLink: link } });
-            updated.meetingLink = link;
+        // A confirmed live appointment needs a stable room identity before either
+        // party joins, so the seed is created here. It is provider-agnostic: the
+        // livekit room name is derived from it, and the jitsi URL is not used at
+        // all when livekit is configured.
+        if (status === "confirmed" && !updated.roomSeed && ["video", "voice"].includes(updated.consultationType)) {
+            const roomSeed = crypto.randomBytes(8).toString("hex");
+            await prisma.appointment.update({ where: { id }, data: { roomSeed } });
+            updated.roomSeed = roomSeed;
+
+            // Only mint the persistent URL on the degraded jitsi path. On livekit
+            // there is no URL: a stored, unauthenticated room link is exactly the
+            // artefact this migration removes, and pre-creating one would leave
+            // it in the database, the .ics export and the GDPR data export.
+            if (activeProvider().provider === "jitsi" && !updated.meetingLink) {
+                const link = generateMeetingLink(id);
+                await prisma.appointment.update({ where: { id }, data: { meetingLink: link } });
+                updated.meetingLink = link;
+            }
         }
 
         // Audit every lifecycle transition (who changed what, from which state)
@@ -562,33 +603,40 @@ export class AppointmentService {
         data: { appointmentDate: string; startTime: string; endTime: string; slotId?: number }
     ) {
         const appointment = await prisma.appointment.findUnique({ where: { id } });
-        if (!appointment) throw new Error("Appointment not found");
-        if (appointment.userId !== actor.id) throw new Error("Forbidden: not your appointment");
+        if (!appointment) throw notFound("Appointment not found");
+        if (appointment.userId !== actor.id) throw forbidden("not your appointment");
         if (appointment.status !== "confirmed" && appointment.status !== "pending") {
-            throw new Error("Only pending or confirmed appointments can be rescheduled");
+            throw badRequest("Only pending or confirmed appointments can be rescheduled");
         }
 
         const date = parseLocalDate(data.appointmentDate);
-        if (isNaN(date.getTime())) throw new Error("Invalid date");
+        if (isNaN(date.getTime())) throw badRequest("Invalid date");
         const start = timeToMinutes(data.startTime);
         const end = timeToMinutes(data.endTime);
-        if (isNaN(start) || isNaN(end) || start >= end) throw new Error("Invalid time");
+        if (isNaN(start) || isNaN(end) || start >= end) throw badRequest("Invalid time");
 
         // Block rescheduling into the past
         const now = new Date();
         const newStart = new Date(date);
         newStart.setHours(0, 0, 0, 0);
         newStart.setMinutes(start);
-        if (newStart < now) throw new Error("Cannot reschedule into the past");
+        if (newStart < now) throw badRequest("Cannot reschedule into the past");
 
+        // `slotId` is the slot the appointment will end up pointing at, which
+        // may be the slot it already holds. `claimedSlotId` is the subset this
+        // request actually took a lock on. Compensation must only ever release
+        // `claimedSlotId`: releasing an unclaimed slot would advertise a booking
+        // as free while the appointment still references it, and the next
+        // patient to take it double-books the clinician.
         let slotId: number | undefined;
+        let claimedSlotId: number | undefined;
         if (data.slotId) {
             const slot = await prisma.consultationSlot.findFirst({
                 where: { id: data.slotId, doctorId: appointment.doctorId },
             });
-            if (!slot) throw new Error("Slot not found for this doctor");
+            if (!slot) throw notFound("Slot not found for this doctor");
             if (localDateKey(slot.date) !== localDateKey(date)) {
-                throw new Error("Slot date does not match appointment date");
+                throw badRequest("Slot date does not match appointment date");
             }
             // Keeping the current slot needs no claim; claiming a new one must
             // happen BEFORE releasing the old so a failed claim never loses
@@ -598,7 +646,8 @@ export class AppointmentService {
                     where: { id: slot.id, isBooked: false },
                     data: { isBooked: true },
                 });
-                if (claimed.count === 0) throw new Error("Slot is already booked");
+                if (claimed.count === 0) throw conflict("Slot is already booked");
+                claimedSlotId = slot.id;
             }
             slotId = slot.id;
         }
@@ -621,10 +670,12 @@ export class AppointmentService {
             overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
         );
         if (hasConflict) {
-            if (slotId) {
-                await prisma.consultationSlot.updateMany({ where: { id: slotId }, data: { isBooked: false } }).catch(() => {});
+            if (claimedSlotId) {
+                await prisma.consultationSlot
+                    .updateMany({ where: { id: claimedSlotId }, data: { isBooked: false } })
+                    .catch(() => {});
             }
-            throw new Error("This time is already booked for that doctor");
+            throw conflict("This time is already booked for that doctor");
         }
 
         try {
@@ -647,6 +698,11 @@ export class AppointmentService {
                         slotId: slotId ?? null,
                         status: "pending",
                         meetingLink: null,
+                        // A new slot is a new session, so it must not inherit the
+                        // previous room. Leaving the old seed would let anyone
+                        // holding a token from before the reschedule still reach
+                        // the room for the new time.
+                        roomSeed: null,
                         // The reminder and check-in claims are keyed on the old
                         // date. Without clearing them the rescheduled session
                         // would never be reminded about its new time.
@@ -671,8 +727,13 @@ export class AppointmentService {
 
             return updated;
         } catch (err) {
-            if (slotId) {
-                await prisma.consultationSlot.updateMany({ where: { id: slotId }, data: { isBooked: false } }).catch(() => {});
+            // Only undo a claim this request made. See the `claimedSlotId` note
+            // above: a reschedule that keeps the current slot must not release
+            // it on the way out.
+            if (claimedSlotId) {
+                await prisma.consultationSlot
+                    .updateMany({ where: { id: claimedSlotId }, data: { isBooked: false } })
+                    .catch(() => {});
             }
             throw err;
         }
@@ -687,46 +748,66 @@ export class AppointmentService {
         const appointment = await prisma.appointment.findUnique({
             where: { id },
             include: {
-                user: { select: { id: true, name: true } },
+                user: { select: { id: true, name: true, timezone: true } },
                 doctor: { include: { user: { select: { id: true, name: true } } } },
             },
         });
-        if (!appointment) throw new Error("Appointment not found");
-        if (appointment.status !== "confirmed") throw new Error("This consultation is not active");
+        if (!appointment) throw notFound("Appointment not found");
+        if (appointment.status !== "confirmed") throw badRequest("This consultation is not active");
         if (!["video", "voice"].includes(appointment.consultationType)) {
-            throw new Error("This consultation has no live room (text chat only)");
+            throw badRequest("This consultation has no live room (text chat only)");
         }
 
         const isPatient = appointment.userId === actor.id;
         const isDoctor = appointment.doctor.userId === actor.id;
         if (!isPatient && !isDoctor) {
-            throw new Error("Forbidden: not a participant of this consultation");
+            throw forbidden("not a participant of this consultation");
         }
 
-        const start = new Date(appointment.appointmentDate);
-        const [h, m] = (appointment.startTime || "00:00").split(":").map(Number);
-        start.setHours(h || 0, m || 0, 0, 0);
+        // The window is judged in the *booker's* timezone, exactly as
+        // `createAppointment` judged it when the appointment was booked. Two
+        // things were wrong before:
+        //
+        //   - `new Date("2026-10-02")` parses an ISO date-only string as **UTC**
+        //     midnight, and the following `setHours` then applies the **host's**
+        //     local offset. On a UTC host the two cancel out; on a host in UTC+7 the
+        //     start instant moved by seven hours.
+        //   - Even where they cancelled, the answer depended on where the server
+        //     happened to run. Booking said "not in the past" using the user's zone
+        //     and joining said "opens in N minutes" using the host's, so the two
+        //     endpoints could disagree about the same appointment.
+        //
+        // A participant whose booking was accepted could be refused at the door, and
+        // the error - "The room opens in N minutes" - named a time hours away from
+        // the one they had agreed to.
+        const timezone = resolveTimezone(appointment.user.timezone);
+        const dayStart = startOfZonedDay(
+            localDateKey(parseLocalDate(appointment.appointmentDate)),
+            timezone
+        );
+
+        const startMinutes = timeToMinutes(appointment.startTime ?? "00:00");
+        const endMinutes = timeToMinutes(appointment.endTime ?? "00:00");
+        const start = new Date(dayStart.getTime() + startMinutes * 60 * 1000);
+        const end = new Date(dayStart.getTime() + endMinutes * 60 * 1000);
 
         const now = Date.now();
         const OPEN_EARLY_MS = 15 * 60 * 1000;
-        const closeMs = (appointment.endTime || "00:00").split(":").map(Number);
-        const end = new Date(appointment.appointmentDate);
-        end.setHours(closeMs[0] || 0, closeMs[1] || 0, 0, 0);
         const CLOSE_LATE_MS = 60 * 60 * 1000;
 
         if (now < start.getTime() - OPEN_EARLY_MS) {
             const minutesUntilOpen = Math.ceil((start.getTime() - OPEN_EARLY_MS - now) / 60000);
-            throw new Error(`The room opens in ${minutesUntilOpen} minutes`);
+            throw badRequest(`The room opens in ${minutesUntilOpen} minutes`);
         }
         if (now > end.getTime() + CLOSE_LATE_MS) {
-            throw new Error("This consultation room has closed");
+            throw badRequest("This consultation room has closed");
         }
 
-        let meetingLink = appointment.meetingLink;
-        if (!meetingLink) {
-            meetingLink = generateMeetingLink(id);
-            await prisma.appointment.update({ where: { id }, data: { meetingLink } });
-        }
+        // `meetingLink` is no longer generated here. A persistent, guessable-
+        // only-by-luck URL was the unauthenticated artefact the video migration
+        // removes; on the livekit path there is no URL at all, only a short-lived
+        // scoped token. The column is kept and still populated on the jitsi
+        // fallback path for clients that have not been updated.
 
         const counterpartId = isPatient ? appointment.doctor.userId : appointment.userId;
         await publishEvent(counterpartId, {
@@ -738,8 +819,47 @@ export class AppointmentService {
             },
         });
 
+        // The room seed is generated once and persisted, because the two
+        // participants arrive at this method independently and must land in the
+        // same room. Deriving it per request would put each of them somewhere
+        // different, which presents as "the other person never joined".
+        let roomSeed = appointment.roomSeed;
+        if (!roomSeed) {
+            roomSeed = crypto.randomBytes(8).toString("hex");
+            await prisma.appointment.update({ where: { id }, data: { roomSeed } });
+        }
+
+        // The token is scoped to the end of the window, not to a constant, so a
+        // token captured from a proxy log is useless once the session is over.
+        const providerState = activeProvider();
+        const grant = buildGrant({
+            appointmentId: id,
+            userId: actor.id,
+            displayName: actor.name || "Participant",
+            roomSeed,
+            validUntilMs: end.getTime() + CLOSE_LATE_MS,
+        });
+
         return {
-            meetingLink,
+            // `provider`, `room` and `token` are the new contract. `meetingLink`
+            // is still returned for the jitsi path and for any client that has
+            // not been updated; it is `null` on livekit, where a persistent URL
+            // would be the unauthenticated artefact this change exists to
+            // remove.
+            provider: grant.provider,
+            room: grant.room,
+            token: grant.token ?? null,
+            identity: grant.identity,
+            meetingLink: grant.provider === "jitsi" ? grant.room : null,
+            // The server states whether this consultation is authenticated,
+            // rather than the client inferring it from the provider name. The
+            // privacy policy and ARCHITECTURE.md both promise the patient is
+            // told, and a disclosure whose truth is computed in the browser is
+            // a disclosure that can be wrong. `degradedReason` is set only when
+            // an operator asked for livekit and the deployment could not supply
+            // it, which is the case a patient actually needs explained.
+            degraded: providerState.degraded,
+            degradedReason: providerState.degraded ? providerState.reason ?? null : null,
             consultationType: appointment.consultationType,
             startTime: appointment.startTime,
             endTime: appointment.endTime,
@@ -758,11 +878,11 @@ export class AppointmentService {
             where: { id },
             include: { doctor: { select: { id: true, specialty: true, userId: true } } },
         });
-        if (!appointment) throw new Error("Appointment not found");
+        if (!appointment) throw notFound("Appointment not found");
 
         const isPatient = appointment.userId === actor.id;
         const isDoctor = actor.role === "doctor" && appointment.doctor.userId === actor.id;
-        if (!isPatient && !isDoctor) throw new Error("Forbidden: not a participant");
+        if (!isPatient && !isDoctor) throw forbidden("not a participant");
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
