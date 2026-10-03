@@ -234,7 +234,24 @@ jobs:
       # needed to audit a lockfile, and skipping the scripts means a compromised
       # transitive package cannot execute anything just by being audited.
       - run: npm ci --ignore-scripts
-      - name: Audit (${{ matrix.directory }})
+      - name: Audit (${{ matrix.directory }}, shipped dependencies)
+        # `--omit=dev`, because the gate should describe what actually ships.
+        #
+        # The production images install with `npm ci --omit=dev`, so a finding that
+        # only exists in a devDependency cannot reach a running container. Auditing
+        # the whole tree made the gate fail on `braces`, which reaches the server
+        # only through `nodemon -> chokidar` and has no patched release — the sole
+        # suggested fix was to downgrade `nodemon` across a major. Failing a build
+        # on a vulnerability that is not deployed trains everyone to ignore the gate.
+        #
+        # Dev dependencies are still audited, in the step below, as advisory. A new
+        # advisory in the toolchain should be visible without being able to hold up
+        # a pull request over something that never ships.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit dev dependencies (advisory)
+        # Reported, never fatal. See above.
+        continue-on-error: true
         run: npm audit --audit-level=high
 
   # govulncheck is not `go list -m -u`. It walks the call graph from the binary
