@@ -46,8 +46,8 @@ disagree. Three implementations of one contract, one assertion.
 ## Tests
 
 ```bash
-cd server && npm test          # 415 tests, 30 files
-cd client && npm test          # 22 tests, 4 files
+cd server && npm test          # 427 tests, 33 files
+cd client && npm test          # 46 tests, 6 files
 cd server-realtime && go test -race ./...
 ```
 
@@ -72,7 +72,7 @@ anything you care about, and the reason is in the README's known-limitations
 section along with a migration that a `db push` would have hidden.
 
 The suite is deliberately serial (`fileParallelism: false`) and wipes every table
-before and after each test. At 415 tests that is a few minutes, not a few
+before and after each test. At 427 tests that is a few minutes, not a few
 seconds. Running one file while another is running will interfere with it.
 
 ## Conventions
