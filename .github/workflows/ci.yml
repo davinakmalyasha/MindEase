@@ -143,6 +143,12 @@ jobs:
         # or driven down as strings are migrated.
         #
         # UI_HYGIENE_VERBOSE=1 lists every finding.
+        #
+        # `working-directory: .` because this job defaults to `server/` and the
+        # script lives in `client/scripts/`. Without it the step fails with module
+        # not found - which is how a guard that is supposed to never fail ended up
+        # turning the build red on its first run.
+        working-directory: .
         run: node client/scripts/check-ui-hygiene.js
         env:
           UI_HYGIENE_VERBOSE: ${{ vars.UI_HYGIENE_VERBOSE }}
