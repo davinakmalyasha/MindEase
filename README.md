@@ -76,10 +76,10 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **~39,600** | lines of TypeScript, SQL, and Go — 27,400 application, 7,500 tests |
+| **41,253** | lines of TypeScript, SQL and Go — 31,261 application, 9,065 tests, 927 migrations |
 | **125** | API routes · **27** Prisma models · **15** migrations |
-| **415** | server tests across 30 files, against a real MySQL and real Argon2 |
-| **35** | client unit tests · **22** Go tests with `-race` · **12** Playwright journeys |
+| **427** | server tests across 33 files, against a real MySQL and real Argon2 |
+| **46** | client unit tests · **26** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 ## Quick start
@@ -131,7 +131,7 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 415 server tests against a freshly migrated database
+make test       # 427 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
@@ -154,7 +154,7 @@ has read.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the services fit together, and the reasoning behind the layering |
 | [docs/security.md](docs/security.md) | Threat model, what is deliberately not protected, and the controls that carry the weight |
 | [docs/data-model.md](docs/data-model.md) | 27 models, an ER diagram, and the decisions that are not obvious from the schema |
-| [docs/testing.md](docs/testing.md) | The three gates, all 30 test files, and how to add a test |
+| [docs/testing.md](docs/testing.md) | The three gates, all 33 server test files, and how to add a test |
 | [docs/operations.md](docs/operations.md) | Runbook: backup, secret rotation, rollback, troubleshooting |
 | [docs/glossary.md](docs/glossary.md) | The domain terms the code uses without defining |
 | [docs/roadmap.md](docs/roadmap.md) | Direction, including what is deliberately not planned |
@@ -330,11 +330,14 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
   same package twice until the first settles — a product decision, not a
   technical one. See [ADR-0003](docs/adr/0003-payment-abstraction.md).
 - **Sequential integer ids are exposed in API responses.** `prd.md` requires
-  UUIDv7 in every external identifier. That is not met; retrofitting it across 23
+  UUIDv7 in every external identifier. That is not met; retrofitting it across 27
   models, every route, every cache key and every export is a rewrite.
-- **No payment gateway is wired.** The provider interface and the invariants
-  around it are complete; `getPaymentProvider` returns a stub, and the
-  simulator is what actually runs.
+- **No live payment gateway is configured.** The provider interface and a
+  Midtrans implementation are complete and `getPaymentProvider()` selects between
+  them, but nothing in this repository carries gateway credentials, so the
+  simulator is what actually runs. Pointing it at Midtrans is configuration
+  (`PAYMENT_PROVIDER=midtrans` plus a server key), not code.
+  See [ADR-0003](docs/adr/0003-payment-abstraction.md).
 - **Crisis triage is keyword matching, not understanding.** It over-matches by
   design and does not handle negation or euphemisms. See
   [ADR-0002](docs/adr/0002-ai-provenance.md).
@@ -345,8 +348,11 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 - **Two large files are deliberately not decomposed.**
   `client/app/dashboard/profile/page.tsx` and `client/components/doctors/DoctorProfile.tsx`
   are each over 600 lines. Low value relative to the regression risk.
-- **The e2e suite is opt-in** and has not been run in CI. One journey is
-  effectively a smoke test.
+- **The e2e suite is opt-in.** It is wired into CI and runs on demand — dispatch
+  the workflow, or label a PR `e2e` — rather than on every push, because the
+  journeys were written against selectors nothing had ever exercised and a first
+  red run would report a selector bug as a regression. It has still never been run
+  automatically, and one journey is effectively a smoke test.
 - **Two repo guard scripts do not work.** `server/scripts/check-operators.js`
   declares a `CODE_POSITION` regex it never uses and strips only `//` comments,
   so it reports 195 false positives — all of them prose in a doc comment, JSX
@@ -361,8 +367,8 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 415 tests against a MySQL service container
-- `client` — lint, 35 tests, production build
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 427 tests against a MySQL service container
+- `client` — lint, 46 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys when requested
 

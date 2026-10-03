@@ -9,9 +9,9 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 415 tests, 30 files |
-| **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 22 tests, 4 files |
-| **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 21 tests, 4 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 427 tests, 33 files |
+| **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 26 tests, 5 files |
+| **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 46 tests, 6 files |
 
 Counts are from `npx vitest list --run`, `go test -list` and the Vitest client
 run, not from prose elsewhere in the repository. If they disagree with a README
@@ -267,7 +267,8 @@ go vet ./...
 go test -race -cover ./...
 ```
 
-22 tests across `main_test.go`, `hub/auth_test.go`, `hub/client_test.go` and
+26 tests across main_test.go, hub/auth_test.go, hub/client_test.go,
+hub/hub_test.go and
 `hub/hub_test.go`.
 
 `-race` is the point, not a habit. `hub_test.go`'s concurrency cases exist to
@@ -286,7 +287,7 @@ The local Go toolchain and the cached build cache can disagree (`compile: versio
 
 ```bash
 cd client
-npm test          # Vitest + jsdom, 21 tests in 4 files
+npm test          # Vitest + jsdom, 46 tests in 6 files
 npm run lint
 npm run build
 ```
@@ -372,7 +373,7 @@ once green.
 | `wave0-regressions.test.ts` | 41 | Token purpose separation, 2FA enforcement, credential lifecycle, clinical data lifecycle, slot and availability integrity, public data exposure, input validation, error disclosure, timezone-correct day boundaries, mood logging invariants |
 | `wellness.test.ts` | 10 | Mood logging and stats, range rejection, a repeated same-day log as an update rather than a duplicate, streak calculation and breakage, day-window averaging, ownership, unbounded history rejection |
 
-Total: 415.
+Total: 427.
 
 `care-plan.test.ts` and `wave0-regressions.test.ts` are the two largest files
 because they encode the two most expensive regressions this codebase has had —

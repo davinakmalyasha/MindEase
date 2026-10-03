@@ -215,7 +215,7 @@ never built. Its zero-trust threat model survives in the services and ADRs.
 
 | Suite | Count | Runs against |
 |---|---|---|
-| server | 415 vitest, 30 files | Real MySQL, real Argon2 |
+| server | 427 vitest, 33 files | Real MySQL, real Argon2 |
 | client | 21 vitest, 4 files | jsdom |
 | realtime | 22 Go tests | In-memory |
 | e2e | 12 Playwright tests, 10 journeys | The compose stack, on demand |
