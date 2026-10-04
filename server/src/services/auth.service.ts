@@ -181,19 +181,46 @@ export class AuthService {
         return { user: toSafeUser(user), requiresTwoFactor: false as const, ...tokens };
     }
 
-    private static async recordFailedAttempt(user: { id: number; failedAttempts: number }) {
-        const attempts = user.failedAttempts + 1;
+    private static async recordFailedAttempt(user: { id: number }) {
+        // `{ increment: 1 }` in SQL, not `user.failedAttempts + 1` in JavaScript.
+        //
+        // The read-modify-write version had two failure modes and they compound.
+        // Five concurrent wrong passwords all read `failedAttempts: 0` and all
+        // wrote 1, so the counter never reached the threshold and the lockout
+        // never fired under parallel load - unlimited guesses in batches of five.
+        //
+        // And `lockedUntil` was written unconditionally once the threshold was
+        // reached, so every further failed attempt pushed the expiry fifteen
+        // minutes further out. An attacker who kept hammering never let the lock
+        // expire, which permanently denies a named patient the ability to sign in
+        // or reset their password. On a mental-health product that is a
+        // denial-of-care tool aimed at a specific person.
+        //
+        // The stamp is now applied only when no lock is currently in force, so the
+        // window is a fixed fifteen minutes from the fifth failure rather than
+        // fifteen minutes from the last attempt.
         await prisma.user
             .update({
                 where: { id: user.id },
                 data: {
-                    failedAttempts: attempts,
-                    lockedUntil: attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MS) : null,
+                    failedAttempts: { increment: 1 },
+                    ...(await this.stampLockIfUnlocked(user.id)),
                 },
             })
             .catch(() => {});
     }
 
+    /** The lock deadline, only when the account is not already locked. */
+    private static async stampLockIfUnlocked(userId: number) {
+        const current = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { failedAttempts: true, lockedUntil: true },
+        });
+        const alreadyLocked = current?.lockedUntil && current.lockedUntil > new Date();
+        if (alreadyLocked) return {};
+        if ((current?.failedAttempts ?? 0) + 1 < MAX_FAILED_ATTEMPTS) return { lockedUntil: null as Date | null };
+        return { lockedUntil: new Date(Date.now() + LOCKOUT_MS) };
+    }
 
     // Google Auth Logic: Verify token, find/create user
     static async googleLogin(token: string) {
