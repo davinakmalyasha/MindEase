@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { LifeBuoy, Loader2, Save, EyeOff } from "lucide-react";
+import { LifeBuoy, Loader2, Save, EyeOff, RefreshCw } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import api from "@/lib/api";
+import api, { getErrorMessage } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
 
@@ -76,15 +76,28 @@ export default function SafetyPlanPage() {
     const qc = useQueryClient();
     const [draft, setDraft] = useState<Draft>(EMPTY);
     const [preview, setPreview] = useState(false);
-    // Tracks which server payload the draft was seeded from.
+
+    // Which server payload the draft was seeded from.
+    //
+    // Keyed on the plan's *id*, not on the object reference. React Query returns
+    // a new object on every successful refetch, so a reference comparison is true
+    // every time - and `refetchOnWindowFocus` is on by default. A patient typing
+    // into "reasons to live", alt-tabbing to check a message, and coming back
+    // had their entire draft replaced by the last saved version. On a safety plan
+    // that is not a lost form, it is lost crisis content.
     //
     // Seeding happens during render rather than in an effect: this is React's
     // documented "adjust state when a prop changes" pattern, and it avoids the
     // cascading render that `setState` inside `useEffect` causes - the form
     // would render once empty, then again populated, on every first load.
-    const [seededFrom, setSeededFrom] = useState<SafetyPlan | null>(null);
+    //
+    // An id comparison is false for every refetch of the same plan and true only
+    // when a different plan arrives, which is the only case where re-seeding is
+    // correct. `undefined` means "not seeded yet"; `null` means "seeded from the
+    // server having no plan", which is a real state distinct from unseeded.
+    const [seededId, setSeededId] = useState<number | null | undefined>(undefined);
 
-    const { data, isLoading } = useQuery({
+    const { data, isLoading, isError, refetch } = useQuery({
         queryKey: safetyPlanKeys.mine,
         queryFn: async () => {
             const res = await api.get("/safety-plan");
@@ -95,8 +108,9 @@ export default function SafetyPlanPage() {
         },
     });
 
-    if (data !== undefined && data !== seededFrom) {
-        setSeededFrom(data);
+    const serverId = data?.id ?? null;
+    if (data !== undefined && seededId === undefined) {
+        setSeededId(serverId);
         setDraft(toDraft(data));
     }
 
@@ -109,7 +123,7 @@ export default function SafetyPlanPage() {
             qc.invalidateQueries({ queryKey: safetyPlanKeys.mine });
             toast(t("saved"), "success");
         },
-        onError: () => toast(t("saveFailed"), "error"),
+        onError: (error: unknown) => toast(getErrorMessage(error, t("saveFailed")), "error"),
     });
 
     const set = (key: keyof Draft) => (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) =>
@@ -121,6 +135,40 @@ export default function SafetyPlanPage() {
                 <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400">
                     <Loader2 className="h-5 w-5 animate-spin" />
                     {t("loading")}
+                </div>
+            </DashboardLayout>
+        );
+    }
+
+    // A failed load must not render an editable form.
+    //
+    // `isError` was never destructured, so a 500 left `data` undefined, `draft`
+    // at EMPTY, and the page rendered a plausible blank safety plan. One click on
+    // Save then sent `""` for all six fields - and the service treats an empty
+    // string as *clear*, not as "unchanged". A transient network blip could
+    // therefore erase a patient's reasons to live.
+    //
+    // There is no draft to save at this point, so there is nothing to offer but a
+    // retry.
+    if (isError) {
+        return (
+            <DashboardLayout>
+                <div className="mb-6">
+                    <h1 className="flex items-center gap-2 text-2xl font-extrabold text-gray-900">
+                        <LifeBuoy className="h-6 w-6 text-rose-500" aria-hidden="true" />
+                        {t("title")}
+                    </h1>
+                </div>
+                <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+                    <h2 className="text-sm font-black text-rose-900">{t("loadFailedTitle")}</h2>
+                    <p className="mt-2 text-sm text-rose-800">{t("loadFailedBody")}</p>
+                    <button
+                        onClick={() => refetch()}
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700"
+                    >
+                        <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                        {t("retry")}
+                    </button>
                 </div>
             </DashboardLayout>
         );
