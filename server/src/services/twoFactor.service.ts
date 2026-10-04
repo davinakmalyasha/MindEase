@@ -9,16 +9,38 @@ import { badRequest } from "../utils/appError";
 const APP_NAME = "MindEase";
 
 export class TwoFactorService {
+    /**
+     * Starts (or restarts) two-factor enrolment.
+     *
+     * The password is always required, not only when 2FA is already active.
+     *
+     * The conditional version looked deliberate - "regenerating an ACTIVE setup
+     * needs confirmation" - and left the first enrolment free. That is the
+     * worse half: an attacker holding a stolen 15-minute access token calls
+     * `/2fa/setup`, enrols *their own* authenticator, then calls `/2fa/enable`
+     * with a code from the app on their own phone. `enable` revokes every session
+     * including the attacker's, and the account now requires a factor the
+     * attacker controls. The real user is locked out of their own treatment
+     * records, and recovery requires support.
+     *
+     * Compare with every other privilege change in this file: disabling 2FA
+     * requires a password, changing a password requires one, deleting an account
+     * requires one. Enrolling was the only one that did not.
+     */
     static async generateSecret(user: { id: number; email: string }, password?: string) {
         const existing = await prisma.user.findUnique({
             where: { id: user.id },
             select: { totpEnabled: true, password: true },
         });
-        // Regenerating the secret of an ACTIVE 2FA setup would let a session
-        // hijacker swap in their own device then legitimately disable 2FA.
-        if (existing?.totpEnabled) {
-            const confirmed = password && existing.password && (await argon2.verify(existing.password, password));
-            if (!confirmed) throw badRequest("Password confirmation required to regenerate two-factor authentication");
+
+        // A Google-only account has no password to confirm with, and cannot be
+        // used to change a password either. Its identity rests on the OAuth
+        // session, which the access token in hand *is*.
+        if (existing?.password) {
+            const confirmed = password && (await argon2.verify(existing.password, password));
+            if (!confirmed) {
+                throw badRequest("Password confirmation required to set up two-factor authentication");
+            }
         }
 
         const secret = speakeasy.generateSecret({

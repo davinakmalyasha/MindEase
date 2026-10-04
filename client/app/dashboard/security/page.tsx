@@ -19,14 +19,22 @@ export default function SecurityPage() {
     const [code, setCode] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [disablePassword, setDisablePassword] = useState("");
+    const [setupPassword, setSetupPassword] = useState("");
     const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
 
     const generateSecret = async () => {
+        if (!setupPassword) {
+            toast("Enter your password to confirm", "error");
+            return;
+        }
         setIsGenerating(true);
         try {
-            const res = await api.post("/account/2fa/setup");
+            const res = await api.post("/account/2fa/setup", { password: setupPassword });
             setSetupData(res.data?.data);
             setCode("");
+            // Not kept: it has done its job and there is no reason to hold a
+            // password in component state longer than the request needs it.
+            setSetupPassword("");
         } catch (err: any) {
             toast(getErrorMessage(err, "Failed to start 2FA setup"), "error");
         } finally {
@@ -122,14 +130,41 @@ export default function SecurityPage() {
                     </div>
 
                     {!user.totpEnabled && !setupData && (
-                        <button
-                            onClick={generateSecret}
-                            disabled={isGenerating}
-                            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all disabled:opacity-50"
-                        >
-                            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-                            Set up 2FA
-                        </button>
+                        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5">
+                            {/* Enrolment asks for the password on the server, so it
+                                asks for it here too rather than letting the request
+                                fail. Every other privilege change on this page -
+                                disabling 2FA, changing a password, deleting the
+                                account - already re-entered it. */}
+                            <label
+                                htmlFor="setup-password"
+                                className="block text-sm font-medium text-gray-700 mb-2"
+                            >
+                                Confirm your password to continue
+                            </label>
+                            <input
+                                id="setup-password"
+                                type="password"
+                                value={setupPassword}
+                                onChange={(e) => setSetupPassword(e.target.value)}
+                                autoComplete="current-password"
+                                placeholder="Your password"
+                                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                            />
+                            <p className="mt-2 text-xs text-gray-500">
+                                Two-factor enrolment is a change to how you sign in, so it is
+                                confirmed with your password rather than with the session you are
+                                already signed in with.
+                            </p>
+                            <button
+                                onClick={generateSecret}
+                                disabled={isGenerating || !setupPassword}
+                                className="mt-4 flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all disabled:opacity-50"
+                            >
+                                {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                                Set up 2FA
+                            </button>
+                        </div>
                     )}
 
                     {!user.totpEnabled && setupData && (

@@ -17,8 +17,9 @@ import {
     VerifyEmailSchema,
     ResendVerificationSchema,
     TwoFactorVerifySchema,
-    TwoFactorCodeSchema,
-    TwoFactorDisableSchema,
+TwoFactorCodeSchema,
+TwoFactorSetupSchema,
+TwoFactorDisableSchema,
     DeleteAccountSchema,
 } from "../schemas/auth.schema";
 
@@ -55,7 +56,10 @@ router.post("/change-password", validate(ChangePasswordSchema), AccountControlle
 // token — or an XSS on a shared device — must not be sufficient on its own.
 router.delete("/me", validate(DeleteAccountSchema), AccountController.deleteAccount);
 router.get("/export", AccountController.exportData);
-router.post("/2fa/setup", TwoFactorController.setup);
+// Enrolment requires password confirmation, like every other privilege change on
+// the account. A stolen access token must not be able to attach the attacker's
+// own authenticator.
+router.post("/2fa/setup", validate(TwoFactorSetupSchema), TwoFactorController.setup);
 router.post("/2fa/enable", validate(TwoFactorCodeSchema), TwoFactorController.enable);
 router.post("/2fa/disable", validate(TwoFactorDisableSchema), TwoFactorController.disable);
 

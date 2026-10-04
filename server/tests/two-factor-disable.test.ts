@@ -52,7 +52,8 @@ const enableThenReauth = async (role: "patient" | "doctor" = "patient") => {
 
     const setup = await user.agent
         .post("/api/account/2fa/setup")
-        .set("X-CSRF-Token", user.csrf);
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
     const secret = setup.body.data.secret as string;
 
     const enable = await user.agent

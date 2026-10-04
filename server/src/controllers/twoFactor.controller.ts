@@ -77,7 +77,12 @@ export class TwoFactorController {
     static async setup(req: Request, res: Response) {
         try {
             const user = req.user!;
-            const result = await TwoFactorService.generateSecret(user);
+            // The password is threaded through rather than dropped: enrolment is a
+            // privilege change and every sibling one (disable, change password,
+            // delete account) requires confirmation. See
+            // `TwoFactorService.generateSecret`.
+            const { password } = req.body;
+            const result = await TwoFactorService.generateSecret(user, password);
             res.json({ status: "success", data: result });
         } catch (error: any) {
             res.status(400).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});

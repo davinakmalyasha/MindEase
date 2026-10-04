@@ -126,6 +126,26 @@ export const TwoFactorCodeSchema = z.object({
         .strict(),
 });
 
+/**
+ * Starting two-factor enrolment is a privilege change, not a read.
+ *
+ * This route had no schema at all and the controller dropped the body, so a
+ * stolen access token could enrol an attacker's own authenticator and then lock
+ * the real user out of their treatment records. It now carries the same
+ * confirmation `disable` does.
+ *
+ * The password is optional rather than required because a Google-only account
+ * has none; `generateSecret` skips the check only when the stored hash is absent,
+ * so a local account is still confirmed.
+ */
+export const TwoFactorSetupSchema = z.object({
+    body: z
+        .object({
+            password: z.string().min(1, "Password confirmation is required").max(200).optional(),
+        })
+        .strict(),
+});
+
 /** Disabling 2FA is the most sensitive self-service action on the account. */
 export const TwoFactorDisableSchema = z.object({
     body: z

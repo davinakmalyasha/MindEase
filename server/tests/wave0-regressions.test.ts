@@ -107,7 +107,9 @@ describe("Two-factor enforcement", () => {
 
     it("never authenticates a request without a completed second factor", async () => {
         const user = await createUser("patient");
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret;
         await user.agent
             .post("/api/account/2fa/enable")
@@ -137,7 +139,9 @@ describe("Two-factor enforcement", () => {
         // Registration plus the extra token: more than one session exists.
         expect(await prisma.refreshToken.count({ where: { userId: user.id } })).toBeGreaterThan(1);
 
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         await user.agent
             .post("/api/account/2fa/enable")
             .set("X-CSRF-Token", user.csrf)
