@@ -1,4 +1,4 @@
-module github.com/mindease/realtime
+module github.com/davinakmalyasha/MindEase/server-realtime
 
 go 1.26
 

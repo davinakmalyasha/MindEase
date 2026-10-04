@@ -136,13 +136,40 @@ func (h *Hub) Unregister(userID int64, c *Client) {
 // it. So this classification improves *reporting*, and gives the caller a
 // cheap signal, but it does not claim to guarantee delivery under back
 // pressure. Pretending otherwise would be worse than the silent drop.
+//
+// The previous contents of this map were:
+//
+//	message:new, risk:new, risk:updated, appointment:new, appointment:update, crisis
+//
+// Five of those six are published by nothing anywhere in the repository - a
+// grep for `risk:new`, `risk:updated`, `crisis` and `appointment:new` finds them
+// only in this file and in its test. Meanwhile `sos:alert` and `risk:alert`, the
+// two events this service exists to deliver, were absent and so were counted as
+// cosmetic. The observable consequence: the counters built specifically to
+// surface lost clinical alerts reported zero critical drops in production, and
+// counted every real one as cosmetic. The doc comment two declarations above
+// named `risk:new` as the example of an alert that never arrived.
+//
+// The list below is the actual `RealtimeEventType` union in
+// server/src/services/realtime.service.ts. `realtime-contract.test.ts` asserts
+// the two agree, which is the check that was missing and is what let the drift
+// persist: nothing compared this map to the TypeScript union, because the Go
+// service has no event-type list of its own to compare against - it forwards
+// `type` as an opaque string. Adding a list here is what created the
+// possibility of the drift, and adding the assertion is what closes it.
 var criticalTypes = map[string]bool{
-	"message:new":        true,
-	"risk:new":           true,
-	"risk:updated":       true,
-	"appointment:new":    true,
-	"appointment:update": true,
-	"crisis":             true,
+	// A clinician's worklist: someone disclosed thoughts of self-harm.
+	"risk:alert": true,
+	// The patient pressed the button marked "I need help now".
+	"sos:alert": true,
+	// A direct message to a named clinician or patient. In a therapy chat this
+	// can itself be the disclosure.
+	"message:new": true,
+	// A new appointment or a session starting.
+	"appointment:join": true,
+	// A durable inbox entry. Carries the same disclosure text as the events
+	// above, so it is not cosmetic either.
+	"notification:new": true,
 }
 
 // IsCritical reports whether an event type is one whose loss matters beyond

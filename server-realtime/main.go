@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mindease/realtime/hub"
+	"github.com/davinakmalyasha/MindEase/server-realtime/hub"
 	"github.com/redis/go-redis/v9"
 )
 

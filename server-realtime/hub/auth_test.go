@@ -163,3 +163,87 @@ func TestAuthenticateRejectsMalformed(t *testing.T) {
 		})
 	}
 }
+
+// TestAuthenticateRejectsForeignIssuer covers a token minted by any other
+// component in the fleet that shares this secret.
+//
+// `iss` and `aud` were both parsed and then discarded: jwt/v5 populates
+// RegisteredClaims from them, and nothing read the result. Node asserts both on
+// every verification, so the two halves of the system disagreed about what a
+// token had to contain, and this was the half that did not check.
+func TestAuthenticateRejectsForeignIssuer(t *testing.T) {
+	claims := baseClaims()
+	claims["purpose"] = "access"
+	claims["totpVerified"] = true
+	claims["iss"] = "some-other-service"
+
+	if _, err := Authenticate(mint(t, "iss", claims)); err == nil {
+		t.Fatal("expected rejection for a token from another issuer")
+	}
+}
+
+// TestAuthenticateRejectsWrongAudience is the load-bearing one.
+//
+// The websocket ticket is signed with the *access* secret, because this service
+// only holds JWT_SECRET. The audience claim (`mindease:ws-ticket` vs
+// `mindease:access`) is the entire mechanism that stops a 30-second ticket being
+// replayed as a long-lived session - and this service was the one place the check
+// was missing, so a captured ticket could open a socket indefinitely.
+func TestAuthenticateRejectsWrongAudience(t *testing.T) {
+	// An access token presented with the ticket's purpose: the audience and the
+	// purpose disagree, which is the replay this must refuse.
+	claims := baseClaims()
+	claims["purpose"] = "ws-ticket"
+	claims["aud"] = "mindease:access"
+	claims["exp"] = time.Now().Add(30 * time.Second).Unix()
+	delete(claims, "totpVerified")
+
+	if _, err := Authenticate(mint(t, "aud", claims)); err == nil {
+		t.Fatal("expected rejection when the audience does not match the purpose")
+	}
+}
+
+func TestAuthenticateRejectsMissingAudience(t *testing.T) {
+	// Both real token purposes carry an audience, so its absence means the token
+	// was not minted by this system's signer.
+	claims := baseClaims()
+	claims["purpose"] = "access"
+	claims["totpVerified"] = true
+	delete(claims, "aud")
+
+	if _, err := Authenticate(mint(t, "noaud", claims)); err == nil {
+		t.Fatal("expected rejection for a token with no audience")
+	}
+}
+
+func TestAuthenticateRejectsMissingExpiry(t *testing.T) {
+	// `WithExpirationRequired` rather than "check exp if present". A token with no
+	// expiry would otherwise be valid forever, which is the wrong default for a
+	// credential that carries clinical alerts.
+	claims := baseClaims()
+	claims["purpose"] = "access"
+	claims["totpVerified"] = true
+	delete(claims, "exp")
+
+	if _, err := Authenticate(mint(t, "noexp", claims)); err == nil {
+		t.Fatal("expected rejection for a token with no expiry")
+	}
+}
+
+func TestAuthenticateRejectsNonHS256(t *testing.T) {
+	// The guard used to accept "any HMAC", which would have admitted HS384 and
+	// HS512. Nothing in this system signs with those, and accepting them would be
+	// a difference between the two halves of the system that nothing tests.
+	claims := baseClaims()
+	claims["purpose"] = "access"
+	claims["totpVerified"] = true
+
+	other, err := jwt.NewWithClaims(jwt.SigningMethodHS512, claims).SignedString(secret)
+	if err != nil {
+		t.Fatalf("signing HS512 token: %v", err)
+	}
+
+	if _, err := Authenticate(other); err == nil {
+		t.Fatal("expected rejection for an HS512 token")
+	}
+}
