@@ -7,12 +7,40 @@
 
 const isProd = process.env.NODE_ENV === "production";
 
+/**
+ * Values that are technically fine as secrets and are not secrets at all.
+ *
+ * The three signing secrets are the reason this list is longer than it looks.
+ * `.env.example` ships `change_me_access_secret` and its two siblings, and every
+ * one of those passed all three production checks below: 23 to 27 characters, not
+ * in this set, and not prefixed `dev_`. So `cp .env.example .env`, fill in only
+ * GEMINI_API_KEY, deploy with NODE_ENV=production - and the API boots green,
+ * signing every access token, every refresh token and every 2FA ticket with a
+ * secret published in the repository.
+ *
+ * The code's own `dev_`-prefixed fallbacks were correctly rejected. The template's
+ * placeholders were not, and the template is the one a real operator copies.
+ *
+ * Rather than enumerate every plausible placeholder, the template is changed to
+ * use the `dev_` prefix that the validator already rejects, *and* the three
+ * literals it shipped are listed here. Both halves: the prefix means a new
+ * template value is caught automatically, and the explicit entries mean the
+ * values already published in this repository's history are still refused.
+ */
 const KNOWN_WEAK = new Set([
     "supersecret",
     "superrefreshsecret",
     "changeme",
     "secret",
     "password",
+    "change_me",
+    "change_me_access_secret",
+    "change_me_refresh_secret",
+    "change_me_two_factor_secret",
+    "change_me_jwt_secret",
+    "replace_me",
+    "your_secret_here",
+    "local_dev_two_factor_secret_change_me",
 ]);
 
 function requireSecret(name: string, devFallback: string): string {
@@ -118,24 +146,23 @@ if (isProd && refreshSecret === jwtSecret) {
  * Purpose-scoped secret for pending two-factor tickets. Keeping it distinct
  * from the access-token secret means a pending ticket is cryptographically
  * incapable of verifying as an access token.
+ *
+ * It used to have a bespoke IIFE that checked two things - "is it set" and "does
+ * it differ from JWT_SECRET" - and skipped every strength check the other two
+ * signing secrets went through. So the strongest-privilege secret in the system,
+ * the one that mints two-factor tickets, accepted `change_me_two_factor_secret`
+ * and accepted a five-character value, while the access token secret refused
+ * both. It is now `requireSecret` like the other two, with the distinctness check
+ * on top: the dev fallback is `jwtSecret` so an unset value still behaves exactly
+ * as it did outside production, which is what the fallback branch was for.
  */
-const twoFactorSecret = (() => {
-    const explicit = (process.env.TWO_FACTOR_SECRET || "").trim();
-    if (explicit) {
-        if (isProd && explicit === jwtSecret) {
-            throw new Error(
-                "[config] TWO_FACTOR_SECRET must differ from JWT_SECRET in production."
-            );
-        }
-        return explicit;
-    }
-    if (isProd) {
-        throw new Error(
-            "[config] TWO_FACTOR_SECRET is not set. Refusing to start in production."
-        );
-    }
-    return jwtSecret;
-})();
+const twoFactorSecret = requireSecret("TWO_FACTOR_SECRET", jwtSecret);
+
+if (isProd && twoFactorSecret === jwtSecret) {
+    throw new Error(
+        "[config] TWO_FACTOR_SECRET must differ from JWT_SECRET in production."
+    );
+}
 
 export const env = {
     isProd,

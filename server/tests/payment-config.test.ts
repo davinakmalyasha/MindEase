@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import fs from "fs";
+import path from "path";
 
 /**
  * Payment configuration is fail-closed on purpose: a deployment must never
@@ -120,5 +122,84 @@ describe("payment configuration", () => {
                 REFRESH_SECRET: "same-secret-value-000000000000000",
             })
         ).rejects.toThrow(/REFRESH_SECRET/);
+    });
+});
+
+/**
+ * The shipped `.env.example` is an input to production.
+ *
+ * These read the real file rather than a copy, because the whole failure was
+ * that a hardcoded list of "known weak" strings and the values in the template
+ * were maintained independently of each other. The template shipped
+ * `change_me_access_secret` - 23 characters, not in KNOWN_WEAK, not `dev_`
+ * prefixed - so it passed all three production checks and `cp .env.example .env`
+ * followed by a deploy produced an API that signed every token in the product
+ * with a string published in this repository.
+ *
+ * A test that pins the template makes the two impossible to disagree again.
+ */
+describe("the shipped .env.example", () => {
+    const TEMPLATE = fs.readFileSync(
+        path.resolve(__dirname, "..", "..", ".env.example"),
+        "utf8"
+    );
+
+    /** Active (uncommented) assignments only, so the documented examples do not count. */
+    const activeValue = (name: string): string | undefined => {
+        const m = TEMPLATE.match(new RegExp(`^${name}=(.*)$`, "m"));
+        return m ? m[1].trim() : undefined;
+    };
+
+    const SIGNING_SECRETS = ["JWT_SECRET", "REFRESH_SECRET", "TWO_FACTOR_SECRET"];
+
+    it("ships all three signing secrets as placeholders, not as usable values", () => {
+        for (const name of SIGNING_SECRETS) {
+            const value = activeValue(name);
+            expect(value, `${name} must be present in .env.example`).toBeDefined();
+            // The `dev_` prefix is what the production validator rejects, so a
+            // template value carrying it fails the boot loudly instead of
+            // quietly signing tokens with a published string.
+            expect(
+                value!.startsWith("dev_"),
+                `${name} must be dev_-prefixed so production refuses it`
+            ).toBe(true);
+        }
+    });
+
+    it("uses three different placeholder values", () => {
+        const values = SIGNING_SECRETS.map(activeValue);
+        expect(new Set(values).size).toBe(SIGNING_SECRETS.length);
+    });
+
+    it.each(SIGNING_SECRETS)("is refused by the production validator as %s", async (name) => {
+        // The end-to-end version of the regression: paste the template's own
+        // value into a production boot and it must refuse.
+        await expect(
+            loadEnv({
+                NODE_ENV: "production",
+                PAYMENT_PROVIDER: "simulator",
+                ALLOW_PAYMENT_SIMULATOR: "true",
+                [name]: activeValue(name),
+            })
+        ).rejects.toThrow(new RegExp(name));
+    });
+
+    it.each(SIGNING_SECRETS)("refuses the previously shipped %s placeholder too", async (name) => {
+        // The old placeholders are still in this repository's history and still
+        // in circulation. Being listed in KNOWN_WEAK means a deployment that
+        // copied .env.example before this change fails rather than runs.
+        const legacy = {
+            JWT_SECRET: "change_me_access_secret",
+            REFRESH_SECRET: "change_me_refresh_secret",
+            TWO_FACTOR_SECRET: "change_me_two_factor_secret",
+        }[name]!;
+        await expect(
+            loadEnv({
+                NODE_ENV: "production",
+                PAYMENT_PROVIDER: "simulator",
+                ALLOW_PAYMENT_SIMULATOR: "true",
+                [name]: legacy,
+            })
+        ).rejects.toThrow(new RegExp(name));
     });
 });
