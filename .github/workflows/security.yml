@@ -61,13 +61,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           # gitleaks needs the history to scan it, and the default
           # `fetch-depth: 1` would give it one commit.
           fetch-depth: 0
       - name: Scan full history
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         # `GITHUB_TOKEN` is an env var, not a `with:` input. The action declares
         # no inputs at all - passing one fails the step with "Unexpected input(s)
         # 'GITHUB_TOKEN'" - and it is required since v2 to scan a pull_request
@@ -99,9 +99,9 @@ jobs:
       # the other three jobs cannot write to it.
       security-events: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         with:
           languages: javascript-typescript
           # No build step. TypeScript is not compiled by CodeQL, and a custom
@@ -113,7 +113,7 @@ jobs:
           paths: server,client
           queries: security-and-quality
       - name: Analyse
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         with:
           category: "/language:javascript-typescript"
 
@@ -125,9 +125,9 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         with:
           languages: go
           # Go needs a real build for the extractor to see call graphs. A
@@ -136,23 +136,33 @@ jobs:
           paths: server-realtime
           queries: security-and-quality
       - name: Analyse
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         with:
           category: "/language:go"
 
   # ---------------------------------------------------------------------
   # Container images
   # ---------------------------------------------------------------------
-  # Scans the three Dockerfiles, one job per image, because a matrix cell
-  # cannot tell you *which* image a finding came from and the remediation is
-  # different for each: the API and the web app are `node:22-slim` over a
-  # Prisma/Next build, the realtime service is a compiled Go binary on
-  # `scratch`-ish, so its findings are base-image CVEs and nothing else.
+  # Two jobs, because "scan the Dockerfile" and "scan the image" are different
+  # questions and only one of them was being asked.
   #
-  # HIGH and CRITICAL only. Every base image carries a tail of CVEs with no
-  # fixed version, and reporting them turns a red badge into wallpaper.
-  trivy:
-    name: Trivy (${{ matrix.image }})
+  #   trivy-config  reads the Dockerfile as text. Catches a user running as root, a
+  #                 missing WORKDIR, a secret in a build arg. Fast, no build needed.
+  #   trivy-image   builds the image and reads its actual contents. Catches a CVE
+  #                 in the base image or in a resolved dependency.
+  #
+  # The comment above the original job explained that the realtime service's
+  # findings "are base-image CVEs and nothing else" - which is true, and
+  # unreachable, because the job set `vuln-type: misconfig`. Under that setting
+  # Trivy reports Dockerfile misconfiguration and no CVEs at all. So three images
+  # shipped to production with no operating-system or library vulnerability
+  # scanning whatsoever, and the comment explained why that was fine.
+  #
+  # HIGH and CRITICAL only, and unfixed findings ignored: every base image carries
+  # a tail of CVEs with no available patch, and a gate nobody can satisfy is a
+  # gate everybody disables.
+  trivy-config:
+    name: Trivy config (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -168,33 +178,64 @@ jobs:
           - image: server-realtime
             dockerfile: server-realtime/Dockerfile
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Scan ${{ matrix.dockerfile }}
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           # Pinned rather than floated. The action otherwise resolves whatever
-          # Trivy is newest, and a scanner that no longer accepts our flags
-          # fails exactly like a finding does - which teaches everyone to
-          # ignore the red.
+          # Trivy is newest, and a scanner that no longer accepts our flags fails
+          # exactly like a finding does - which teaches everyone to ignore the red.
           version: v0.70.0
           # `config`, not `dockerfile`. Trivy v0.70 removed the `dockerfile`
-          # subcommand and folded it into `trivy config`, which is also what
-          # scans Kubernetes and Terraform. The action resolved v0.70.0 and
-          # failed with `unknown command "dockerfile" for "trivy"`.
+          # subcommand and folded it into `trivy config`, which is also what scans
+          # Kubernetes and Terraform. The action resolved v0.70.0 and failed with
+          # `unknown command "dockerfile" for "trivy"`.
           scan-type: config
           scan-ref: ${{ matrix.dockerfile }}
           format: table
-          # `exit-code: 1` is what makes this a gate. Without it the action
-          # prints findings and the job goes green, which is the default and
-          # is the reason a scanner can be present in a repo for a year without
-          # anyone knowing.
+          # `exit-code: 1` is what makes this a gate. Without it the action prints
+          # findings and the job goes green, which is the default and is the reason
+          # a scanner can sit in a repo for a year without anyone knowing.
           exit-code: "1"
           ignore-unfixed: true
           vuln-type: misconfig
           severity: HIGH,CRITICAL
-          # No `trivyignores` file. A suppressions file is the right thing
-          # once something needs suppressing; an empty one is only a way to
-          # make the scan pass without looking at it.
+          # No `trivyignores` file. A suppressions file is the right thing once
+          # something needs suppressing; an empty one is only a way to make the
+          # scan pass without looking at it.
+
+  trivy-image:
+    name: Trivy image (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Compose service names, because `docker compose build <service>` is what
+        # produces a correctly tagged image without inventing a tag here.
+        service: [api, web, realtime]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Build the image
+        run: docker compose build ${{ matrix.service }}
+
+      - name: Scan the built image for CVEs
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.70.0
+          image-ref: mindease-${{ matrix.service }}:ci
+          format: table
+          # `os` for the base image and the OS packages it brings, `library` for
+          # the language dependencies resolved into the image. Both were excluded
+          # by the previous job's `vuln-type: misconfig`.
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          # `exit-code: 1` makes this a gate rather than a report.
+          exit-code: "1"
 
   # ---------------------------------------------------------------------
   # Dependency advisories
@@ -222,8 +263,8 @@ jobs:
       run:
         working-directory: ${{ matrix.directory }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -268,8 +309,8 @@ jobs:
       run:
         working-directory: server-realtime
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Matches ci.yml and the `go` directive in go.mod. A mismatch makes
           # the analysis describe a toolchain the service is not built with.

@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly, and for the same reason `security.yml` scans on a schedule: a gate
+  # that only runs when the tree changes cannot notice that the thing it guards
+  # has moved underneath it. The schema-drift check is the one most likely to rot
+  # silently - it compares a database built from the migrations against the
+  # datamodel, and a migration that has stopped applying cleanly looks exactly
+  # like a gate that has not been run in a while.
+  schedule:
+    - cron: "17 4 * * 1"
   # The end-to-end step is opt-in. See the `docker` job for why.
   workflow_dispatch:
 
@@ -27,11 +35,42 @@ concurrency:
 
 jobs:
   # --------------------------------------------------------------------
+  # Documentation gates
+  #
+  # Two checks that read the repository rather than run it. They belong first
+  # because they cost under a second and catch the class of error otherwise only
+  # found by a reader who happens to distrust a number.
+  #
+  # `check-numbers` exists because every count in this repository is
+  # hand-maintained, and a previous pass correcting them all was followed by
+  # fifteen drifting again - a stale test count in a CI comment, a per-file table
+  # summing to a different number than its own heading. It exits 2 when an anchor
+  # stops matching, because a restructured document that quietly stops being
+  # checked is worse than a document with a wrong number in it.
+  #
+  # `check-encoding` catches mojibake, which is the same class of incident from
+  # the other direction: a bulk text repair run through a console codepage. It has
+  # caught that three times, once inside prisma/schema.prisma.
+  # --------------------------------------------------------------------
+  docs:
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    name: Docs (numbers, encoding)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Documented counts must match the repository
+        run: node scripts/check-numbers.js
+      - name: Encoding guard (whole repo)
+        run: node scripts/check-encoding.js
+
+  # --------------------------------------------------------------------
   # Compose file validation
   #
-  # Runs first, costs about ten seconds, and needs nothing but the
-  # checkout. It exists because a single mis-indented key in
-  # docker-compose.yml made the file unparseable, which made
+  # Runs first among the jobs that need a toolchain, costs about ten seconds,
+  # and needs nothing but the checkout. It exists because a single
+  # mis-indented key in docker-compose.yml made the file unparseable, which made
   # `docker compose build` fail on the first step of the `docker` job and
   # left every later step - four health checks, the database seed, all
   # 12 Playwright tests - permanently unreachable. Nothing in the
@@ -48,11 +87,12 @@ jobs:
     name: Compose (validate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       # `-q` validates and exits non-zero on any error without printing the
       # resolved config, so a failure shows the parse error and nothing else.
       - name: Validate docker-compose.yml
         run: docker compose config -q
+
 
   server:
     # Installs dependencies, migrates, runs 415 tests against MySQL. Generous because a cold `npm ci` plus a full suite is genuinely slow.
@@ -75,8 +115,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -92,26 +132,40 @@ jobs:
         working-directory: .
         run: node scripts/check-encoding.js
 
-      # The other two guards are advisory, and that is a known gap rather than a
-      # judgement that they are unimportant.
-      #
-      # `check-dependencies.js` exits 0 without `--write`, so it reports and
-      # never fails - but it has false positives today: it does not scan
+      # `check-dependencies.js` exits 0 without `--write`, so it reports and never
+      # fails - but it has false positives today: it does not scan
       # `eslint.config.mjs`, so it calls `@eslint/js` and `typescript-eslint`
       # unused, and it does not know that jsdom and testing-library are pulled in
-      # by vitest's config rather than imported.
+      # by vitest's config rather than imported. It needs fixing before it can
+      # gate anything; tracked in the README's known limitations.
       #
-      # `check-operators.js` is genuinely broken and reports 195 false positives.
-      # It declares a `CODE_POSITION` regex and never uses it; what it actually
-      # checks is "does any typographic dash survive stripping", and it only
-      # strips `//` comments, not `/* */` block comments. Every one of the 190
-      # findings is prose in a doc comment, JSX text, or an email template. It
-      # has never been run in any automated process, which is why nobody has seen
-      # that. Making it a required check would redden main on the first run for
-      # no real finding.
+      # There used to be a third guard here, `check-operators.js`, and it is gone.
+      # It looked for a typographic dash sitting between two code tokens - the
+      # fingerprint of a bulk text repair that also rewrote a JavaScript operator,
+      # which had happened three times in this repository and once inside
+      # prisma/schema.prisma. It was wired advisory because it reported 194
+      # findings on a clean checkout, every one of them a `//` comment, a JSDoc
+      # line, JSX text or an email template.
       #
-      # Both need fixing before they can gate anything; they are tracked in the
-      # README's known limitations.
+      # It is deleted rather than fixed because the thing it looks for is already
+      # caught, better, by two gates that were already required:
+      #
+      #   - An em dash in a TypeScript expression is not valid syntax. `tsc
+      #     --noEmit` rejects it with `TS1127: Invalid character`, which is how all
+      #     three historical incidents were found - not by this script.
+      #   - The one incident in a non-TypeScript file, schema.prisma, is caught by
+      #     `prisma validate`.
+      #
+      # And it cannot be made precise. In `const x = a — b` and in the JSX text
+      # `most people wait months — or years`, the dash sits between two word
+      # characters with spaces either side. Nothing in the line distinguishes them
+      # except that one of them is prose - which is what the compiler knows and a
+      # regex does not. A rewritten version, using the CODE_POSITION regex the
+      # original declared and never used, still reported 74 findings on an
+      # unmodified tree.
+      #
+      # The repo-wide encoding guard remains, and it is the one that catches
+      # mojibake, which is the same incident from the other direction.
       - name: Unused dependency check (advisory)
         continue-on-error: true
         run: node scripts/check-dependencies.js
@@ -152,10 +206,6 @@ jobs:
         run: node client/scripts/check-ui-hygiene.js
         env:
           UI_HYGIENE_VERBOSE: ${{ vars.UI_HYGIENE_VERBOSE }}
-
-      - name: Dashed-operator check (advisory, known false positives)
-        continue-on-error: true
-        run: node scripts/check-operators.js
 
       - name: Lint
         run: npm run lint
@@ -218,8 +268,8 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -250,8 +300,8 @@ jobs:
       run:
         working-directory: server-realtime
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26"
       - name: Lint (golangci-lint)
@@ -261,7 +311,7 @@ jobs:
         # to build golangci-lint is lower than the targeted Go version".
         # The version is pinned below for the same reason - a floating
         # resolver is what picked a binary that cannot read this go.mod.
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.14.0
           working-directory: server-realtime
@@ -274,21 +324,30 @@ jobs:
 
   docker:
     # Builds all three images, boots the stack, and uploads Playwright traces on
-    # failure - so it needs to write a check run, and nothing else. The only job
-    # in this workflow that is not read-only, and deliberately so: it is the one
-    # that runs third-party actions.
+    # failure.
+    #
+    # This job is read-only like every other one. It used to hold
+    # `checks: write` and `actions: read` on the stated grounds that uploading
+    # traces "needs to write a check run". Nothing here writes one: there is no
+    # dorny/test-reporter, no publish-unit-test-result, no junit upload. The only
+    # third-party step is actions/upload-artifact, which uses the Actions runtime
+    # token rather than GITHUB_TOKEN and needs no repository permission at all.
+    #
+    # So the justification was false and the cost was real: this is the one job
+    # that runs third-party actions, and it was the one job holding the widest
+    # grant. It is now identical to the rest.
     permissions:
       contents: read
-      actions: read
-      checks: write
     timeout-minutes: 45
     name: Docker build
     runs-on: ubuntu-latest
     # `compose` first: a malformed compose file should fail here rather than
     # after the server, client and realtime suites have all run.
-    needs: [compose, server, client, realtime]
+    # `docs` is included so a stale count blocks before the expensive jobs rather
+    # than after them.
+    needs: [docs, compose, server, client, realtime]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       # ----------------------------------------------------------------
       # Opt-in for the end-to-end step
@@ -391,7 +450,7 @@ jobs:
         run: npx playwright test
       - name: Upload Playwright traces on failure
         if: failure() && steps.e2e.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-traces
           path: client/test-results/
