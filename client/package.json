@@ -1,7 +1,10 @@
 {
   "name": "client",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
+  "engines": {
+    "node": ">=22 <27"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -39,7 +42,7 @@
     "@playwright/test": "^1.62.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
-    "@types/node": "25.9.1",
+    "@types/node": "^22.18.0",
     "@types/react": "19.2.15",
     "@vitest/coverage-v8": "^3.2.7",
     "autoprefixer": "^10.4.24",
@@ -48,12 +51,18 @@
     "jsdom": "^25.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   },
   "license": "MIT",
+  "author": "Davin Akmal Yasha",
   "description": "MindEase web client - Next.js App Router front end for a mental-health telehealth platform.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/davinakmalyasha/MindEase.git"
+    "url": "git+https://github.com/davinakmalyasha/MindEase.git",
+    "directory": "client"
+  },
+  "bugs": {
+    "url": "https://github.com/davinakmalyasha/MindEase/issues"
   }
 }
