@@ -87,7 +87,15 @@ doctor: ## Report whether this machine has everything the other targets need
 	    v=$$(node -v | sed 's/^v//'); \
 	    case "$$v" in 22.*|24.*|26.*) echo "$$v (ok)";; *) echo "$$v (repo targets 22.x; see .nvmrc)";; esac; \
 	  else echo "MISSING (22 or newer)"; fi
-	@printf "  %-22s" "go"; command -v go >/dev/null 2>&1 && echo "$$(go version | awk '{print $$3}')" || echo "MISSING (1.26)"
+	@printf "  %-22s" "go"; \
+	  if command -v go >/dev/null 2>&1; then \
+	    v=$$(go version | awk '{print $$3}'); \
+	    root=$$(go env GOROOT 2>/dev/null); \
+	    toolv=$$("$root/pkg/tool/$$(go env GOOS)_$$(go env GOARCH)/compile" -V 2>/dev/null | awk '{print $$3}'); \
+	    if [ "$$v" != "$$toolv" ]; then \
+	      echo "$$v BUT GOROOT $$root holds $$toolv - unset GOROOT"; \
+	    else echo "$$v"; fi; \
+	  else echo "MISSING (1.26)"; fi
 	@printf "  %-22s" "docker"; command -v docker >/dev/null 2>&1 && echo "ok" || echo "MISSING (only needed for 'make up' and 'make e2e')"
 	@printf "  %-22s" "mysql"; \
 	  if command -v mysql >/dev/null 2>&1; then echo "client present"; \
@@ -233,14 +241,25 @@ dev: ## API, realtime and web together, in three panes. Ctrl-C stops all.
 
 .PHONY: up
 up: ## Build and boot the whole stack, then seed it
-	docker compose build
-	docker compose up -d --wait
+	@# The payment simulator is an explicit opt-in, not a compose default: the
+	@# default is now false so that copying this file into a real environment
+	@# cannot ship an unauthenticated order-settlement endpoint. See the comment
+	@# on the api service in docker-compose.yml.
+	ALLOW_PAYMENT_SIMULATOR=true $(MAKE) --no-print-directory stack-up
 	$(MAKE) docker-seed
 	@echo ""
 	@echo "  web        http://localhost:3000"
 	@echo "  api        http://localhost:5000/api/health"
 	@echo "  realtime   http://localhost:8080/health"
 	@echo "  api schema http://localhost:5000/api/openapi.json"
+	@echo ""
+	@echo "  Payments are running on the in-process simulator, which settles any"
+	@echo "  order from an unsigned POST. Local use only."
+
+.PHONY: stack-up
+stack-up: ## Boot the stack without setting the local-only payment opt-in
+	docker compose build
+	docker compose up -d --wait
 
 .PHONY: docker-seed
 docker-seed: ## Seed the compose database

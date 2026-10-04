@@ -11,7 +11,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-mindease_secure_root}"]
       interval: 10s
@@ -22,10 +22,21 @@ services:
     image: redis:7-alpine
     container_name: mindease-redis
     restart: unless-stopped
+    # Bound to loopback, and with a password.
+    #
+    # This was published on 0.0.0.0 with no `requirepass`, so any host on the same
+    # network could read the rate-limit counters, the realtime pub/sub channel
+    # and the doctor-profile cache of a mental-health platform, and could write
+    # to all three. Nothing seeds Redis, so unlike MySQL there is no reason for it
+    # to be reachable from the host at all - inspect it with
+    # `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping`.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-mindease_local_redis}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-mindease_local_redis}"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -42,7 +53,15 @@ services:
       # Required in production: the API refuses to boot without it, and it must
       # differ from JWT_SECRET. It was previously missing here, so `docker compose
       # up` crash-looped the API.
-      TWO_FACTOR_SECRET: ${TWO_FACTOR_SECRET:-local_dev_two_factor_secret_change_me}
+      #
+      # No default. The value this used to fall back to was a committed literal -
+      # `local_dev_two_factor_secret_change_me` - which was 38 characters and not
+      # `dev_`-prefixed, so config/env.ts accepted it and `docker compose up`
+      # produced an API signing two-factor tickets with a string published in
+      # this repository. JWT_SECRET and REFRESH_SECRET have no default for the
+      # same reason; this one now matches them, and the failure mode is a loud
+      # message naming the missing variable instead of a forgeable ticket.
+      TWO_FACTOR_SECRET: ${TWO_FACTOR_SECRET}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       # AI call resilience: bound a single call, and stop retrying a provider
       # that is already down.
@@ -50,7 +69,7 @@ services:
       AI_CIRCUIT_THRESHOLD: ${AI_CIRCUIT_THRESHOLD:-5}
       AI_CIRCUIT_COOLDOWN_MS: ${AI_CIRCUIT_COOLDOWN_MS:-60000}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mindease_local_redis}@redis:6379
       # Video transport, and the credentials for it. The API mints the room
       # token, so these belong here and not on the realtime service.
       # `livekit` needs all three of LIVEKIT_*; without them the API falls back
@@ -65,12 +84,19 @@ services:
       # The local stack runs the in-process payment simulator so a fresh clone
       # works without a merchant account. NODE_ENV is `production` here (it is
       # what the image is built for), and the config layer refuses the simulator
-      # in production unless this explicit opt-in is present — so this is a
+      # in production unless this explicit opt-in is present - so this is a
       # deliberate local-only choice, not an accident. Set real
       # PAYMENT_PROVIDER/PAYMENT_SERVER_KEY to take actual payments.
+      #
+      # The opt-in defaults to true, which means anyone who copies this file into
+      # a real environment ships an endpoint that settles orders from an
+      # unauthenticated POST: `{"orderId":"ME-...","amount":N,"outcome":"paid"}`
+      # with no signature and no shared secret. It is documented as local-only and
+      # it stays easy to get here by accident, so the default is now false - the
+      # documented local path is `make up`, which sets it explicitly.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-simulator}
       PAYMENT_SERVER_KEY: ${PAYMENT_SERVER_KEY:-}
-      ALLOW_PAYMENT_SIMULATOR: ${ALLOW_PAYMENT_SIMULATOR:-true}
+      ALLOW_PAYMENT_SIMULATOR: ${ALLOW_PAYMENT_SIMULATOR:-false}
     depends_on:
       mysql:
         condition: service_healthy
@@ -92,7 +118,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mindease_local_redis}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
       FRONTEND_URL: http://localhost:3000
