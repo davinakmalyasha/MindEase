@@ -158,6 +158,10 @@ check-migration-case: ## Fail on a migration whose table casing breaks on Linux.
 check-numbers: ## Fail if a documented count disagrees with the repository
 	node scripts/check-numbers.js
 
+.PHONY: numbers
+numbers: ## Print the measured counts the documentation quotes
+	node scripts/check-numbers.js
+
 .PHONY: check
 check: typecheck lint lint-go check-encoding check-migration-case ## Every static gate, no database needed
 
