@@ -47,7 +47,19 @@ backups/
 # Uploaded user content
 # Real user files must never enter version control. Only the placeholder is
 # tracked so the directory exists in a fresh clone.
-uploads/
+#
+# The leading slash matters. `uploads/` unanchored matches a directory of that
+# name at *any* depth, and git does not descend into an excluded directory - so
+# line 52 could never re-include the placeholder, and the comment above was
+# describing something that did not happen. Proof:
+#
+#   git check-ignore -v server/public/uploads/.gitkeep
+#     -> .gitignore:50:uploads/   (not the negation on line 52)
+#   git ls-files server/public/uploads/
+#     -> (empty)
+#
+# It also swallowed client/public/uploads/, docs/uploads/ and server/src/uploads/,
+# and it will swallow the next directory anyone happens to name uploads.
 server/public/uploads/*
 !server/public/uploads/.gitkeep
 
@@ -59,12 +71,44 @@ Thumbs.db
 *.swp
 *~
 
+# Resolver cache for `scripts/pin-actions.js`. The GitHub API allows 60
+# unauthenticated requests an hour and this repository references more than a dozen
+# distinct actions, so the tool caches tag-to-SHA lookups on disk. Committing it
+# would put a machine-local cache in the tree, and the SHAs in it are already in
+# the workflow files.
+scripts/.pin-actions-cache.json
+
 # NOTE: `package.json` and `package-lock.json` are intentionally NOT ignored.
 # Ignoring them lets a new manifest fail to commit silently, after which CI's
 # `npm ci` resolves against a stale lockfile.
 
 # Test-only helpers that are committed deliberately.
 !server/scripts/*.ps1
+
+# Editor and tool scratch.
+#
+# `*.bak`, `*.orig` and `*.rej` are what a failed `git apply` or an interrupted
+# rebase leaves behind, and `tmp/` is where ad-hoc build output tends to land.
+# None of them have ever been in this repository, which is why they are additions
+# rather than fixes.
+*.bak
+*.orig
+*.rej
+tmp/
+
+# `eslint` writes its cache into the package root when run from there.
+.eslintcache
+
+# `vercel link` writes project metadata into the working directory. Only listed in
+# client/.gitignore, which only covers `client/`.
+.vercel
+
+# SQLite and other single-file databases. The provider is MySQL, so nothing here
+# uses one - but a stray `*.db` committed from an experiment would ship a copy of
+# whatever was in it.
+*.sqlite
+*.sqlite3
+*.db
 
 # Working notes for a single maintainer. Not documentation - documentation is
 # in `docs/`, which is committed. These files are the scratch layer underneath a
