@@ -89,9 +89,25 @@ const imminentWindow = () => {
 
     // Minutes since midnight in the server's zone.
     const nowMinutes = hour * 60 + minute;
-    const startMinutes = nowMinutes + 10;
-    const sameDay = startMinutes + 60 < 24 * 60;
-    const endMinutes = sameDay ? startMinutes + 60 : 24 * 60 - 1;
+
+    // Ten minutes from now, but never past the end of the day.
+    //
+    // This used to be `nowMinutes + 10` with only the *end* clamped. When the
+    // wall-clock minute was 50 or later, `startMinutes` crossed midnight, and
+    // `hhmm` rendered hour 24 as `"24:03"` - which the `hhmm` schema rejects, so
+    // the booking below returned 400 and the assertion on 201 failed.
+    //
+    // Nothing about two-factor or sessions or the database was involved. The test
+    // failed whenever a run started in the last ten minutes of the day - 10
+    // minutes out of 1440, so roughly 0.7% of runs - and passed otherwise, which
+    // is the shape of a flake nobody builds a theory for. It surfaced here because
+    // a full-suite run happened to start at 23:53 Asia/Jakarta.
+    //
+    // A room opens 15 minutes before the start, so "now" is already inside the
+    // window; the fix is to keep the whole appointment on one calendar day, which
+    // is what a patient booking it would also be doing.
+    const startMinutes = Math.min(nowMinutes + 10, 23 * 60);
+    const endMinutes = Math.min(startMinutes + 60, 23 * 60 + 59);
 
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const hhmm = (m: number) =>
@@ -99,6 +115,45 @@ const imminentWindow = () => {
 
     return { date, startTime: hhmm(startMinutes), endTime: hhmm(endMinutes) };
 };
+
+/**
+ * The room-window helper, checked across a whole day.
+ *
+ * `imminentWindow` picked its start as `now + 10 minutes` and clamped only the
+ * *end*. Ten minutes before midnight that produced `startTime: "24:03"`, which
+ * the `hhmm` schema rejects, so the booking returned 400 and the test that
+ * depended on it failed. Ten minutes out of 1440 - a 0.7% flake, passing
+ * otherwise, which is exactly the shape of a bug nobody theorises about.
+ *
+ * Re-deriving the arithmetic here rather than testing a single live call is the
+ * point: the live call depends on what time it is when the suite runs, which is
+ * exactly why it went unnoticed. This runs 1440 times and always agrees.
+ */
+describe("imminentWindow arithmetic", () => {
+    const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+    it("produces a schema-valid, ordered window at every minute of the day", () => {
+        // The same arithmetic `imminentWindow` performs, with `now` injected
+        // instead of read from the clock.
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const startMinutes = Math.min(nowMinutes + 10, 23 * 60);
+            const endMinutes = Math.min(startMinutes + 60, 23 * 60 + 59);
+            const hhmm = (m: number) =>
+                `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+            const start = hhmm(startMinutes);
+            const end = hhmm(endMinutes);
+
+            expect(HHMM.test(start), `start ${start} at minute ${nowMinutes}`).toBe(true);
+            expect(HHMM.test(end), `end ${end} at minute ${nowMinutes}`).toBe(true);
+            expect(endMinutes, `end before start at minute ${nowMinutes}`).toBeGreaterThanOrEqual(
+                startMinutes
+            );
+            // Still inside the 15-minute pre-appointment window the room uses.
+            expect(nowMinutes).toBeGreaterThanOrEqual(startMinutes - 15);
+        }
+    });
+});
 
 describe("Journal", () => {
     it("creates, lists and summarizes journal entries", async () => {

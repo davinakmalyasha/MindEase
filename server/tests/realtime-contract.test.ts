@@ -97,3 +97,108 @@ describe("realtime event contract", () => {
         expect(clientHook).toMatch(/\.payload/);
     });
 });
+
+/**
+ * The Go service's own event-type list, and the client's fan-out map.
+ *
+ * The assertions above are TypeScript-to-TypeScript for the two that matter most:
+ * the Go service forwards `type` as an opaque string, so it cannot break on a
+ * rename, and nothing was comparing the two lists that *do* exist downstream.
+ *
+ * That is how `hub.go`'s `criticalTypes` came to contain five event types nothing
+ * publishes - `risk:new`, `risk:updated`, `crisis`, `appointment:new`,
+ * `appointment:update` - while omitting `sos:alert` and `risk:alert`, the two
+ * events the service exists to deliver. The counters built to surface lost
+ * clinical alerts therefore reported every real drop as cosmetic.
+ *
+ * `drops_test.go` asserted the wrong list matched itself, which is why it passed.
+ * These assertions compare the Go list and the client map to the TypeScript union
+ * instead, so a new event type has to be classified in all three places.
+ */
+describe("event type classification across the three languages", () => {
+    const ROOT = join(__dirname, "..", "..");
+
+    /** Removes `//` line comments so prose is not read as configuration. */
+    const stripGoComments = (text: string): string =>
+        text.replace(/\/\/[^\n]*/g, "");
+
+    const declaredTypes = (): string[] => {
+        const source = readFileSync(join(SRC, "services", "realtime.service.ts"), "utf8");
+        const union = source.match(/export type RealtimeEventType =([\s\S]*?);/);
+        expect(union).not.toBeNull();
+        return [...union![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    };
+
+    /** Every string literal inside the Go `criticalTypes` map. */
+    const goCriticalTypes = (): string[] => {
+        const go = readFileSync(join(ROOT, "server-realtime", "hub", "hub.go"), "utf8");
+        const map = go.match(/var criticalTypes = map\[string\]bool\{([\s\S]*?)\n\}/);
+        expect(map, "criticalTypes map not found in hub.go").not.toBeNull();
+        // Strip comments before reading the literals. Every entry in this map has
+        // a comment above it explaining why it is classified the way it is, and
+        // one of those comments contains a quoted phrase - so the first version
+        // of this extractor reported the prose as an event type. Same reason
+        // `error-status.test.ts` strips comments before grepping: a comment
+        // describing a pattern must not be read as an instance of it.
+        const body = stripGoComments(map![1]);
+        return [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    };
+
+    /** The keys of the client's FANOUT map. */
+    const clientFanout = (): string[] => {
+        const hook = readFileSync(join(ROOT, "client", "hooks", "useRealtime.ts"), "utf8");
+        const map = hook.match(/const FANOUT[^=]*=\s*\{([\s\S]*?)\n\};/);
+        expect(map, "FANOUT map not found in useRealtime.ts").not.toBeNull();
+        // Keys are bare identifiers, quoted or not depending on the style used.
+        return [...map![1].matchAll(/^\s*(?:"|')?([a-zA-Z]+:[a-zA-Z]+)(?:"|')?\s*:/gm)].map(
+            (m) => m[1]
+        );
+    };
+
+    it("classifies only event types that exist", () => {
+        const declared = new Set(declaredTypes());
+        const phantom = goCriticalTypes().filter((t) => !declared.has(t));
+        expect(
+            phantom,
+            `hub.go classifies types nothing publishes: ${phantom.join(", ")}`
+        ).toEqual([]);
+    });
+
+    it("classifies every clinical alert as critical", () => {
+        // The whole point of the counters. A dropped SOS press or risk disclosure
+        // is the failure this service exists to make visible.
+        const critical = new Set(goCriticalTypes());
+        expect(critical.has("sos:alert"), "a dropped SOS must count as critical").toBe(true);
+        expect(critical.has("risk:alert"), "a dropped risk alert must count as critical").toBe(true);
+    });
+
+    it("does not classify the purely presentational events as critical", () => {
+        // Read receipts and typing indicators are safe to lose: the next poll or
+        // the next keystroke renders the same truth. Counting them would dilute
+        // the counter that clinicians are actually paged by.
+        const critical = new Set(goCriticalTypes());
+        for (const cosmetic of ["typing:start", "typing:stop", "message:read"]) {
+            expect(critical.has(cosmetic), `${cosmetic} should be cosmetic`).toBe(false);
+        }
+    });
+
+    it("has a client fan-out entry for every published type", () => {
+        const declared = new Set(declaredTypes());
+        const fanout = new Set(clientFanout());
+        // `notification:new` is handled by its own subscription rather than the
+        // generic fan-out map, so it is expected to be absent here.
+        const missing = [...declared].filter(
+            (t) => !fanout.has(t) && t !== "notification:new"
+        );
+        expect(
+            missing,
+            `the client would silently discard: ${missing.join(", ")}`
+        ).toEqual([]);
+    });
+
+    it("has no fan-out entry for a type the API does not publish", () => {
+        const declared = new Set(declaredTypes());
+        const orphans = clientFanout().filter((t) => !declared.has(t));
+        expect(orphans, `client handles unpublished types: ${orphans.join(", ")}`).toEqual([]);
+    });
+});
