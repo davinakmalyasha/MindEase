@@ -249,7 +249,9 @@ describe("2FA backup codes", () => {
     it("issues single-use recovery codes that work at sign-in exactly once", async () => {
         const user = await createUser("patient");
 
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret as string;
         const enable = await user.agent
             .post("/api/account/2fa/enable")
@@ -383,5 +385,111 @@ describe("Waitlist maintenance", () => {
         expect(
             await prisma.waitlistEntry.findFirst({ where: { patientId: ancientPatient.id } })
         ).toBeNull();
+    });
+});
+
+/**
+ * The `include`-everything leak, in the two places it survived the first fix.
+ *
+ * The public doctor directory leaked bankAccount, bankName and bankHolder to
+ * anonymous callers. That was fixed with an explicit `select` allowlist and a
+ * test. Two sibling queries used `include: { user: { select } }` and
+ * `include: { doctor: true }` respectively, both of which look restricted and
+ * neither of which is: the first selects the *inner* user and not the outer
+ * doctor, the second selects nothing at all. Both serialised every Doctor scalar
+ * to an authenticated caller who had no business seeing them.
+ *
+ * The assertions are `not.toContain` on the serialised body rather than an exact
+ * key set, so they fail on the symptom - the field being present - regardless of
+ * which query shape produced it.
+ */
+describe("Doctor payout details never leave the platform", () => {
+    /**
+     * The Doctor columns that must never reach a patient.
+     *
+     * Only the payout details. `bio` and `education` are deliberately public -
+     * the public profile renders them, and `doctor-directory.test.ts` asserts
+     * their absence from the *directory* only because that endpoint is
+     * deliberately terse, not because a clinician's professional bio is a
+     * secret from their own patient. `licenseNumber` is published on the
+     * public profile by an explicit product decision so a patient can check a
+     * clinician's registration.
+     *
+     * An earlier draft of this test asserted on `bio` as well and failed: the
+     * appointment list is allowed to show it.
+     */
+    const PAYOUT_FIELDS = ["bankAccount", "bankName", "bankHolder"];
+
+    const expectNoPayoutDetails = (body: unknown) => {
+        const serialised = JSON.stringify(body);
+        for (const field of PAYOUT_FIELDS) {
+            expect(serialised, `${field} must not be serialised`).not.toContain(field);
+        }
+    };
+
+    /** Books and confirms one session so the patient has a treating clinician. */
+    const withConfirmedSession = async () => {
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        const book = await patient.agent
+            .post("/api/appointments/book")
+            .set("X-CSRF-Token", patient.csrf)
+            .send({
+                doctorId: doctor.doctorId,
+                appointmentDate: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
+                startTime: "10:00",
+                endTime: "11:00",
+                consultationType: "video",
+            });
+        await doctor.agent
+            .put(`/api/appointments/${book.body.data.id}/status`)
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ status: "confirmed" });
+        return { patient, doctor };
+    };
+
+    it("are absent from the patient's own appointment list", async () => {
+        const { patient } = await withConfirmedSession();
+
+        const res = await patient.agent.get("/api/appointments/my");
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.rows.length).toBeGreaterThan(0);
+        expectNoPayoutDetails(res.body);
+    });
+
+    it("are absent from a patient's package purchases", async () => {
+        const { patient, doctor } = await withConfirmedSession();
+        // grantPaidPackage takes the Package id, not the doctor's.
+        const pkg = await prisma.package.create({
+            data: {
+                doctorId: doctor.doctorId,
+                name: "Course of six",
+                sessionCount: 6,
+                totalPrice: 900000,
+            },
+        });
+        await grantPaidPackage(patient.id, pkg.id);
+
+        const res = await patient.agent.get("/api/payments/purchases");
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.length).toBeGreaterThan(0);
+        expectNoPayoutDetails(res.body);
+        // The doctor is still usable - the fix is a projection, not a deletion.
+        expect(res.body.data[0].package.doctor.specialty).toBeTruthy();
+    });
+
+    it("actually exist on the rows being projected away", async () => {
+        // Guards the negative assertions above: if the payout fields were renamed
+        // or dropped from the schema, both tests would pass while proving nothing.
+        const { doctor } = await withConfirmedSession();
+        await prisma.doctor.update({
+            where: { id: doctor.doctorId },
+            data: { bankAccount: "1234567890", bankName: "Bank", bankHolder: "Dr Test" },
+        });
+
+        const row = await prisma.doctor.findUnique({ where: { id: doctor.doctorId } });
+        expect(row?.bankAccount).toBe("1234567890");
     });
 });

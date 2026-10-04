@@ -293,7 +293,31 @@ export class PaymentService {
     static async getMyPurchases(userId: number) {
         return prisma.packagePurchase.findMany({
             where: { userId, sessionsLeft: { gt: 0 } },
-            include: { package: { include: { doctor: true } } },
+            // `include: { doctor: true }` returned every Doctor scalar, so a
+            // paying patient could read their clinician's bankAccount, bankName
+            // and bankHolder from one authenticated call. Same class as the
+            // directory leak and the appointments leak, and same fix: an
+            // explicit allowlist rather than a bare include.
+            include: {
+                package: {
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        sessionCount: true,
+                        totalPrice: true,
+                        doctor: {
+                            select: {
+                                id: true,
+                                specialty: true,
+                                rating: true,
+                                price: true,
+                                user: { select: { name: true, avatar: true } },
+                            },
+                        },
+                    },
+                },
+            },
             orderBy: { createdAt: "desc" },
         });
     }

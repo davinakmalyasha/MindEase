@@ -412,8 +412,32 @@ export class AppointmentService {
             prisma.appointment.findMany({
                 where: { userId: user.id },
                 include: {
+                    // `select`, not `include`, on the doctor.
+                    //
+                    // The public directory's bank-details leak was fixed by
+                    // selecting an allowlist here. This path was missed, because
+                    // `include: { user: { select } }` looks restricted: the inner
+                    // user *is* selected, and the outer doctor is not - so every
+                    // Doctor scalar came back, including bankAccount, bankName,
+                    // bankHolder, licenseNumber and licenseIssuer.
+                    //
+                    // Any patient with a single appointment could read their
+                    // clinician's bank details. The allowlist below is the same
+                    // shape `doctor.service.ts` uses for the public profile.
                     doctor: {
-                        include: {
+                        select: {
+                            id: true,
+                            specialty: true,
+                            bio: true,
+                            experience: true,
+                            rating: true,
+                            totalReviews: true,
+                            price: true,
+                            availability: true,
+                            verificationStatus: true,
+                            licenseNumber: true,
+                            licenseIssuer: true,
+                            awayUntil: true,
                             user: {
                                 select: {
                                     name: true,
