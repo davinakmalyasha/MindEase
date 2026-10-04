@@ -9,8 +9,8 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 437 tests, 33 files |
-| **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 26 tests, 5 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 456 tests, 34 files |
+| **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 46 tests, 6 files |
 
 Counts are from `npx vitest list --run`, `go test -list` and the Vitest client
@@ -338,10 +338,11 @@ four health checks, seed — *is* gated, because that part has a known-good
 expectation and a red there is always a real defect. It is promoted to required
 once green.
 
-## The 33 server test files
+## The 34 server test files
 
 | File | Tests | What it covers |
 |---|---|---|
+| `access-log-redaction.test.ts` | 5 | **Meta-test.** Access logs carry no query-string values, so `?search=<patient email>` cannot reach the log store, while the query keys and the header redactions survive |
 | `ai-provenance.test.ts` | 16 | `AiResult` shape, prompt fencing reaching the model, circuit breaker states and transitions, timeout passed to the provider |
 | `ai-provenance-http.test.ts` | 5 | `briefingSource` persisted and returned; provenance survives to the client over HTTP |
 | `appointment.test.ts` | 9 | Booking a slot and locking it, idempotency-key replay, double-booking and overlap rejection, doctor confirmation without minting a public meeting link, slot release on cancel, reschedule to pending, ownership on cancel |
@@ -351,16 +352,16 @@ once green.
 | `crisis-triage.test.ts` | 17 | `detectFreeTextRisk` pattern behaviour, the third-party mention that informs an alert without suppressing it, `lastIndex` safety, patient-only gating, the message path end to end, markup stripping |h end to end |
 | `doctor-directory.test.ts` | 8 | Public directory filtering, pagination, `/specialties` derived from data |
 | `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
-| `features.test.ts` | 49 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms, weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
-| `hardening.test.ts` | 8 | Booking integrity, referral credits, package reservation integrity, 2FA backup codes, journal ownership, waitlist maintenance |
+| `features.test.ts` | 50 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms, weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
+| `hardening.test.ts` | 11 | Booking integrity, referral credits, package reservation integrity, 2FA backup codes, journal ownership, waitlist maintenance |
 | `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |
 | `openapi.test.ts` | 7 | **Meta-test.** Spec matches registered routes; multipart uploads; webhook security model |
-| `payment-config.test.ts` | 9 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |
+| `payment-config.test.ts` | 11 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |
 | `payments.test.ts` | 18 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
 | `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
 | `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |
 | `rate-limit-store-isolation.test.ts` | 2 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter |
-| `realtime-contract.test.ts` | 4 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |
+| `realtime-contract.test.ts` | 9 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |
 | `reminders.test.ts` | 3 | Reminder window eligibility, one send per appointment, two runners racing sends once |
 | `risk-queue.test.ts` | 25 | `priorityFor` ordering, queue scoping and counts, acknowledge/resolve transitions and their audit entries, `assertCanTriage` |
 | `role-guards.test.ts` | 14 | Unauthenticated callers refused; wrong role refused; the guards are actually mounted |
@@ -368,7 +369,7 @@ once green.
 | `support.test.ts` | 13 | Support chat, crisis routing to hotlines, the deliberate non-disclosure exception, and the SOS delivery rule: what the patient is told is derived from what was delivered |
 | `trajectory.test.ts` | 21 | Screening trajectory: instrument selection, series ordering, insufficient-data threshold, limit, ownership |
 | `two-factor-disable.test.ts` | 7 | Disabling two-factor needs a password *and* a current code, clears every 2FA field, revokes the refresh token and every other session, and cannot be replayed once disabled |
-| `twofactor.test.ts` | 5 | TOTP enrolment, verification, replay rejection via `lastTotpStep`, backup codes |
+| `twofactor.test.ts` | 8 | TOTP enrolment, verification, replay rejection via `lastTotpStep`, backup codes |
 | `verification.test.ts` | 5 | Doctor verification workflow — hidden until approved |
 | `video-config.test.ts` | 5 | Provider parsing; unknown provider rejected rather than falling back; missing credentials reported |
 | `video-fallback.test.ts` | 4 | Degraded jitsi reporting with a reason; half-configured livekit; no token on the jitsi path |

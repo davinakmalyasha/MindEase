@@ -92,15 +92,47 @@ export const createApp = () => {
     );
     app.use(cookieParser());
     // Structured access logging, so a request can be joined to its log lines
-    // and its Sentry event by `requestId`. The previous `morgan("dev")` wrote a
-    // colourised human string — including the full query string, which for
-    // `/api/admin/users?search=<email>` is PII — nested opaquely inside a JSON
-    // log record.
+    // and its Sentry event by `requestId`.
+    //
+    // The previous `morgan("dev")` wrote a colourised human string nested
+    // opaquely inside a JSON record. The comment above this block used to claim
+    // that the switch also removed query strings from the logs. It did not.
+    // pino-http's default request serialiser emits `url` including the query, and
+    // `redact` in utils/logger.ts has no `req.url` path, so
+    // `GET /api/admin/users?search=<patient email>` wrote that patient's email
+    // address into the log store - retained, searchable, and visible to anyone
+    // with dashboard access. The same applies to `/api/doctors?q=<free text>` and
+    // every other query-bearing route.
     app.use(
         pinoHttp({
             logger,
             genReqId: (req) =>
                 (req as express.Request & { requestId?: string }).requestId ?? crypto.randomUUID(),
+            serializers: {
+                // Shape mirrors pino's default request serialiser minus the query
+                // *values*. `query` keeps its keys, so a request is still
+                // diagnosable ("they called /api/doctors with page=2 and no
+                // specialty") without the log ever holding a search term, which
+                // for the admin user list is an email address.
+                //
+                // Headers are still emitted so the `redact` list in
+                // utils/logger.ts continues to apply to them.
+                req: (req) => {
+                    const raw = req.raw ?? req;
+                    const q = (raw as express.Request).query ?? {};
+                    const queryKeys =
+                        q && typeof q === "object" ? Object.keys(q as Record<string, unknown>) : [];
+                    return {
+                        method: raw.method,
+                        // Path only. Never the query string.
+                        url: raw.url ? String(raw.url).split("?")[0] : raw.url,
+                        queryKeys,
+                        headers: raw.headers,
+                        remoteAddress: raw.socket?.remoteAddress,
+                        remotePort: raw.socket?.remotePort,
+                    };
+                },
+            },
             autoLogging: {
                 // Health checks would otherwise dominate the log volume.
                 ignore: (req) => req.url?.startsWith("/api/health") ?? false,
