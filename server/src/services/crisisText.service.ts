@@ -64,9 +64,29 @@ export const CRISIS_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * Statements about someone else. A patient describing a relative is not the
- * patient disclosing, and paging a clinician about it would train clinicians to
- * ignore the queue.
+ * Statements that mention someone else.
+ *
+ * This used to *suppress* the alert. It does not any more, and the reason is
+ * worth writing down because the previous version read as though it were
+ * obviously correct.
+ *
+ * The suppression was applied to the whole message, before any crisis pattern
+ * was tried. So "My husband has been so supportive and I want to die" matched
+ * `my husband`, returned null, and no clinician was ever paged — for what is
+ * close to a textbook first-person disclosure, and arguably *more* likely than
+ * a bare one, because a person who has just described their support network is
+ * a person reaching out.
+ *
+ * A regex cannot separate "my brother attempted suicide" from "my brother is
+ * supportive and I want to die". Both contain `my brother` and both contain a
+ * crisis phrase. Only one of them is about the patient.
+ *
+ * So the signal is kept, and its role changes: it no longer decides whether to
+ * page, it decides what the clinician is told. The alert is raised, and the note
+ * says the message also mentions a third party, so the person reading the queue
+ * has the context that the original author was trying to give them. That is the
+ * correct division of labour for a heuristic whose stated failure mode is "a
+ * false positive costs a clinician thirty seconds".
  */
 const THIRD_PARTY = /\b(my (friend|brother|sister|partner|husband|wife|son|daughter|mother|father|roommate|colleague|coworker|boss))\b/i;
 
@@ -76,6 +96,13 @@ export interface FreeTextRisk {
     /** The phrase that matched, for the clinician to verify. */
     matchedText: string;
     reason: string;
+    /**
+     * True when the message also names a third party. Purely informational: it
+     * never suppresses the alert, but a clinician deciding whether a disclosure
+     * is about the patient benefits from knowing the answer was already on the
+     * page.
+     */
+    mentionsThirdParty: boolean;
 }
 
 export type FreeTextRiskResult = FreeTextRisk | null;
@@ -83,12 +110,12 @@ export type FreeTextRiskResult = FreeTextRisk | null;
 /**
  * Classifies a message.
  *
- * Returns null for anything that is not a first-person disclosure, and null
- * rather than a low-confidence match for a third-party report.
+ * Returns null only when no crisis phrase is present at all. A third-party
+ * mention does not make a message safe — see the note on `THIRD_PARTY` above for
+ * the concrete disclosure this used to swallow.
  */
 export const detectFreeTextRisk = (content: string): FreeTextRiskResult => {
     if (!content) return null;
-    if (THIRD_PARTY.test(content)) return null;
 
     for (const pattern of CRISIS_PATTERNS) {
         const match = content.match(pattern);
@@ -98,11 +125,17 @@ export const detectFreeTextRisk = (content: string): FreeTextRiskResult => {
         // occurring, not merely that the topic arose. There is no "low
         // confidence" tier to design around: a phrase either matches or it does
         // not, and a clinician decides what it means.
+        const mentionsThirdParty = THIRD_PARTY.test(content);
+        const context = mentionsThirdParty
+            ? " The message also mentions another person, so it may partly be about them rather than about the patient; the clinician decides which."
+            : "";
+
         return {
             matched: true,
             level: "urgent",
             matchedText: match[0],
-            reason: `Free-text message matched the crisis pattern "${match[0]}". This is a keyword match, not a clinical assessment - it is a prompt for a clinician to read the message and decide.`,
+            mentionsThirdParty,
+            reason: `Free-text message matched the crisis pattern "${match[0]}". This is a keyword match, not a clinical assessment - it is a prompt for a clinician to read the message and decide.${context}`,
         };
     }
 

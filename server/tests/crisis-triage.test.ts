@@ -32,11 +32,56 @@ describe("detectFreeTextRisk", () => {
         expect(detectFreeTextRisk("")).toBeNull();
     });
 
-    it("does not page anyone about a disclosure by a third party", () => {
-        // A patient describing a relative is not the patient disclosing, and
-        // paging a clinician for it trains clinicians to ignore the queue.
+    it("does not suppress a first-person disclosure that also mentions someone else", () => {
+        // This is the regression. The third-party check used to run against the
+        // whole message before any crisis pattern was tried, so this returned
+        // null and no clinician was ever paged.
+        //
+        // It reads like a textbook disclosure, and is arguably more likely than
+        // a bare one: someone who has just described their support network is
+        // reaching out. Both halves of the sentence contain a crisis phrase and a
+        // relative, and no regex can tell which half the sentence is about.
+        const cases = [
+            "My husband has been so supportive and I want to die",
+            "my brother is the only one who knows, and I want to kill myself",
+            "My wife knows. I have been thinking about ending my life.",
+        ];
+        for (const message of cases) {
+            const result = detectFreeTextRisk(message);
+            expect(result, `"${message}" must raise an alert`).not.toBeNull();
+            expect(result?.level).toBe("urgent");
+            // The context the clinician needs is preserved, just not used to hide
+            // the alert.
+            expect(result?.mentionsThirdParty).toBe(true);
+        }
+    });
+
+    it("still flags a third-party report, and says whose crisis it may be", () => {
+        // The original intent of the third-party check - do not page about
+        // somebody else's disclosure - is still worth serving, but only as
+        // information. Suppressing it was the wrong trade: the module's own
+        // stated asymmetry is that a false positive costs a clinician thirty
+        // seconds, and this silently cost a false *negative*.
+        //
+        // So these raise an alert, and `mentionsThirdParty` lets the reader of
+        // the queue judge whether the disclosure is about the patient.
+        const result = detectFreeTextRisk("my friend is thinking about suicide");
+        expect(result).not.toBeNull();
+        expect(result?.mentionsThirdParty).toBe(true);
+        expect(result?.reason).toMatch(/mentions another person/i);
+    });
+
+    it("stays silent when a relative is named but nothing crisis-shaped is said", () => {
+        // The genuine third-party case: a relative is discussed, and no crisis
+        // phrase appears anywhere. There is nothing to escalate.
         expect(detectFreeTextRisk("My brother said he wanted to end his life")).toBeNull();
-        expect(detectFreeTextRisk("my friend is thinking about suicide")).toBeNull();
+        expect(detectFreeTextRisk("my mum is going through a hard time")).toBeNull();
+    });
+
+    it("reports mentionsThirdParty as false for a disclosure with no third party", () => {
+        // The flag has to be meaningful in both directions, or a clinician
+        // learns to ignore it.
+        expect(detectFreeTextRisk("I want to die")?.mentionsThirdParty).toBe(false);
     });
 
     it("names the phrase that matched, so a clinician can verify it", () => {

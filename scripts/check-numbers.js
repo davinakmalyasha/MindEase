@@ -202,6 +202,27 @@ M.goVersion = () => (read("server-realtime/go.mod").match(/^go\s+(\S+)/m) || [, 
 M.vitestServer = () => bare(pkgVersion("server/package.json", "vitest"));
 M.vitestClient = () => bare(pkgVersion("client/package.json", "vitest"));
 
+/**
+ * The per-file table in docs/testing.md has to add up.
+ *
+ * A total that is right and a breakdown that is wrong is the specific failure
+ * this gate was written for: the table headed "30 files" summed to 415 under a
+ * document whose own summary said 427, and every individual row was correct.
+ * Checking the total alone would never have seen it, because the total was the
+ * number that was right.
+ */
+M.serverTestTableSum = () => {
+  const src = read("docs/testing.md");
+  const sum = [...src.matchAll(/^\| `[a-z0-9-]+\.test\.tsx?` \| (\d+) \|/gm)].reduce((n, m) => n + Number(m[1]), 0);
+  return sum;
+};
+
+/** The same, for the number of rows the table actually has. */
+M.serverTestTableRows = () => {
+  const src = read("docs/testing.md");
+  return (src.match(/^\| `[a-z0-9-]+\.test\.tsx?` \|/gm) || []).length;
+};
+
 // --- claims ------------------------------------------------------------------
 //
 // `anchor` is a regex whose FIRST capture group must equal the measured value.
@@ -253,6 +274,27 @@ const CLAIMS = [
     measure: M.serverTestFiles },
 ];
 
+/**
+ * Internal consistency of the per-file breakdown.
+ *
+ * These two are checked against the *measurements* rather than against a number
+ * in the document, because the invariant is that the table adds up - not that it
+ * matches some other sentence in the same file. The heading check above covers
+ * the file count; these cover the arithmetic.
+ */
+const BREAKDOWN_CHECKS = [
+  {
+    what: "docs/testing.md per-file table sum",
+    expected: M.serverTests,
+    actual: M.serverTestTableSum,
+  },
+  {
+    what: "docs/testing.md per-file table row count",
+    expected: M.serverTestFiles,
+    actual: M.serverTestTableRows,
+  },
+];
+
 // Version claims live in badge URLs, which are checked separately so a badge that
 // renders the wrong version fails even though the surrounding prose is prose.
 //
@@ -280,6 +322,43 @@ const BADGE_CLAIMS = [
 const failures = [];
 const errors = [];
 
+/**
+ * Anything this script throws is a bug in the script, not a drift in the
+ * documentation. A gate that dies with a stack trace teaches people to ignore it,
+ * so the failure is reported as plainly as the thing it is checking for.
+ */
+function main() {
+  checkOne_DOCS();
+  summarise();
+}
+
+function checkOne_DOCS() {
+  for (const c of CLAIMS) checkOne(c.doc, c.anchor, c.measure, c.second, c.third);
+
+  for (const c of BREAKDOWN_CHECKS) {
+    const expected = c.expected();
+    const actual = c.actual();
+    if (expected !== actual) {
+      failures.push(`${c.what}: adds up to ${actual}, repository has ${expected}`);
+    }
+  }
+
+  for (const c of BADGE_CLAIMS) {
+    if (!exists(c.doc)) continue;
+    const src = read(c.doc);
+    const m = src.match(new RegExp(`${c.badge}-([0-9][0-9.]*)-`));
+    if (!m) {
+      errors.push(`${c.doc}: no ${c.badge} badge found`);
+      continue;
+    }
+    const expected = c.measure();
+    const want = c.major ? expected.split(".")[0] : expected;
+    if (m[1] !== want) {
+      failures.push(`${c.doc}: the ${c.badge} badge says ${m[1]}, the manifest says ${expected}`);
+    }
+  }
+}
+
 function checkOne(docRel, anchor, measure, second, third) {
   if (!exists(docRel)) {
     errors.push(`${docRel} does not exist`);
@@ -300,64 +379,59 @@ function checkOne(docRel, anchor, measure, second, third) {
   });
 }
 
-console.log("check-numbers — documented counts against the repository\n");
+function summarise() {
+  // The measured values themselves are worth printing even when everything
+  // agrees: this doubles as `make numbers`, which is how a contributor finds out
+  // what the current counts are without reading three documents and trusting
+  // them.
+  const ts = tsBreakdown();
+  const rows = [
+    ["prisma models", `${M.models()}  (enums ${M.enums()})`],
+    ["@@index declarations", M.prismaIndexes()],
+    ["migrations", M.migrations()],
+    ["api routes (routers)", M.routes()],
+    ["server tests", `${M.serverTests()} in ${M.serverTestFiles()} files`],
+    ["client tests", `${M.clientTests()} in ${M.clientTestFiles()} files`],
+    ["go tests", `${M.goTests()} in ${M.goTestFiles()} files`],
+    ["playwright", `${M.playwrightTests()} tests in ${M.playwrightJourneys()} journeys`],
+    ["application lines", `${ts.app} ts/tsx`],
+    ["test lines", `${ts.tests} ts/tsx`],
+    ["migration sql lines", M.migrationSqlLines()],
+    ["go source lines", M.goLines()],
+    ["adrs", M.adrCount()],
+    ["versions", `prisma ${M.prismaVersion()} / next ${M.nextVersion()} / go ${M.goVersion()} / vitest server ${M.vitestServer()} client ${M.vitestClient()}`],
+  ];
+  console.log("  measured");
+  for (const [label, value] of rows) console.log(`    ${label.padEnd(22)}${value}`);
+  console.log(`    ${"total".padEnd(22)}${ts.app + ts.tests + M.migrationSqlLines() + M.goLines()}`);
+  console.log("");
 
-for (const c of CLAIMS) checkOne(c.doc, c.anchor, c.measure, c.second, c.third);
+  if (errors.length) {
+    console.error("check-numbers could not check everything:\n");
+    for (const e of errors) console.error(`  ${e}`);
+    console.error("\nA claim whose anchor is missing is worse than a claim that is wrong,");
+    console.error("because it stops being checked without saying so.\n");
+    process.exit(2);
+  }
 
-for (const c of BADGE_CLAIMS) {
-  if (!exists(c.doc)) continue;
-  const src = read(c.doc);
-  const m = src.match(new RegExp(`${c.badge}-([0-9][0-9.]*)-`));
-  if (!m) {
-    errors.push(`${c.doc}: no ${c.badge} badge found`);
-    continue;
+  if (failures.length) {
+    console.error(`check-numbers found ${failures.length} documented count(s) that disagree with the repository:\n`);
+    for (const f of failures) console.error(`  ${f}`);
+    console.error("\nFix the documentation, then fix this file in the same commit.");
+    console.error("If a number is genuinely correct and the anchor is stale, update the anchor.\n");
+    process.exit(1);
   }
-  const expected = c.measure();
-  const want = c.major ? expected.split(".")[0] : expected;
-  if (m[1] !== want) {
-    failures.push(`${c.doc}: the ${c.badge} badge says ${m[1]}, the manifest says ${expected}`);
-  }
+
+  const checked = CLAIMS.length + BADGE_CLAIMS.length + BREAKDOWN_CHECKS.length;
+  console.log(`check-numbers: ${checked} documented counts agree with the repository.`);
 }
 
-// The measured values themselves are worth printing even when everything agrees:
-// this doubles as `make numbers`, which is how a contributor finds out what the
-// current counts are without reading three documents and trusting them.
-const ts = tsBreakdown();
-const rows = [
-  ["prisma models", `${M.models()}  (enums ${M.enums()})`],
-  ["@@index declarations", M.prismaIndexes()],
-  ["migrations", M.migrations()],
-  ["api routes (routers)", M.routes()],
-  ["server tests", `${M.serverTests()} in ${M.serverTestFiles()} files`],
-  ["client tests", `${M.clientTests()} in ${M.clientTestFiles()} files`],
-  ["go tests", `${M.goTests()} in ${M.goTestFiles()} files`],
-  ["playwright", `${M.playwrightTests()} tests in ${M.playwrightJourneys()} journeys`],
-  ["application lines", `${ts.app} ts/tsx`],
-  ["test lines", `${ts.tests} ts/tsx`],
-  ["migration sql lines", M.migrationSqlLines()],
-  ["go source lines", M.goLines()],
-  ["adrs", M.adrCount()],
-  ["versions", `prisma ${M.prismaVersion()} / next ${M.nextVersion()} / go ${M.goVersion()} / vitest server ${M.vitestServer()} client ${M.vitestClient()}`],
-];
-console.log("  measured");
-for (const [label, value] of rows) console.log(`    ${label.padEnd(22)}${value}`);
-console.log(`    ${"total".padEnd(22)}${ts.app + ts.tests + M.migrationSqlLines() + M.goLines()}`);
-console.log("");
+console.log("check-numbers - documented counts against the repository\n");
 
-if (errors.length) {
-  console.error("check-numbers could not check everything:\n");
-  for (const e of errors) console.error(`  ${e}`);
-  console.error("\nA claim whose anchor is missing is worse than a claim that is wrong,");
-  console.error("because it stops being checked without saying so.\n");
+try {
+  main();
+} catch (err) {
+  console.error("check-numbers itself failed. This is a bug in scripts/check-numbers.js,\nnot a drift in the documentation:\n");
+  console.error(`  ${err && err.stack ? err.stack : err}\n`);
   process.exit(2);
 }
-
-if (failures.length) {
-  console.error(`check-numbers found ${failures.length} documented count(s) that disagree with the repository:\n`);
-  for (const f of failures) console.error(`  ${f}`);
-  console.error("\nFix the documentation, then fix this file in the same commit.");
-  console.error("If a number is genuinely correct and the anchor is stale, update the anchor.\n");
-  process.exit(1);
-}
-
-console.log(`check-numbers: ${CLAIMS.length + BADGE_CLAIMS.length} documented counts agree with the repository.`);

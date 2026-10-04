@@ -78,7 +78,7 @@ Numbers measured from the tree, not estimated.
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
 | **125** | API routes · **27** Prisma models · **15** migrations |
-| **427** | server tests across 33 files, against a real MySQL and real Argon2 |
+| **437** | server tests across 33 files, against a real MySQL and real Argon2 |
 | **46** | client unit tests · **26** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
@@ -131,7 +131,7 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 427 server tests against a freshly migrated database
+make test       # 437 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
@@ -367,7 +367,7 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 427 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 437 tests against a MySQL service container
 - `client` — lint, 46 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys when requested

@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 427 tests, 33 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 437 tests, 33 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 26 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 46 tests, 6 files |
 
@@ -348,7 +348,7 @@ once green.
 | `auth.test.ts` | 11 | Register, weak-password rejection, no self-promotion to admin, duplicate email, wrong password, lockout after 5 failures, refresh rotation, CSRF enforcement, banned users, email OTP verification, admin route gating |
 | `care-plan.test.ts` | 70 | Ownership matrix, role gates, goals, steps, safety plan CRUD, clinician read side, review, validation |
 | `care-plan-regressions.test.ts` | 9 | A partial safety-plan save must not erase the rest; calendar date handling; the clinician read that was missing |
-| `crisis-triage.test.ts` | 14 | `detectFreeTextRisk` pattern behaviour, third-party filtering, patient-only gating, the message path end to end |
+| `crisis-triage.test.ts` | 17 | `detectFreeTextRisk` pattern behaviour, the third-party mention that informs an alert without suppressing it, `lastIndex` safety, patient-only gating, the message path end to end, markup stripping |h end to end |
 | `doctor-directory.test.ts` | 8 | Public directory filtering, pagination, `/specialties` derived from data |
 | `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
 | `features.test.ts` | 49 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms, weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
@@ -365,7 +365,7 @@ once green.
 | `risk-queue.test.ts` | 25 | `priorityFor` ordering, queue scoping and counts, acknowledge/resolve transitions and their audit entries, `assertCanTriage` |
 | `role-guards.test.ts` | 14 | Unauthenticated callers refused; wrong role refused; the guards are actually mounted |
 | `security.test.ts` | 10 | **IDOR matrix.** Cross-patient reads, cross-doctor writes, briefing visibility |
-| `support.test.ts` | 6 | Support chat, crisis routing to hotlines, the deliberate non-disclosure exception |
+| `support.test.ts` | 13 | Support chat, crisis routing to hotlines, the deliberate non-disclosure exception, and the SOS delivery rule: what the patient is told is derived from what was delivered |
 | `trajectory.test.ts` | 21 | Screening trajectory: instrument selection, series ordering, insufficient-data threshold, limit, ownership |
 | `two-factor-disable.test.ts` | 7 | Disabling two-factor needs a password *and* a current code, clears every 2FA field, revokes the refresh token and every other session, and cannot be replayed once disabled |
 | `twofactor.test.ts` | 5 | TOTP enrolment, verification, replay rejection via `lastTotpStep`, backup codes |
