@@ -393,10 +393,23 @@ describe("Clinical data lifecycle", () => {
         expect(res.body.data.risk.level).toBe("elevated");
         expect(res.body.data.risk.hotlines.length).toBeGreaterThan(0);
 
+        // The response must be able to say whether the disclosure was *recorded*,
+        // separately from whether a clinician was reached. The two fail
+        // independently - a connection pool exhausted by the crisis submission
+        // itself is exactly the case where the clinician is notified and the
+        // RiskAlert row is missing - and a client that cannot tell them apart
+        // will show a patient a reassuring result screen for a disclosure that
+        // left no audit trail.
+        expect(res.body.data.risk.recorded).toBe(true);
+        expect(res.body.data.risk.alertId).toBeTypeOf("number");
+
         const alert = await prisma.riskAlert.findFirst({ where: { userId: patient.id } });
         expect(alert).toBeTruthy();
         expect(alert?.level).toBe("elevated");
         expect(alert?.acknowledgedAt).toBeNull();
+        expect(alert?.id).toBe(res.body.data.risk.alertId);
+        // A clinician is attached, so the durable record names them.
+        expect(alert?.notifiedDoctorUserId).toBe(doctor.id);
 
         // The clinician is told.
         const notifications = await doctor.agent.get("/api/notifications");
@@ -413,6 +426,11 @@ describe("Clinical data lifecycle", () => {
             .send({ type: "phq9", answers: [3, 3, 2, 2, 1, 1, 2, 1, 0] });
         expect(res.status).toBe(201);
         expect(res.body.data.risk.riskFlag).toBe(false);
+        // The no-risk signal still carries the full contract, so a client can
+        // destructure it the same way it destructures a flagged one.
+        expect(res.body.data.risk.clinicianNotified).toBe(false);
+        expect(res.body.data.risk.recorded).toBe(true);
+        expect(res.body.data.risk.alertId).toBeNull();
         expect(await prisma.riskAlert.count({ where: { userId: patient.id } })).toBe(0);
     });
 
