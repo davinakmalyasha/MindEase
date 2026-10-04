@@ -11,7 +11,7 @@ WebSocket service.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](server/package.json)
 [![Next.js](https://img.shields.io/badge/next-16-black.svg)](client/package.json)
-[![Prisma](https://img.shields.io/badge/prisma-6.2-2D3748.svg)](server/prisma/schema.prisma)
+[![Prisma](https://img.shields.io/badge/prisma-6.12-2D3748.svg)](server/prisma/schema.prisma)
 [![Go](https://img.shields.io/badge/realtime-go-1.26-00ADD8.svg)](server-realtime/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Security policy](https://img.shields.io/badge/security-policy-ff69b4.svg)](SECURITY.md)
@@ -76,7 +76,7 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **41,253** | lines of TypeScript, SQL and Go — 31,261 application, 9,065 tests, 927 migrations |
+| **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
 | **125** | API routes · **27** Prisma models · **15** migrations |
 | **427** | server tests across 33 files, against a real MySQL and real Argon2 |
 | **46** | client unit tests · **26** Go tests with `-race` · **12** Playwright journeys |

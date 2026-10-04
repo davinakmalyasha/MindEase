@@ -8,51 +8,118 @@
 # at the root, adding npm workspaces for a three-service repo that shares no
 # runtime would be ceremony, and `make` is already how the Go half of this project
 # thinks.
+#
+# Requires GNU make and a POSIX shell (`make doctor` says whether you have them).
+# Every recipe runs under /bin/bash, so on Windows that means Git Bash or WSL.
 
 SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
 SERVER := server
 CLIENT := client
 REALTIME := server-realtime
 
-# Every target that touches the database goes through one URL, so the test
+# --- database credentials -----------------------------------------------------
+#
+# These have to agree with `docker-compose.yml`, which is where the compose stack
+# reads them from. They are declared in one place so that a developer who changes
+# the compose password changes it here too, instead of discovering at `make test`
+# that the Makefile still believes in the default.
+#
+# A natively installed MySQL with a passwordless root (the common local setup)
+# works with `make test DB_PASSWORD=` — see `make help` and docs/operations.md.
+DB_USER ?= root
+DB_PASSWORD ?= mindease_secure_root
+DB_HOST ?= 127.0.0.1:3306
+TEST_DB_NAME ?= mindease_test
+DEV_DB_NAME ?= mindease_db
+
+# Every target that touches the database goes through one of these, so the test
 # schema and the dev schema can never be confused by a copy-paste.
-TEST_DB_URL ?= mysql://root:@127.0.0.1:3306/mindease_test
-DEV_DB_URL  ?= mysql://root:@127.0.0.1:3306/mindease_db
+TEST_DB_URL ?= mysql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST)/$(TEST_DB_NAME)
+DEV_DB_URL  ?= mysql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST)/$(DEV_DB_NAME)
+COMPOSE_DB_URL ?= $(DEV_DB_URL)
+
+# Deliberately NOT exported. `dotenv.config()` does not overwrite an existing
+# process.env value, so exporting DATABASE_URL here silently beat whatever the
+# developer had put in server/.env — a correct DATABASE_URL was ignored and the
+# Makefile's value won. Each target below passes the URL explicitly instead, so
+# the file you edited is the file that is used.
+export TEST_DATABASE_URL
 
 # `db push` is for the test database only. It is never used against anything you
 # care about - see the README's known-limitations section for what that divergence
 # once hid.
-export DATABASE_URL ?= $(DEV_DB_URL)
+
+# NO_COLOR is honoured so `make help` is readable in a Windows cmd.exe terminal,
+# which does not interpret ANSI escapes.
+ifneq ($(NO_COLOR),)
+  C_RESET :=
+  C_CYAN  :=
+  C_DIM   :=
+else
+  C_RESET := \033[0m
+  C_CYAN  := \033[36m
+  C_DIM   := \033[2m
+endif
 
 .PHONY: help
 help: ## Show this help
 	@echo "MindEase"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  $(C_CYAN)%-18s$(C_RESET) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "  \033[2mDocs: README.md, docs/README.md, CONTRIBUTING.md\033[0m"
+	@echo "  $(C_DIM)Docs: README.md, docs/README.md, CONTRIBUTING.md$(C_RESET)"
+	@echo "  $(C_DIM)Run 'make doctor' first if anything below fails oddly.$(C_RESET)"
 
-# ---------------------------------------------------------------- setup ------
+# ------------------------------------------------------------------ doctor ----
+
+.PHONY: doctor
+doctor: ## Report whether this machine has everything the other targets need
+	@echo "MindEase — environment check"
+	@echo ""
+	@printf "  %-22s" "make"; make --version >/dev/null 2>&1 && echo "ok" || echo "MISSING (GNU make)"
+	@printf "  %-22s" "bash"; bash --version >/dev/null 2>&1 && echo "ok" || echo "MISSING (Git Bash or WSL on Windows)"
+	@printf "  %-22s" "node"; \
+	  if command -v node >/dev/null 2>&1; then \
+	    v=$$(node -v | sed 's/^v//'); \
+	    case "$$v" in 22.*|24.*|26.*) echo "$$v (ok)";; *) echo "$$v (repo targets 22.x; see .nvmrc)";; esac; \
+	  else echo "MISSING (22 or newer)"; fi
+	@printf "  %-22s" "go"; command -v go >/dev/null 2>&1 && echo "$$(go version | awk '{print $$3}')" || echo "MISSING (1.26)"
+	@printf "  %-22s" "docker"; command -v docker >/dev/null 2>&1 && echo "ok" || echo "MISSING (only needed for 'make up' and 'make e2e')"
+	@printf "  %-22s" "mysql"; \
+	  if command -v mysql >/dev/null 2>&1; then echo "client present"; \
+	  elif (exec 3<>/dev/tcp/$(DB_HOST)) 2>/dev/null; then echo "reachable at $(DB_HOST)"; \
+	  else echo "unreachable at $(DB_HOST) — 'make db' or start your own"; fi
+	@echo ""
+	@echo "  DATABASE_URL for the test suite:"
+	@echo "    $(TEST_DB_URL)"
+	@echo ""
+	@echo "  If that URL is wrong, override it rather than editing this file:"
+	@echo "    make test DB_PASSWORD=          # passwordless local root"
+	@echo "    make test TEST_DB_URL=mysql://..."
+
+# ------------------------------------------------------------------- setup ----
 
 .PHONY: install
 install: ## Install dependencies for both Node services
-	cd $(SERVER) && npm install
-	cd $(CLIENT) && npm install
+	cd $(SERVER) && npm ci
+	cd $(CLIENT) && npm ci
 	cd $(REALTIME) && go mod download
 
 .PHONY: env
 env: ## Create .env files from the examples, if they do not exist
 	@test -f .env || (cp .env.example .env && echo "created .env from .env.example")
-	@test -f $(SERVER)/.env || (test -f .env && echo "server reads the root .env" || echo "NOTE: create $(SERVER)/.env — see docs/operations.md")
-	@test -f $(CLIENT)/.env.local || (test -f .env.example && echo "NOTE: create $(CLIENT)/.env.local from the NEXT_PUBLIC_* block in .env.example")
+	@test -f $(SERVER)/.env || echo "NOTE: the server reads the root .env; server/.env is only needed to override it"
+	@test -f $(CLIENT)/.env.local || echo "NOTE: copy the NEXT_PUBLIC_* block from .env.example into $(CLIENT)/.env.local"
 
 .PHONY: setup
 setup: install env ## Install dependencies and create env files
+	@$(MAKE) --no-print-directory doctor
 
-# ----------------------------------------------------------------- gates -----
+# ------------------------------------------------------------------- gates ----
 
 .PHONY: typecheck
 typecheck: ## Typecheck the server and the client
@@ -64,6 +131,17 @@ lint: ## Lint the server and the client
 	cd $(SERVER) && npm run lint
 	cd $(CLIENT) && npm run lint
 
+.PHONY: lint-go
+lint-go: ## Lint the realtime service (golangci-lint, as CI runs it)
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+	  cd $(REALTIME) && golangci-lint run ./...; \
+	else \
+	  echo "golangci-lint is not installed; running 'go vet' only."; \
+	  echo "CI pins golangci-lint 2.14.0 and runs it as a required check:"; \
+	  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0"; \
+	  $(MAKE) --no-print-directory vet; \
+	fi
+
 .PHONY: vet
 vet: ## go vet the realtime service
 	cd $(REALTIME) && go vet ./...
@@ -72,10 +150,22 @@ vet: ## go vet the realtime service
 check-encoding: ## Repo-wide mojibake guard. Required in CI.
 	node scripts/check-encoding.js
 
-.PHONY: check
-check: typecheck lint vet check-encoding ## Every static gate, no database needed
+.PHONY: check-migration-case
+check-migration-case: ## Fail on a migration whose table casing breaks on Linux. Required in CI.
+	cd $(SERVER) && node scripts/check-migration-case.js
 
-# ----------------------------------------------------------------- tests -----
+.PHONY: check-numbers
+check-numbers: ## Fail if a documented count disagrees with the repository
+	node scripts/check-numbers.js
+
+.PHONY: check
+check: typecheck lint lint-go check-encoding check-migration-case ## Every static gate, no database needed
+
+.PHONY: build
+build: ## Production-build the client
+	cd $(CLIENT) && npm run build
+
+# ------------------------------------------------------------------- tests ----
 
 .PHONY: test-db
 test-db: ## Sync the test schema. Uses `db push`; test database only.
@@ -87,7 +177,7 @@ migrate: ## Build the schema from the committed migrations. The real path.
 
 .PHONY: test
 test: migrate ## Run the server suite against a freshly migrated database
-	cd $(SERVER) && TEST_DATABASE_URL=$(TEST_DB_URL) npm test
+	cd $(SERVER) && DATABASE_URL=$(TEST_DB_URL) TEST_DATABASE_URL=$(TEST_DB_URL) npm test
 
 .PHONY: test-client
 test-client: ## Run the client unit tests
@@ -104,7 +194,7 @@ test-all: test test-client test-go ## Everything that does not need Docker
 drift: ## Fail if the database and the datamodel disagree
 	cd $(SERVER) && npx prisma migrate diff --from-url $(TEST_DB_URL) --to-schema-datamodel prisma/schema.prisma --exit-code
 
-# ------------------------------------------------------------------- dev -----
+# --------------------------------------------------------------------- dev ----
 
 .PHONY: db
 db: ## Bring up MySQL and Redis alone
@@ -112,7 +202,7 @@ db: ## Bring up MySQL and Redis alone
 
 .PHONY: dev-db
 dev-db: ## Apply migrations and seed the development database
-	cd $(SERVER) && npx prisma migrate deploy && npm run db:seed
+	cd $(SERVER) && DATABASE_URL=$(DEV_DB_URL) npx prisma migrate deploy && DATABASE_URL=$(DEV_DB_URL) npm run db:seed
 
 .PHONY: dev-api
 dev-api: ## Run the API with reload
@@ -135,7 +225,7 @@ dev: ## API, realtime and web together, in three panes. Ctrl-C stops all.
 	$(MAKE) dev-web & \
 	wait
 
-# ---------------------------------------------------------------- docker -----
+# ------------------------------------------------------------------ docker ----
 
 .PHONY: up
 up: ## Build and boot the whole stack, then seed it
@@ -146,12 +236,7 @@ up: ## Build and boot the whole stack, then seed it
 	@echo "  web        http://localhost:3000"
 	@echo "  api        http://localhost:5000/api/health"
 	@echo "  realtime   http://localhost:8080/health"
-	@echo "  api docs   http://localhost:5000/api/docs"
-
-# The compose MySQL is published on 3306, so this is reachable from the host.
-# Credentials match the default in `docker-compose.yml`; override both together if
-# you have set MYSQL_PASSWORD.
-COMPOSE_DB_URL ?= mysql://root:mindease_secure_root@127.0.0.1:3306/mindease_db
+	@echo "  api schema http://localhost:5000/api/openapi.json"
 
 .PHONY: docker-seed
 docker-seed: ## Seed the compose database
@@ -168,14 +253,16 @@ down: ## Stop the stack
 	docker compose down
 
 .PHONY: clean
-clean: ## Stop the stack and delete its volumes
+clean: ## Stop the stack and delete its volumes (asks first)
+	@echo "This deletes the MySQL volume and every uploaded avatar. Type 'yes' to continue:"
+	@read -r answer && [ "$$answer" = "yes" ] || { echo "Cancelled."; exit 1; }
 	docker compose down -v
 
 .PHONY: logs
 logs: ## Follow the logs
 	docker compose logs -f
 
-# ----------------------------------------------------------------- e2e -------
+# --------------------------------------------------------------------- e2e ----
 
 .PHONY: e2e
 e2e: ## Run the Playwright journeys. Needs the stack up and seeded.
@@ -187,6 +274,8 @@ verify: ## The full pre-push gate, in the order CI runs it
 	docker compose config -q
 	@echo "==> static gates"
 	$(MAKE) check
+	@echo "==> client build"
+	$(MAKE) build
 	@echo "==> schema drift"
 	$(MAKE) drift
 	@echo "==> tests"

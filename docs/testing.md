@@ -338,7 +338,7 @@ four health checks, seed — *is* gated, because that part has a known-good
 expectation and a red there is always a real defect. It is promoted to required
 once green.
 
-## The 30 server test files
+## The 33 server test files
 
 | File | Tests | What it covers |
 |---|---|---|
@@ -358,6 +358,8 @@ once green.
 | `payment-config.test.ts` | 9 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |
 | `payments.test.ts` | 18 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
 | `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
+| `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |
+| `rate-limit-store-isolation.test.ts` | 2 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter |
 | `realtime-contract.test.ts` | 4 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |
 | `reminders.test.ts` | 3 | Reminder window eligibility, one send per appointment, two runners racing sends once |
 | `risk-queue.test.ts` | 25 | `priorityFor` ordering, queue scoping and counts, acknowledge/resolve transitions and their audit entries, `assertCanTriage` |
@@ -365,6 +367,7 @@ once green.
 | `security.test.ts` | 10 | **IDOR matrix.** Cross-patient reads, cross-doctor writes, briefing visibility |
 | `support.test.ts` | 6 | Support chat, crisis routing to hotlines, the deliberate non-disclosure exception |
 | `trajectory.test.ts` | 21 | Screening trajectory: instrument selection, series ordering, insufficient-data threshold, limit, ownership |
+| `two-factor-disable.test.ts` | 7 | Disabling two-factor needs a password *and* a current code, clears every 2FA field, revokes the refresh token and every other session, and cannot be replayed once disabled |
 | `twofactor.test.ts` | 5 | TOTP enrolment, verification, replay rejection via `lastTotpStep`, backup codes |
 | `verification.test.ts` | 5 | Doctor verification workflow — hidden until approved |
 | `video-config.test.ts` | 5 | Provider parsing; unknown provider rejected rather than falling back; missing credentials reported |
