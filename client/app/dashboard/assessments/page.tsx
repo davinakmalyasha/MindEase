@@ -12,7 +12,7 @@ import TrajectoryChart from "@/components/assessments/TrajectoryChart";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { ASSESSMENTS, OPTION_LABELS, severityLabel } from "@/lib/data/assessments";
-import { useAssessments, useSubmitAssessment, useAssessmentTrajectory } from "@/hooks/queries/useMoodQuery";
+import { useAssessments, useSubmitAssessment, useAssessmentTrajectory, type SubmittedAssessment } from "@/hooks/queries/useMoodQuery";
 
 const SEVERITY_STYLES: Record<string, string> = {
     minimal: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -91,7 +91,7 @@ function AssessmentsContent() {
     const [activeType, setActiveType] = useState<"phq9" | "gad7">("phq9");
     const [step, setStep] = useState(0);
     const [answers, setAnswers] = useState<number[]>([]);
-    const [result, setResult] = useState<any>(null);
+    const [result, setResult] = useState<SubmittedAssessment | null>(null);
 
     const { data: history = [], isLoading } = useAssessments(activeType, 10);
 const { data: trajectory } = useAssessmentTrajectory(activeType);
@@ -180,21 +180,92 @@ const { data: trajectory } = useAssessmentTrajectory(activeType);
                         </div>
                     </div>
 
-                    {result ? (
-                        <div className="text-center py-10">
-                            <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
-                            <h3 className="text-2xl font-black text-gray-900 mb-1">{result.score} / {meta.maxScore}</h3>
-                            <span className={cn("inline-block px-4 py-1.5 rounded-full text-sm font-bold border", SEVERITY_STYLES[result.severity])}>
-                                {severityLabel(activeType, result.severity)}
-                            </span>
-                            <p className="text-sm text-gray-500 mt-4 max-w-md mx-auto">
-                                {result.severity === "severe" || result.severity === "moderately-severe"
-                                    ? t("severeHint")
-                                    : t("savedHint")}
-                            </p>
-                            <button onClick={startOver} className="mt-6 px-6 py-2.5 rounded-xl bg-teal-500 text-white text-sm font-bold hover:bg-teal-600 transition-all">
-                                {t("takeAgain")}
-                            </button>
+{result ? (
+                        <div className="py-10">
+                            {/* A disclosure outranks the score.
+                                PHQ-9 item 9 answered above "not at all" pages a
+                                clinician and returns crisis hotlines in this very
+                                response. The screen used to render a green tick and
+                                "your result has been saved" without reading
+                                `result.risk` at all, so a patient who had just told
+                                the questionnaire they think about dying was shown a
+                                reassuring screen and no hotline.
+                                role="alert" because it appears without a navigation
+                                and is the most important thing on the page. */}
+                            {result.risk?.riskFlag && (
+                                <div
+                                    role="alert"
+                                    className="max-w-2xl mx-auto mb-8 rounded-3xl border-2 border-rose-300 bg-rose-50 p-6 text-left"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <ShieldAlert className="w-7 h-7 text-rose-600 shrink-0 mt-0.5" aria-hidden="true" />
+                                        <div className="min-w-0">
+                                            <h3 className="text-lg font-black text-rose-900">
+                                                {t("disclosureTitle")}
+                                            </h3>
+                                            <p className="text-sm text-rose-800 mt-2 leading-relaxed">
+                                                {t("disclosureBody")}
+                                            </p>
+
+                                            <p className="text-sm font-bold text-rose-900 mt-4">
+                                                {t("disclosureStatus")}
+                                            </p>
+                                            <ul className="text-sm text-rose-800 mt-1 space-y-1">
+                                                <li>
+                                                    {result.risk.clinicianNotified
+                                                        ? t("disclosureClinicianNotified")
+                                                        : t("disclosureClinicianNotReached")}
+                                                </li>
+                                                <li>
+                                                    {result.risk.recorded
+                                                        ? t("disclosureRecorded")
+                                                        : t("disclosureNotRecorded")}
+                                                </li>
+                                            </ul>
+
+                                            <p className="text-sm font-bold text-rose-900 mt-4">
+                                                {t("hotlinesTitle")}
+                                            </p>
+                                            <ul className="mt-1 space-y-1">
+                                                {result.risk.hotlines.map((h) => (
+                                                    <li key={h.dial} className="text-sm text-rose-800">
+                                                        <a
+                                                            href={h.whatsapp ? `https://wa.me/${h.dial.replace(/\D/g, "")}` : `tel:${h.dial}`}
+                                                            className="font-bold underline underline-offset-2"
+                                                        >
+                                                            {h.name}
+                                                        </a>{" "}
+                                                        &mdash; {h.contact}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="text-center">
+                                {/* Not a green tick when the answer included a
+                                    disclosure. The icon used to say "done" to
+                                    somebody who had just been escalated. */}
+                                {result.risk?.riskFlag ? (
+                                    <ShieldAlert className="w-14 h-14 text-amber-600 mx-auto mb-4" aria-hidden="true" />
+                                ) : (
+                                    <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" aria-hidden="true" />
+                                )}
+                                <h3 className="text-2xl font-black text-gray-900 mb-1">{result.score} / {meta.maxScore}</h3>
+                                <span className={cn("inline-block px-4 py-1.5 rounded-full text-sm font-bold border", SEVERITY_STYLES[result.severity])}>
+                                    {severityLabel(activeType, result.severity)}
+                                </span>
+                                <p className="text-sm text-gray-500 mt-4 max-w-md mx-auto">
+                                    {result.severity === "severe" || result.severity === "moderately-severe"
+                                        ? t("severeHint")
+                                        : t("savedHint")}
+                                </p>
+                                <button onClick={startOver} className="mt-6 px-6 py-2.5 rounded-xl bg-teal-500 text-white text-sm font-bold hover:bg-teal-600 transition-all">
+                                    {t("takeAgain")}
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>

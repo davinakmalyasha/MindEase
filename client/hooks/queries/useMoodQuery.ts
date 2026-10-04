@@ -219,13 +219,51 @@ export const useAssessmentTrajectory = (type: "phq9" | "gad7") =>
         },
     });
 
+/** One crisis hotline as returned by the API. */
+export interface CrisisHotline {
+    name: string;
+    dial: string;
+    contact: string;
+    whatsapp: boolean;
+}
+
+/**
+ * The risk half of a screening submission.
+ *
+ * Modelled as a type rather than left as part of an untyped blob because it
+ * carries the safety signal: a patient who answers PHQ-9 item 9 above "not at
+ * all" has a clinician paged, and the response tells the client so. The result
+ * screen used to spread this into `any` and render only the score, which meant a
+ * disclosure produced a green tick and "your result has been saved".
+ */
+export interface AssessmentRiskSignal {
+    riskFlag: boolean;
+    level: "elevated" | "urgent" | null;
+    reason: string | null;
+    hotlines: CrisisHotline[];
+    crisisPage: string;
+    /** Whether a clinician could actually be reached. */
+    clinicianNotified: boolean;
+    /** Whether the RiskAlert row was written. False means no audit trail. */
+    recorded: boolean;
+    /** The queued item, so a clinician-facing view can link to it. */
+    alertId: number | null;
+}
+
+/** What `POST /wellness/assessments` returns. */
+export interface SubmittedAssessment {
+    score: number;
+    severity: string;
+    risk: AssessmentRiskSignal;
+}
+
 export const useSubmitAssessment = () => {
     const queryClient = useQueryClient();    const { toast } = useToast();
 
-    return useMutation({
+    return useMutation<SubmittedAssessment, unknown, { type: string; answers: number[] }>({
         mutationFn: async ({ type, answers }: { type: string; answers: number[] }) => {
             const res = await api.post("/wellness/assessments", { type, answers });
-            return res.data?.data;
+            return res.data?.data as SubmittedAssessment;
         },
         onSuccess: () => {
             toast("Assessment submitted", "success");

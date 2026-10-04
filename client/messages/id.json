@@ -137,6 +137,14 @@
       "severeHint": "Skor ini menunjukkan gejala yang signifikan. Pertimbangkan untuk segera membuat janji temu — dokter Anda dapat melihat hasil ini dan bersiap untuk kunjungan Anda.",
       "savedHint": "Skor terbaru Anda telah disimpan dan akan muncul dalam ringkasan pra-sesi dokter Anda.",
       "disclaimer": "Alat skrining adalah indikator, bukan diagnosis. Selalu diskusikan hasil dengan profesional yang berkualifikasi.",
+      "disclosureTitle": "Terapis Anda sudah diberi tahu",
+      "disclosureBody": "Salah satu jawaban Anda menunjukkan bahwa Anda pernah memikirkan untuk menyakiti diri sendiri atau meninggal dunia. Ini dianggap serius dan telah disampaikan kepada terapis Anda. Anda tidak perlu menghadapinya sendirian.",
+      "disclosureStatus": "Yang baru saja terjadi",
+      "disclosureClinicianNotified": "Terapis Anda sudah diberi tahu.",
+      "disclosureClinicianNotReached": "Kami tidak dapat menghubungi terapis Anda secara otomatis saat ini. Silakan hubungi mereka langsung menggunakan nomor di bawah atau data di profil Anda — hal ini tidak boleh ditunda.",
+      "disclosureRecorded": "Ini telah dicatat agar terapis Anda dapat melihatnya sebelum sesi berikutnya.",
+      "disclosureNotRecorded": "Kami belum dapat menyimpan ini ke dalam riwayat Anda. Ceritakan langsung kepada terapis Anda, karena mereka tidak akan dapat melihatnya.",
+      "hotlinesTitle": "Jika Anda butuh bantuan sekarang",
       "trajectoryTitle": "Seiring waktu",
       "trajectoryHint": "Perubahan skor skrining Anda dari waktu ke waktu.",
       "trajectoryDisclaimer": "Ini adalah skor skrining, bukan diagnosis dan bukan ukuran pemulihan. Garis yang menurun berarti lebih sedikit gejala yang dilaporkan pada pengukuran tersebut; itu bukan bukti bahwa sesuatu telah disembuhkan, dan tidak menggantikan penilaian klinis.",
@@ -294,7 +302,10 @@
       "hidePreview": "Sembunyikan pratinjau",
       "previewLabel": "Pratinjau",
       "notWritten": "Belum ditulis",
-      "footerNote": "Rencana ini milik Anda. Tidak ada bagian yang ditulis untuk Anda, dan tidak ada yang dikirim ke model AI. Psikolog Anda dapat membacanya agar Anda dapat bahas bersama, dan peninjauan tercatat ketika hal itu terjadi."
+      "footerNote": "Rencana ini milik Anda. Tidak ada bagian yang ditulis untuk Anda, dan tidak ada yang dikirim ke model AI. Psikolog Anda dapat membacanya agar Anda dapat bahas bersama, dan peninjauan tercatat ketika hal itu terjadi.",
+      "loadFailedTitle": "Rencana keamanan Anda tidak dapat dimuat",
+      "loadFailedBody": "Rencana keamanan Anda tidak dimuat, jadi tidak ada yang diubah. Ini biasanya masalah koneksi sementara — coba lagi. Jika terus terjadi, hubungi terapis Anda secara langsung.",
+      "retry": "Coba lagi"
     },
     "carePlan": {
       "title": "Rencana perawatan saya",

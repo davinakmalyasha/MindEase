@@ -137,6 +137,14 @@
       "severeHint": "This score suggests significant symptoms. Please consider booking a session soon — your doctor can see this result and prepare for your visit.",
       "savedHint": "Your latest score has been saved and will appear in your doctor's pre-session briefing.",
       "disclaimer": "Screening tools are indicators, not diagnoses. Always discuss results with a qualified professional.",
+      "disclosureTitle": "Your therapist has been alerted",
+      "disclosureBody": "One of your answers indicates you have had thoughts of harming yourself or dying. That is taken seriously and it has been passed to your therapist. You do not have to deal with this alone.",
+      "disclosureStatus": "What happened just now",
+      "disclosureClinicianNotified": "Your therapist was notified.",
+      "disclosureClinicianNotReached": "We could not reach your therapist automatically just now. Please contact them directly using the numbers below or the details in your profile — this is not something to sit on.",
+      "disclosureRecorded": "This was recorded so your therapist can see it before your next session.",
+      "disclosureNotRecorded": "We were not able to save this to your record. Please tell your therapist directly, because they will not be able to see it.",
+      "hotlinesTitle": "If you need help right now",
       "trajectoryTitle": "Over time",
       "trajectoryHint": "How your screening score has moved between sittings.",
       "trajectoryDisclaimer": "This is a screening score, not a diagnosis or a measurement of recovery. A falling line means fewer symptoms were reported on that sitting; it is not proof that anything has been cured, and it does not replace a clinical assessment.",
@@ -294,7 +302,10 @@
       "hidePreview": "Hide preview",
       "previewLabel": "Preview",
       "notWritten": "Not written yet",
-      "footerNote": "This plan is yours. Nothing here is written for you, and nothing here is sent to an AI model. Your psychologist can read it so you can go through it together, and a review is recorded when that happens."
+      "footerNote": "This plan is yours. Nothing here is written for you, and nothing here is sent to an AI model. Your psychologist can read it so you can go through it together, and a review is recorded when that happens.",
+      "loadFailedTitle": "We could not load your safety plan",
+      "loadFailedBody": "Your safety plan was not loaded, so nothing has been changed. This is usually a temporary connection problem — try again. If it keeps happening, contact your therapist directly.",
+      "retry": "Try again"
     },
     "carePlan": {
       "title": "My care plan",
