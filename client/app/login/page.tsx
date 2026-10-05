@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { Suspense } from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
@@ -46,6 +46,25 @@ function AuthForm() {
     const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
     const [twoFactorCode, setTwoFactorCode] = useState("");
     const [isVerifying2FA, setIsVerifying2FA] = useState(false);
+
+    // Whether React has hydrated, which is not the same as whether the page has
+    // painted. Until it has, this form has no `onSubmit` handler attached, and a
+    // click on the submit button is a *native* form submission: the browser
+    // serialises every field into the query string and navigates to
+    // `/login?email=...&password=...`.
+    //
+    // That puts a patient's password in their address bar, in browser history, in
+    // any proxy or CDN log between them and us, and in the Referer header sent
+    // with every subsequent request. It is not a theoretical risk - it happened
+    // on the very first run of a screenshot script, because the click landed
+    // before hydration on a loaded page.
+    //
+    // The fix is to make the button inert until the handler exists. There is no
+    // way to preventDefault from server-rendered HTML, so the only safe options
+    // are to not submit or to not put the field in the URL; see the `method` on
+    // the form for the second.
+    const [isHydrated, setIsHydrated] = useState(false);
+    useEffect(() => setIsHydrated(true), []);
 
     const redirectByRole = (role: string) => {
         // `isSafeInternalPath`, not `startsWith("/")`. The old check let
@@ -209,6 +228,16 @@ function AuthForm() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 20 }}
                                 onSubmit={handleLoginSubmit(onLogin)}
+                                // `method="post"` is a backstop, not the fix.
+                                //
+                                // Once React has hydrated, `handleSubmit` calls
+                                // preventDefault and this attribute is never
+                                // consulted. Before hydration it *is* consulted,
+                                // and it decides whether an unintended submission
+                                // puts the password in the URL or in a request
+                                // body. Body is the lesser evil; query string is
+                                // written to access logs by default.
+                                method="post"
                                 className="space-y-4"
                             >
                                 {GOOGLE_CLIENT_ID && (
@@ -250,7 +279,7 @@ function AuthForm() {
                                         {t("forgotPassword")}
                                     </Link>
                                 </div>
-                                <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
+                                <button disabled={isLoading || !isHydrated} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
                                     {isLoading ? <Loader2 className="animate-spin" /> : t("signIn")}
                                 </button>
                             </motion.form>
@@ -261,22 +290,23 @@ function AuthForm() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 onSubmit={handleRegisterSubmit(onRegister)}
+                                method="post"
                                 className="space-y-4"
                             >
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("fullName")}</label>
-                                    <input {...registerRegister("name")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                                    <label htmlFor="register-name" className="block text-sm font-medium text-gray-700 mb-1">{t("fullName")}</label>
+                                    <input id="register-name" {...registerRegister("name")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     {registerErrors.name && <p className="text-red-500 text-xs mt-1">{registerErrors.name.message}</p>}
                                 </div>
                                 <div>
-                                    <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
-                                    <input {...registerRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                                    <label htmlFor="register-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
+                                    <input id="register-email" {...registerRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     {registerErrors.email && <p className="text-red-500 text-xs mt-1">{registerErrors.email.message}</p>}
                                 </div>
                                 <div>
-                                    <label htmlFor="auth-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
+                                    <label htmlFor="register-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
                                     <input
-                                        id="auth-phone"
+                                        id="register-phone"
                                         {...registerRegister("phone_number")}
                                         placeholder="+6281234567890"
                                         className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
@@ -284,8 +314,8 @@ function AuthForm() {
                                     {registerErrors.phone_number && <p className="text-red-500 text-xs mt-1">{registerErrors.phone_number.message as string}</p>}
                                 </div>
                                 <div>
-                                    <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
-                                    <input type="password" {...registerRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                                    <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
+                                    <input id="register-password" type="password" {...registerRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
                                     <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
                                     {registerErrors.password && <p className="text-red-500 text-xs mt-1">{registerErrors.password.message}</p>}
                                 </div>
@@ -307,7 +337,7 @@ function AuthForm() {
                                         ))}
                                     </div>
                                 </div>
-                                <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
+                                <button disabled={isLoading || !isHydrated} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
                                     {isLoading ? <Loader2 className="animate-spin" /> : t("createAccountBtn")}
                                 </button>
                             </motion.form>

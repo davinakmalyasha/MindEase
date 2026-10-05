@@ -78,8 +78,27 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const messages = locale === "id" ? idMessages : enMessages;
 
   return (
-    <html lang={locale} className="scroll-smooth">
-      <body className={`${jakarta.className} ${jakarta.variable}`} suppressHydrationWarning>
+    // `suppressHydrationWarning` belongs on <html>, not on <body>.
+    //
+    // `ThemeProvider` is next-themes with `attribute="class"`, and next-themes
+    // runs a blocking inline script before hydration that writes `light` or
+    // `dark` onto the <html> element (plus `color-scheme`) so the page does not
+    // flash the wrong theme. The server cannot know which, because it cannot read
+    // the stored preference. So the server renders `class="scroll-smooth"` and
+    // the browser finds `class="scroll-smooth light"`.
+    //
+    // That is the mismatch React warns about on every page in development, and
+    // it had `suppressHydrationWarning` on <body> instead, where it does
+    // nothing - it only suppresses mismatches on the element it is written on,
+    // and the mismatch is one level up.
+    //
+    // It was not cosmetic. On a hard hydration failure React discards the server
+    // tree and rebuilds on the client, and on /login that happened before the
+    // form's submit handler was attached. The form then fell back to a native
+    // GET, which put the password into the URL - and into browser history, proxy
+    // logs and any Referer header - on a page that looked like it had worked.
+    <html lang={locale} className="scroll-smooth" suppressHydrationWarning>
+      <body className={`${jakarta.className} ${jakarta.variable}`}>
         <IntlProvider locale={locale} messages={messages}>
           <ThemeProvider>
             <AuthProvider>

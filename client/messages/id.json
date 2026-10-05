@@ -23,7 +23,8 @@
     "bookNow": "Pesan Sekarang",
     "crisisHelp": "Bantuan Krisis",
     "myHistory": "Riwayat Saya",
-    "signIn": "Masuk/Daftar"
+    "signIn": "Masuk/Daftar",
+    "signUp": "Daftar"
   },
   "auth": {
     "welcomeBack": "Selamat Datang Kembali",

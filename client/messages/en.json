@@ -23,7 +23,8 @@
     "bookNow": "Book Now",
     "crisisHelp": "Crisis Help",
     "myHistory": "My History",
-    "signIn": "SignIn/SignUp"
+    "signIn": "SignIn/SignUp",
+    "signUp": "Sign Up"
   },
   "auth": {
     "welcomeBack": "Welcome Back",
