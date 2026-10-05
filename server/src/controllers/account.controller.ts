@@ -97,31 +97,102 @@ export class AccountController {
                 },
             });
 
-            const [appointments, moods, preSession, reviews, messages] = await Promise.all([
-                prisma.appointment.findMany({
-                    where: { userId },
-                    select: { appointmentDate: true, startTime: true, endTime: true, consultationType: true, status: true, notes: true, meetingLink: true, createdAt: true },
-                    orderBy: { createdAt: "desc" },
-                }),
-                prisma.moodEntry.findMany({
-                    where: { userId },
-                    select: { mood: true, notes: true, createdAt: true },
-                    orderBy: { createdAt: "asc" },
-                }),
-                prisma.preSessionData.findMany({
-                    where: { appointment: { userId } },
-                    select: { questionsJson: true, answersJson: true, briefingText: true, updatedAt: true },
-                }),
-                prisma.review.findMany({
-                    where: { userId },
-                    select: { rating: true, comment: true, doctorId: true, createdAt: true },
-                }),
-                prisma.message.findMany({
-                    where: { senderId: userId },
-                    select: { content: true, receiverId: true, createdAt: true },
-                    orderBy: { createdAt: "asc" },
-                }),
-            ]);
+            const [appointments, moods, preSession, reviews, messages, journal, assessments, safetyPlan, carePlan, riskAlerts] =
+                await Promise.all([
+                    prisma.appointment.findMany({
+                        where: { userId },
+                        select: { appointmentDate: true, startTime: true, endTime: true, consultationType: true, status: true, notes: true, meetingLink: true, createdAt: true },
+                        orderBy: { createdAt: "desc" },
+                    }),
+                    prisma.moodEntry.findMany({
+                        where: { userId },
+                        select: { mood: true, notes: true, factors: true, moodDate: true, createdAt: true },
+                        orderBy: { createdAt: "asc" },
+                    }),
+                    prisma.preSessionData.findMany({
+                        where: { appointment: { userId } },
+                        select: { questionsJson: true, answersJson: true, briefingText: true, briefingSource: true, updatedAt: true },
+                    }),
+                    prisma.review.findMany({
+                        where: { userId },
+                        select: { rating: true, comment: true, doctorId: true, createdAt: true },
+                    }),
+                    prisma.message.findMany({
+                        where: { senderId: userId },
+                        select: { content: true, receiverId: true, createdAt: true },
+                        orderBy: { createdAt: "asc" },
+                    }),
+
+                    // The rest of what `deleteAccount` destroys.
+                    //
+                    // An export that omits the journal, the screening answers and
+                    // the safety plan is not a data subject access request - it is
+                    // a partial one, and the order of the two buttons on this page
+                    // makes the failure worse: a patient is offered "export my
+                    // data" and "delete my account" side by side, and deletion
+                    // *permanently removes* exactly what the export did not
+                    // include. On a product that holds screening answers and
+                    // reasons to live, that is not a completeness gap.
+                    prisma.journalEntry.findMany({
+                        where: { userId },
+                        select: { content: true, aiSummary: true, createdAt: true },
+                        orderBy: { createdAt: "asc" },
+                    }),
+                    prisma.assessment.findMany({
+                        where: { userId },
+                        select: { type: true, answersJson: true, score: true, severity: true, createdAt: true },
+                        orderBy: { createdAt: "asc" },
+                    }),
+                    prisma.safetyPlan.findUnique({
+                        where: { userId },
+                        select: {
+                            warningSigns: true,
+                            copingStrategies: true,
+                            reasonsToLive: true,
+                            contacts: true,
+                            professionalContact: true,
+                            locationToBeSafe: true,
+                            lastReviewedAt: true,
+                            createdAt: true,
+                            updatedAt: true,
+                        },
+                    }),
+                    prisma.carePlan.findMany({
+                        where: { userId },
+                        select: {
+                            title: true,
+                            status: true,
+                            summary: true,
+                            reviewAt: true,
+                            createdAt: true,
+                            goals: {
+                                select: {
+                                    title: true,
+                                    detail: true,
+                                    status: true,
+                                    targetDate: true,
+                                    order: true,
+                                    steps: { select: { title: true, done: true, doneAt: true, order: true } },
+                                },
+                                orderBy: { order: "asc" },
+                            },
+                        },
+                        orderBy: { createdAt: "asc" },
+                    }),
+                    prisma.riskAlert.findMany({
+                        where: { userId },
+                        select: {
+                            level: true,
+                            reason: true,
+                            sourceType: true,
+                            acknowledgedAt: true,
+                            resolvedAt: true,
+                            resolutionNote: true,
+                            createdAt: true,
+                        },
+                        orderBy: { createdAt: "asc" },
+                    }),
+                ]);
 
             const exportData = {
                 generatedAt: new Date().toISOString(),
@@ -131,6 +202,14 @@ export class AccountController {
                 preSession,
                 reviews,
                 messagesSent: messages,
+                // The remainder of the patient's own record. `safetyPlan` is
+                // `undefined` rather than `null` when none was written, which
+                // serialises away; the shape is stable either way.
+                journal,
+                assessments,
+                safetyPlan: safetyPlan ?? null,
+                carePlan,
+                riskAlerts,
             };
 
             res.setHeader("Content-Type", "application/json");

@@ -229,6 +229,34 @@ export class AccountService {
             prisma.followUp.deleteMany({ where: { appointment: { userId } } }),
 
             /**
+             * The safety plan and the care plan *are* deleted.
+             *
+             * Both were missed, and the consequence was worse than a retention
+             * question: the `User` row is anonymised rather than removed, so their
+             * content survived against `deleted-<hex>@deleted.invalid` - free text
+             * a patient wrote about their own reasons to live, with no owner, no
+             * clinician counterpart, no way to display it, and no way to export
+             * it. Not exported, not deleted, not visible.
+             *
+             * That is also the wrong thing to keep on the merits, and the contrast
+             * with the rows around them is the reason. Appointments are retained
+             * because a clinician's record of sessions that happened is not the
+             * patient's to erase. `RiskAlert` is retained because it is
+             * system-generated and is a safety signal about a clinician's
+             * patient. Neither argument applies to a document the patient
+             * authored alone, with no clinical counterpart.
+             *
+             * `support.service.ts` tells a user that deleting their account purges
+             * their journals, mood logs and screening results. The safety plan was
+             * the exception nobody had written down.
+             *
+             * `carePlan` cascades to `CareGoal` and `CareStep` in the schema, so
+             * one statement clears all three.
+             */
+            prisma.safetyPlan.deleteMany({ where: { userId } }),
+            prisma.carePlan.deleteMany({ where: { userId } }),
+
+            /**
              * `RiskAlert` rows are deliberately NOT deleted.
              *
              * A risk alert is the durable record that a patient disclosed

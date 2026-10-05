@@ -64,7 +64,7 @@ const SECTIONS = [
     },
     {
         title: "8. Retention",
-        body: "We retain your data while your account is active and as long as needed to provide the service or comply with legal obligations. You can request deletion at any time (see your rights below), after which we purge your personal data while anonymizing historical appointment records. Clinical safety records — for example, that a screening answer triggered a clinician alert — are retained in anonymized form, because the fact that a disclosure happened is clinically relevant to whoever treats you next.",
+        body: "We retain your data while your account is active and as long as needed to provide the service or comply with legal obligations. You can export a copy of everything below at any time, and you should export before you delete. Deletion purges your account, profile, journal entries, mood logs and their factor tags, screening answers, pre-session reflections, messages, reviews, safety plan, care plan and notifications. What is retained is limited to two things, both in anonymised form, where the record belongs to a clinician rather than to you: appointment history, and clinical safety records — for example, that a screening answer triggered a clinician alert — because the fact that a disclosure happened is clinically relevant to whoever treats you next. Your name and email are replaced with a random identifier, so nothing identifying survives on those rows.",
     },
     {
         title: "9. Your rights",
