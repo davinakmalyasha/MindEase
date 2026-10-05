@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
 import DoctorCard from "@/components/appointments/DoctorCard";
 import DoctorCardSkeleton from "@/components/appointments/DoctorCardSkeleton";
@@ -35,6 +36,34 @@ const PRICE_RANGES: { value: PriceRange; label: string }[] = [
 ];
 
 export default function AppointmentPage() {
+    // `useSearchParams` opts a route out of static rendering unless it sits under
+    // a Suspense boundary, and Next 14+ fails the build with
+    // "useSearchParams() should be wrapped in a suspense boundary" otherwise.
+    // The boundary is at the route root and the inner component is the real page,
+    // so the fallback is the same skeleton the list already showed while loading.
+    return (
+        <Suspense fallback={<AppointmentPageSkeleton />}>
+            <AppointmentPageInner />
+        </Suspense>
+    );
+}
+
+function AppointmentPageSkeleton() {
+    return (
+        <main className="min-h-screen bg-gray-50 pt-24 pb-12">
+            <div className="max-w-7xl mx-auto px-4">
+                <div className="h-8 w-64 bg-gray-200 rounded animate-pulse" />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                        <DoctorCardSkeleton key={i} />
+                    ))}
+                </div>
+            </div>
+        </main>
+    );
+}
+
+function AppointmentPageInner() {
     const [doctors, setDoctors] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
@@ -60,14 +89,25 @@ export default function AppointmentPage() {
 // Deep link: /appointments?doctor=<id> opens the booking modal directly
   // (e.g. arriving from a doctor profile's "Book Consultation" button)
   //
-  // Derived rather than set in an effect. The old version ran an effect on every
-  // change of `doctors`/`isLoading` that did `if (match && !selectedDoctor)
-  // setSelectedDoctor(match)` - one extra render, an effect that could never be
-  // expressed without an eslint-disable for its own dependencies, and a `null`
-  // that meant "nothing selected" and also "not loaded yet". Reading the param
-  // straight off the list removes all three: an id that is not in the list yet
-  // simply does not match, and matches as soon as it arrives.
-  const deepLinkDoctorId = new URLSearchParams(window.location.search).get("doctor");
+// Derived rather than set in an effect. The old version ran an effect on every
+    // change of `doctors`/`isLoading` that did `if (match && !selectedDoctor)
+    // setSelectedDoctor(match)` - one extra render, an effect that could never be
+    // expressed without an eslint-disable for its own dependencies, and a `null`
+    // that meant "nothing selected" and also "not loaded yet". Reading the param
+    // straight off the list removes all three: an id that is not in the list yet
+    // simply does not match, and matches as soon as it arrives.
+    //
+    // Read through `useSearchParams`, not `new URLSearchParams(window.location.search)`.
+    // The window form threw on the server - `window` does not exist during SSR -
+    // so this route returned HTTP 500 for the initial request and rendered only
+    // because the client recovered on the second pass. A crawler, a user with
+    // JavaScript disabled, and every server-side prefetch saw a 500.
+    //
+    // A lazy `useState` initialiser would not be a fix. It runs on the client
+    // with the real query string and on the server with none, which is a
+    // hydration mismatch on exactly the deep links this is for.
+    const searchParams = useSearchParams();
+    const deepLinkDoctorId = searchParams.get("doctor");
   const [pickedDoctorId, setPickedDoctorId] = useState<string | null>(null);
   const selectedDoctor = useMemo(() => {
       const wanted = pickedDoctorId ?? deepLinkDoctorId;

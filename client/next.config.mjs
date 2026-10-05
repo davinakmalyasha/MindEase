@@ -109,6 +109,12 @@ const nextConfig = {
   // generated version.
   agentRules: false,
 
+  // The development overlay badge ("N Issues") renders into the page, so it
+  // appears in every screenshot, in every Playwright trace, and in anything a
+  // reviewer opens the dev server to look at. Its error count is also not
+  // something a screenshot should be quietly asserting either way.
+  devIndicators: false,
+
   images: {
     // Avatars are rendered from dicebear as SVG. The sandbox below neutralises
     // the script-execution risk of serving a remote SVG through the optimizer.

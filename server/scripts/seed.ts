@@ -151,6 +151,91 @@ async function main() {
         console.log("Seeded 14 days of mood history for", patient.email);
     }
 
+    // A risk queue with nothing in it is a screenshot of an empty table, and it
+    // is the wrong first impression of the screen this repository is built
+    // around. The README's central claim is that a disclosure reaches a named
+    // clinician; a fresh clone could not demonstrate that, because `make up`
+    // seeded accounts, mood entries and availability but never a single
+    // RiskAlert. The queue was therefore always empty on arrival.
+    //
+    // Four alerts, chosen so the queue demonstrates the distinctions the
+    // implementation makes rather than just filling space:
+    //
+    //   - urgent, unseen, from the SOS button. Nothing has touched it.
+    //   - elevated, acknowledged 3 days ago and still unresolved. This is the
+    //     case the schema's two-timestamp split exists for: seen on Monday,
+    //     still owed an outcome on Friday.
+    //   - elevated, unseen, from a PHQ-9 item 9 response.
+    //   - urgent, resolved with a note. Present so "show resolved" has
+    //     something to show, and so the audit trail is visible.
+    //
+    // All four are assigned to dr1 so a demo clinician sees a full queue rather
+    // than an empty one.
+    const riskCount = await prisma.riskAlert.count();
+    if (riskCount === 0) {
+        const dr1 = await prisma.user.findUnique({ where: { email: "dr1@mindease.app" } });
+        if (dr1) {
+            const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
+            await prisma.riskAlert.createMany({
+                data: [
+                    {
+                        userId: patient.id,
+                        level: "urgent",
+                        reason:
+                            "Patient pressed the SOS button and wrote: I don't want to be here anymore. No clinician had responded at the time it was sent.",
+                        sourceType: "sos",
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        createdAt: daysAgo(0),
+                    },
+                    {
+                        userId: patient.id,
+                        level: "elevated",
+                        reason:
+                            "Answered yes to PHQ-9 item 9 (thoughts of being better off dead or of hurting themselves) on the intake screening.",
+                        sourceType: "phq9",
+                        // Acknowledged three days ago and deliberately left
+                        // unresolved: the queue's whole argument is that
+                        // "seen" and "dealt with" are different acts.
+                        acknowledgedAt: daysAgo(3),
+                        acknowledgedById: dr1.id,
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        createdAt: daysAgo(4),
+                    },
+                    {
+                        userId: patient.id,
+                        level: "elevated",
+                        reason:
+                            "Message contained crisis phrasing: \"I have been thinking about disappearing and nobody would notice.\"",
+                        sourceType: "message",
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        createdAt: daysAgo(1),
+                    },
+                    {
+                        userId: patient.id,
+                        level: "urgent",
+                        reason: "Six consecutive days of low mood entries triggered the decline rule.",
+                        sourceType: "mood",
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        acknowledgedAt: daysAgo(6),
+                        acknowledgedById: dr1.id,
+                        resolvedAt: daysAgo(5),
+                        resolvedById: dr1.id,
+                        resolutionNote:
+                            "Called and spoke with them for 25 minutes. Agreed a safety plan and a check-in on Thursday. Crisis line numbers given as well.",
+                        createdAt: daysAgo(7),
+                    },
+                ],
+            });
+
+            console.log("Seeded 4 risk alerts for dr1@mindease.app (3 open, 1 resolved)");
+        }
+    }
+
     console.log("\nSeed complete.");
     console.log("Accounts:");
     console.log("  admin@mindease.app / Admin@123");
