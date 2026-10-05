@@ -47,16 +47,17 @@ API slugs, and dates formatted in whatever locale the browser had are all bugs;
 [`client/tests/doctor-mapping.test.ts`](client/tests/doctor-mapping.test.ts)
 exists mostly to keep them fixed.
 
-## Three gates that are not a test suite
+## Four gates that are not a test suite
 
-Most of the unusual shape of this code follows from three checks that fail the
+Most of the unusual shape of this code follows from four checks that fail the
 build. [CONTRIBUTING.md](CONTRIBUTING.md) has the commands.
 
 | Gate | What it caught |
 |---|---|
 | **Schema drift is a build failure.** The database is built from committed migrations; if it and the datamodel disagree by one column, the build fails. | `RiskAlert.resolvedById` — declared, written by the service, created by no migration. The triage queue threw a `PrismaClientValidationError` against any properly built database, and survived because the suite had never been run against one. |
 | **Controllers may not derive an HTTP status from a message string.** `tests/error-status.test.ts` scans `src/` and fails on a bare `new Error` whose text becomes a status code. | The class of bug where a Prisma error message shape change turns a 400 into a 500 with a stack trace in the body. |
-| **The realtime contract is checked across three languages.** One assertion over the TypeScript event union, the Go JSON tags, and the client fan-out. | Drift between three implementations of one contract, which no amount of unit testing would catch. |
+| **The realtime contract is checked across three languages.** One test compares the TypeScript event union against the Go JSON tags, the Go `criticalTypes` map and the client fan-out, in both directions. | Drift between three implementations of one contract. It found five event types in the Go table that **nothing publishes**, while `sos:alert` and `risk:alert` — the two events that service exists to deliver — were classified as droppable-and-cosmetic, so the counters built to surface lost clinical alerts reported them as routine. |
+| **Documented numbers are checked against the tree.** `scripts/check-numbers.js` re-derives every count quoted in the documentation and fails the build on a disagreement. | Fifteen counts that drifted after a previous pass corrected them all: a stale test count in two CI comments, a per-file table summing to 415 under a heading that said 427, a Prisma badge reading 6.2 against a manifest pinning 6.12. |
 
 ## What it does
 
@@ -77,12 +78,36 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **125** | API routes · **27** Prisma models · **15** migrations |
-| **456** | server tests across 34 files, against a real MySQL and real Argon2 |
+| **125** | API routes · **28** Prisma models · **16** migrations |
+| **468** | server tests across 36 files, against a real MySQL and real Argon2 |
 | **46** | client unit tests · **31** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
+Every figure above is measured, not estimated. `make numbers` re-derives them and
+exits non-zero if any disagrees with what is written here.
+
+**Also worth reading:** [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) — the two
+bugs this repository's own clinical safety path contained, how a 400-test suite
+missed both, and which parts of the design I still do not believe.
+
 ## Quick start
+
+**What you need first.** `make` is the entry point for everything below and it is
+not the only prerequisite, which used to be unstated:
+
+| | |
+|---|---|
+| **git**, **GNU make** | every target runs through `make` |
+| **A POSIX shell** | every recipe runs under `/bin/bash`, so on Windows that means Git Bash or WSL |
+| **Node 22** | see `.nvmrc`; both services and both Dockerfiles pin 22 |
+| **Go 1.26** | only for the realtime service |
+| **Docker + Compose ≥ 2.17** | for `make up` and `make e2e`. `>= 2.17` is what `--wait` needs |
+| **MySQL 8** and **a free port** | only if you are not using compose. Five ports are published: 3000, 5000, 8080, 3306, 6379 |
+| **~2 GB of RAM** | three images plus a database |
+| **An OpenSSL-style RNG** | `openssl rand -base64 48`, three times, for the signing secrets |
+
+If any of that is missing, `make doctor` says which — and `make setup` runs it for
+you at the end.
 
 ```bash
 git clone https://github.com/davinakmalyasha/MindEase
@@ -96,6 +121,61 @@ they did not for most of this repository's life, because neither compose nor CI
 had a seed step.
 
 Then open **http://localhost:3000**. `make help` lists everything else.
+
+> `make up` runs the payment simulator, which settles any order from an unsigned
+> POST. That is a local-development convenience and it is set by `make up`
+> specifically, not by a default in `docker-compose.yml`, so copying the compose
+> file into a real environment cannot ship it.
+
+### Project layout
+
+```
+MindEase/
+├─ server/              Express 5 + Prisma + MySQL. The API.
+│  ├─ prisma/
+│  │  ├─ schema.prisma  28 models, no enums — every status is a String
+│  │  └─ migrations/    16 hand-written MySQL migrations, all backticked
+│  ├─ src/
+│  │  ├─ routes/        125 router registrations across 17 files
+│  │  ├─ services/      the domain; the only layer that touches Prisma
+│  │  ├─ controllers/   HTTP shape only
+│  │  ├─ middleware/    auth, roles, CSRF, rate limits
+│  │  ├─ schemas/       zod, and the generated OpenAPI document
+│  │  ├─ jobs/          three cron jobs, all single-runner gated
+│  │  └─ lib/           tokens, cache, storage, payments, logging
+│  └─ tests/            468 integration tests against a real database
+├─ client/              Next.js 16 App Router, React 19, next-intl
+│  ├─ app/              37 routes; every authenticated one is a client component
+│  ├─ components/       53 components
+│  ├─ hooks/queries/    TanStack Query — the house data-fetching pattern
+│  ├─ messages/         en.json and id.json, kept in parity by a test
+│  ├─ e2e/              12 Playwright journeys
+│  └─ tests/            46 unit tests
+├─ server-realtime/     Go WebSocket hub. 31 tests with -race.
+├─ docs/                architecture, data model, operations, testing, roadmap
+│  ├─ adr/              four records of decisions and what was rejected
+│  └─ roadmap.md        including what will never be built, and why
+├─ scripts/             the repository's own gates; see below
+├─ .github/workflows/   ci, cd, security — 27 jobs
+└─ Makefile             `make help`
+```
+
+### The repository checks its own prose
+
+`scripts/` holds four gates that run in CI and can be run by hand:
+
+| Script | What it fails on |
+|---|---|
+| `check-numbers.js` | a documented count disagreeing with the tree. Exits **2** when an anchor stops matching, because a document that quietly stopped being checked is worse than one with a wrong number |
+| `check-encoding.js` | mojibake — the fingerprint of a bulk text repair run through a console codepage. Caught three times here, once inside `schema.prisma` |
+| `check-migration-case.js` | a migration whose table casing resolves on Windows and fails on Linux |
+| `check-workflows.js` | a job without permissions or a timeout, a `needs:` that resolves to nothing, an unpinned action, a secret interpolated into a script |
+
+Plus two maintenance tools: `pin-actions.js` rewrites every `uses:` to a commit
+SHA, and `check-encoding.js` doubles as the pre-commit guard.
+
+Every count in this file is produced by `make numbers`, which prints the measured
+values and exits non-zero if any of them disagrees with what is written here.
 
 <details>
 <summary>Running the three services without Docker</summary>
@@ -131,13 +211,13 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 456 server tests against a freshly migrated database
+make test       # 468 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
 
 The server suite is integration-only: a real MySQL, real Argon2, real cookies.
-SQLite is not an option — the provider is a literal `mysql` and all 15 migrations
+SQLite is not an option — the provider is a literal `mysql` and all 16 migrations
 are raw MySQL DDL.
 
 Coverage is available (`make -C server coverage`, `make -C client coverage`) but
@@ -152,9 +232,10 @@ has read.
 | | |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the services fit together, and the reasoning behind the layering |
+| [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | What was wrong in this repository, how it was found, and what I still do not believe |
 | [docs/security.md](docs/security.md) | Threat model, what is deliberately not protected, and the controls that carry the weight |
-| [docs/data-model.md](docs/data-model.md) | 27 models, an ER diagram, and the decisions that are not obvious from the schema |
-| [docs/testing.md](docs/testing.md) | The three gates, all 33 server test files, and how to add a test |
+| [docs/data-model.md](docs/data-model.md) | 28 models, an ER diagram, and the decisions that are not obvious from the schema |
+| [docs/testing.md](docs/testing.md) | The gates, all 36 server test files, and how to add a test |
 | [docs/operations.md](docs/operations.md) | Runbook: backup, secret rotation, rollback, troubleshooting |
 | [docs/glossary.md](docs/glossary.md) | The domain terms the code uses without defining |
 | [docs/roadmap.md](docs/roadmap.md) | Direction, including what is deliberately not planned |
@@ -367,7 +448,7 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 456 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 468 tests against a MySQL service container
 - `client` — lint, 46 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys when requested

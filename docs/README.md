@@ -10,7 +10,7 @@ code.
 | Document | What it answers | Read it when |
 |---|---|---|
 | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) | How the three processes fit together and why the load-bearing calls went the way they did | First. It is the map everything else hangs off. |
-| [`data-model.md`](data-model.md) | What the 27 tables are for, and why the non-obvious ones are shaped the way they are | Before writing any query, migration or export |
+| [`data-model.md`](data-model.md) | What the 28 tables are for, and why the non-obvious ones are shaped the way they are | Before writing any query, migration or export |
 | [`security.md`](security.md) | The threat model: what is defended, how, and what is not | Reviewing a change that touches auth, ownership, free text or video |
 | [`testing.md`](testing.md) | How to run the three suites and what each one actually covers | Before running anything, and before adding a test |
 | [`operations.md`](operations.md) | Local setup, deploys, backups, rotation, rollback, and the cron jobs that are not durable | On call, or standing up a new environment |

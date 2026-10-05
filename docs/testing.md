@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 456 tests, 34 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 468 tests, 36 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 46 tests, 6 files |
 
@@ -338,11 +338,12 @@ four health checks, seed — *is* gated, because that part has a known-good
 expectation and a red there is always a real defect. It is promoted to required
 once green.
 
-## The 34 server test files
+## The 36 server test files
 
 | File | Tests | What it covers |
 |---|---|---|
 | `access-log-redaction.test.ts` | 5 | **Meta-test.** Access logs carry no query-string values, so `?search=<patient email>` cannot reach the log store, while the query keys and the header redactions survive |
+| `account-export.test.ts` | 6 | Data subject access: the export covers everything account deletion destroys, the safety-plan key exists even when none was written, another patient's record is excluded, and deletion really removes the three that the export was widened for |
 | `ai-provenance.test.ts` | 16 | `AiResult` shape, prompt fencing reaching the model, circuit breaker states and transitions, timeout passed to the provider |
 | `ai-provenance-http.test.ts` | 5 | `briefingSource` persisted and returned; provenance survives to the client over HTTP |
 | `appointment.test.ts` | 9 | Booking a slot and locking it, idempotency-key replay, double-booking and overlap rejection, doctor confirmation without minting a public meeting link, slot release on cancel, reschedule to pending, ownership on cancel |
@@ -357,6 +358,7 @@ once green.
 | `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |
 | `openapi.test.ts` | 7 | **Meta-test.** Spec matches registered routes; multipart uploads; webhook security model |
 | `payment-config.test.ts` | 11 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |
+| `mood-decline.test.ts` | 6 | The mood-decline rule as a matched pair — six entries decline, three entries have nothing to compare against — and the escalation it now performs: an elevated `RiskAlert` addressed to the treating clinician, at most once a week |
 | `payments.test.ts` | 18 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
 | `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
 | `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |

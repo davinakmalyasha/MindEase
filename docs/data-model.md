@@ -1,6 +1,6 @@
 # Data model
 
-27 tables, no enums, and almost every interesting decision in the schema is
+28 tables, no enums, and almost every interesting decision in the schema is
 recorded as a comment next to the column it justifies. This document is the map
 of those decisions: what each group of tables is for, and why the ones that look
 odd are shaped the way they are.
