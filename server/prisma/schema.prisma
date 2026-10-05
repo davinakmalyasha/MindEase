@@ -570,6 +570,31 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// A single-runner gate for the scheduled jobs.
+///
+/// Exists because MySQL's `GET_LOCK` cannot be used for this: it is scoped to the
+/// *connection*, and Prisma borrows a connection from a pool. The lock would be
+/// taken on one connection and the job would run while holding it, then the
+/// connection would return to the pool still holding the name - so `RELEASE_LOCK`
+/// on a different borrowed connection returns NULL and the lock stays held until
+/// the server restarts. `cache.ts` documented that the fallback "cannot work as
+/// written" and carried on anyway.
+///
+/// A row with a `key` unique constraint and an expiry is the same idea expressed
+/// in a way a connection pool cannot break: acquiring is a conditional `UPDATE`,
+/// which is atomic in the database, holds nothing open, and releases by expiry.
+/// Works on Redis-free deployments, and survives a crash because the TTL is data
+/// rather than a live session.
+model JobLock {
+  key       String   @id
+  /// When the lock may be taken again. Set by the acquirer, never read as a
+  /// boolean - a row that exists but is expired means "free".
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 model FollowUp {
   id              Int      @id @default(autoincrement())
   appointmentId   Int      @unique

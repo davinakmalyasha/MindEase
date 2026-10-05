@@ -119,7 +119,7 @@ const FALLBACK_ANSWERS: { keywords: RegExp; answer: string }[] = [
          * health records, is not an acceptable trade for a friendlier sentence.
          */
         answer:
-            "Your data is encrypted in transit (HTTPS) and access to your health records is restricted to you and your assigned psychologist. We never sell personal data, and deleting your account purges your journals, mood logs and screening results. Full details on the privacy page: /privacy.",
+            "Your data is encrypted in transit (HTTPS) and access to your health records is restricted to you and your assigned psychologist. We never sell personal data. Deleting your account purges your journals, mood logs, screening results, messages, safety plan and care plan. Your appointment history and any risk disclosure are retained in anonymised form so your psychologist's clinical record stays intact. You can export everything first. Full details on the privacy page: /privacy.",
     },
     {
         keywords: /(verify|verified|license|izin|str|sip|tersertifikasi)/i,
