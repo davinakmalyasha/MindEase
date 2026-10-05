@@ -212,7 +212,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-matrix:
+      matrix:
         # Compose service names. Each compose service now declares an explicit
         # `image: mindease-<service>:${IMAGE_TAG:-latest}`, so the tag is
         # knowable without asking docker what it called something.

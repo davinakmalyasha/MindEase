@@ -449,6 +449,29 @@ jobs:
           JWT_SECRET: ci-docker-jwt-secret
           REFRESH_SECRET: ci-docker-refresh-secret
           TWO_FACTOR_SECRET: ci-docker-two-factor-secret
+          # Compose sets `NODE_ENV: production` and carries no payment
+          # credentials, and the config layer refuses to boot in production
+          # without either real ones or an explicit opt-in to the simulator -
+          # because a deployment that quietly settles every order from an
+          # unsigned POST is the exact failure that check exists to prevent.
+          #
+          # So the ephemeral CI stack declares the opt-in, exactly as `make up`
+          # does. This job was silently relying on the validator not existing:
+          # the API exited, compose reported `mindease-api is unhealthy`, and
+          # without the log step below there was no way to tell why.
+          ALLOW_PAYMENT_SIMULATOR: "true"
+
+      # `docker compose up --wait` reports "mindease-api is unhealthy" and
+      # nothing else. The reason the container exited - which is the only part
+      # worth knowing - is in its stdout, and this step used to throw it away.
+      # It cost a full CI cycle to find that out.
+      - name: Container logs, if the stack did not come up
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Container states, if the stack did not come up
+        if: failure()
+        run: docker compose ps -a
+
       - name: API liveness
         run: curl -fsS http://localhost:5000/api/health
       - name: API database check (the endpoint that actually queries MySQL)

@@ -11,7 +11,7 @@
 // logic can be rewritten as long as it still tells a trigger from a job.
 
 const assert = require("assert");
-const { countJobs } = require("./check-workflows.js");
+const { countJobs, collectJobs, indentationProblems } = require("./check-workflows.js");
 
 const cases = [
   {
@@ -93,3 +93,80 @@ if (failed) {
   process.exit(1);
 }
 console.log(`\ncheck-workflows self-test: ${cases.length} cases passed.`);
+
+// The indentation rule is separate from job counting, and has the case that
+// motivated it: a `matrix:` at column 0 inside a job. PyYAML rejects the whole
+// file, and every other rule here is satisfied by it.
+const indentCases = [
+  {
+    name: "a key that lost its indentation inside a job",
+    src: [
+      "on:",
+      "  push:",
+      "jobs:",
+      "  scan:",
+      "    permissions:",
+      "      contents: read",
+      "    timeout-minutes: 5",
+      "    runs-on: ubuntu-latest",
+      "    strategy:",
+      "      fail-fast: false",
+      "matrix:",
+      "        service: [a, b]",
+    ].join("\n"),
+    want: 1,
+  },
+  {
+    name: "the same workflow with its indentation restored",
+    src: [
+      "on:",
+      "  push:",
+      "jobs:",
+      "  scan:",
+      "    permissions:",
+      "      contents: read",
+      "    timeout-minutes: 5",
+      "    runs-on: ubuntu-latest",
+      "    strategy:",
+      "      fail-fast: false",
+      "      matrix:",
+      "        service: [a, b]",
+    ].join("\n"),
+    want: 0,
+  },
+  {
+    name: "blank lines and comments inside a job are not keys",
+    src: [
+      "on:",
+      "  push:",
+      "jobs:",
+      "  scan:",
+      "    permissions:",
+      "      contents: read",
+      "    timeout-minutes: 5",
+      "",
+      "# a comment at column 0",
+      "    runs-on: ubuntu-latest",
+    ].join("\n"),
+    want: 0,
+  },
+];
+
+let indentFailed = 0;
+for (const c of indentCases) {
+  const found = indentationProblems(c.src, collectJobs(c.src));
+  try {
+    assert.strictEqual(found.length, c.want, found.join("; "));
+    console.log(`ok   ${c.name} (${found.length})`);
+  } catch (e) {
+    indentFailed += 1;
+    console.error(`FAIL ${c.name}`);
+    console.error(`     ${e.message}`);
+  }
+}
+
+if (indentFailed) {
+  console.error(`\n${indentFailed} of ${indentCases.length} indentation case(s) failed.`);
+  process.exit(1);
+}
+console.log(`check-workflows indentation self-test: ${indentCases.length} cases passed.`);

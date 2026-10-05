@@ -87,6 +87,11 @@ for (const file of files) {
   const jobs = collectJobs(src);
   const jobNames = new Set(jobs.map((j) => j.name));
 
+  // Consistent indentation, so the file can still be parsed as YAML.
+  for (const p of indentationProblems(src, jobs)) {
+    problems.push(`${file}: ${p}. This file will not parse as YAML.`);
+  }
+
   for (const job of jobs) {
     // Everything between this job's header and the next one.
     const from = job.line;
@@ -221,4 +226,44 @@ if (require.main === module) {
   process.exit(report());
 }
 
-module.exports = { collectJobs, countJobs: (src) => collectJobs(src).length, report };
+/**
+ * Lines in a workflow that are less indented than the job header they sit under.
+ *
+ * YAML forbids a key at column 0 inside a job body. Every other rule in this file
+ * is satisfied by such a file - the job headers are still there, still two-space
+ * indented, still have their `permissions:` and `timeout-minutes:` - so a
+ * line-based checker cannot see that the file stopped being valid YAML.
+ *
+ * It did exactly that: this function's caller reported "3 files, 17 jobs" on a
+ * `security.yml` that PyYAML refused to parse at all, because one `matrix:` key
+ * had lost its leading spaces. The workflow job then failed with an error
+ * pointing at a line in a file nobody suspected.
+ *
+ * Returns human-readable strings; empty means the indentation is consistent.
+ */
+function indentationProblems(src, jobs) {
+  const lines = src.split("\n");
+  const found = [];
+
+  for (const job of jobs) {
+    const from = job.line;
+    const nextStart = jobs.find((j) => j.line > from)?.line ?? lines.length + 1;
+    const jobIndent = (lines[from - 1].match(/^ */) || [""])[0].length;
+
+    for (let i = from; i < nextStart - 1 && i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim() || line.trimStart().startsWith("#")) continue;
+      const indent = (line.match(/^ */) || [""])[0].length;
+      if (indent <= jobIndent) {
+        found.push(
+          `${job.name}: "${line.trim().slice(0, 60)}" is at column ${indent + 1}, ` +
+            `but a job body must be indented past column ${jobIndent + 2}`
+        );
+      }
+    }
+  }
+
+  return found;
+}
+
+module.exports = { collectJobs, countJobs: (src) => collectJobs(src).length, indentationProblems, report };
