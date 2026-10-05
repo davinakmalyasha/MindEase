@@ -175,8 +175,23 @@ check-workflows: ## Fail on a workflow job with no permissions/timeout, a dangli
 numbers: ## Print the measured counts the documentation quotes
 	node scripts/check-numbers.js
 
+.PHONY: check-a11y-ids
+check-a11y-ids: ## Fail on a duplicate id, an orphaned label, or two labels sharing one id. Required in CI.
+	node scripts/check-a11y-ids.test.js
+	node scripts/check-a11y-ids.js
+
+.PHONY: check-csp
+check-csp: ## Fail if the client CSP is malformed or forbids the configured API. Required in CI.
+	node scripts/check-csp.test.js
+	node scripts/check-csp.js
+
+.PHONY: check-i18n
+check-i18n: ## Fail on a t("key") that resolves in no locale. Required in CI.
+	node scripts/check-i18n.test.js
+	node scripts/check-i18n.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

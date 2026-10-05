@@ -74,6 +74,38 @@ jobs:
         run: |
           node scripts/check-workflows.test.js
           node scripts/check-workflows.js
+      # The client has 93 tsx files and, until now, no static check of any kind
+      # on its markup. This one exists because `login/page.tsx` gave the sign-up
+      # form's Email and Password labels the sign-in form's input ids, so
+      # clicking either label focused nothing. Both ids existed, so no
+      # "missing label target" rule could ever have caught it; the rule that
+      # does is two labels for one id.
+      - name: Label/id self-test, then label/id gate
+        run: |
+          node scripts/check-a11y-ids.test.js
+          node scripts/check-a11y-ids.js
+      # The CSP blocked this application's own API. `connect-src` was hardcoded to
+      # Railway's host, so on any other deployment the browser refused every
+      # request and the UI said "Network Error". That includes compose, which
+      # defaults the API to localhost, which means the twelve Playwright journeys
+      # in the `docker` job could not have passed either. The origins are now
+      # derived from NEXT_PUBLIC_API_URL, and this gate fails if the resulting
+      # header is malformed or omits them - the first attempt at the fix was
+      # malformed and looked identical to the original bug.
+      - name: CSP self-test, then CSP gate
+        run: |
+          node scripts/check-csp.test.js
+          node scripts/check-csp.js
+      # next-intl throws on a key it cannot resolve, so a missing message is not a
+      # blank label - it is a page that will not render. The navbar called
+      # t("signUp") under the "nav" namespace and neither locale had it, so every
+      # page in the application threw, including the sign-in page. The existing
+      # locale-parity test could not catch it: both files were missing the key, so
+      # they agreed with each other perfectly.
+      - name: Translation-key self-test, then translation-key gate
+        run: |
+          node scripts/check-i18n.test.js
+          node scripts/check-i18n.js
 
   # --------------------------------------------------------------------
   # Compose file validation

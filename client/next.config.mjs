@@ -76,12 +76,38 @@ const stampServiceWorker = () => {
   }
 };
 
+/**
+ * The origin of a configured endpoint, for `connect-src`.
+ *
+ * Returns `null` rather than throwing on an unparseable value, because a
+ * malformed `NEXT_PUBLIC_API_URL` should produce a CSP that simply omits it —
+ * the request then fails loudly with a CSP error naming the directive, which is
+ * a better failure than a build that will not start.
+ */
+const originOf = (value) => {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
 /** @type {NextConfig} */
 const nextConfig = {
   output: "standalone",
 
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Next 16 generates `client/AGENTS.md` and `client/CLAUDE.md` on `next dev`.
+  // Both are ignored in `.gitignore`, but ignoring them is the second line of
+  // defence: this repository already has a curated root `AGENTS.md` describing
+  // the deploy paths, the secret rules and the test gates, and an auto-generated
+  // file one directory down describing the same project in a different way is
+  // worse than no second file. An agent reading the nearest one gets the
+  // generated version.
+  agentRules: false,
 
   images: {
     // Avatars are rendered from dicebear as SVG. The sandbox below neutralises
@@ -129,12 +155,46 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
-      // connect-src is where the realtime socket and the video transport live.
-      // `wss:` is required for the LiveKit signalling connection, which is a
-      // separate host from this app. Narrowing this to a specific host is
-      // possible but has to be edited per deployment; the comment on the video
-      // env block in .env.example says so.
-      "connect-src 'self' https://api.dicebear.com https://*.up.railway.app wss:",
+      // connect-src is where the realtime socket, the API and the video
+      // transport live.
+      //
+      // This used to be a fixed list - `'self'`, dicebear, `*.up.railway.app`
+      // and `wss:` - with a comment saying the API host would have to be edited
+      // per deployment. Editing it per deployment is exactly what nobody does.
+      // It was never edited, so `http://localhost:5000` was never allowed, and
+      // the browser blocked every call to this application's own API: signing in
+      // rendered "Network Error" with no network error anywhere. That is the
+      // entire local development experience, and it is also all twelve Playwright
+      // journeys, because compose defaults `NEXT_PUBLIC_API_URL` to
+      // `http://localhost:5000/api` for exactly the same reason.
+      //
+      // So the origins are derived from the same variables the client bundle
+      // uses. The header and the bundle can no longer disagree, which is the
+      // failure mode a hardcoded list guarantees.
+      //
+      // Two entries are kept deliberately broad.
+      //
+      // `wss:` stays because `https:` does not cover a WebSocket origin -
+      // `wss://api.up.railway.app` is not matched by `https://*.up.railway.app` -
+      // so narrowing to hosts would silently break the realtime socket in
+      // production.
+      //
+      // The Sentry hosts are here for the same reason: `lib/sentry.ts` wires up
+      // client-side error reporting whenever `NEXT_PUBLIC_SENTRY_DSN` is set, and
+      // without these two the browser drops every event on the floor. There is no
+      // visible failure for missing telemetry; it is the easiest kind of breakage
+      // to ship and the hardest to notice.
+      `connect-src ${[
+        "'self'",
+        originOf(process.env.NEXT_PUBLIC_API_URL),
+        originOf(process.env.NEXT_PUBLIC_REALTIME_URL),
+        originOf(process.env.NEXT_PUBLIC_SENTRY_DSN),
+        "https://api.dicebear.com",
+        "https://*.up.railway.app",
+        "wss:",
+      ]
+        .filter(Boolean)
+        .join(" ")}`,
       // Only the degraded jitsi fallback needs a frame source. A livekit
       // session connects with the SDK and frames nothing, so on a fully
       // configured deployment this can be removed outright.
