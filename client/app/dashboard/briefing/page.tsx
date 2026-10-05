@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Sparkles, CalendarClock } from "lucide-react";
 import { useMyAppointments } from "@/hooks/queries/useAppointmentsQuery";
 import { useAuth } from "@/context/AuthContext";
 import Avatar from "@/components/ui/Avatar";
+import DashboardLayout from "@/components/layout/DashboardLayout";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -56,15 +57,33 @@ export default function BriefingIndexPage() {
     if (!user || user.role !== "doctor") {
         // The route is doctor-only; the API enforces it too, but sending a
         // non-doctor to their own dashboard beats rendering an empty list.
+        //
+        // Inside `DashboardLayout`, unlike the branch below and unlike every
+        // other page in this directory - see the note at the main return.
         return (
-            <div className="text-center py-16">
-                <p className="text-sm text-gray-500">{tc("noPermission")}</p>
-            </div>
+            <DashboardLayout>
+                <div className="text-center py-16">
+                    <p className="text-sm text-gray-500">{tc("noPermission")}</p>
+                </div>
+            </DashboardLayout>
         );
     }
 
     return (
-        <div className="space-y-6">
+        // `DashboardLayout` was missing from this page entirely, which is why it
+        // was the only route in the directory without a sidebar, a navbar, a
+        // crisis banner, a notification bell or a sign-out button. Every one of
+        // those is a component the layout renders, so there was nowhere to log
+        // out from and nothing to escalate with on the one screen a clinician
+        // reaches for when a disclosure has just arrived.
+        //
+        // The fix is one wrapper rather than a route group, because a route group
+        // would move the files and lose the URL. The deeper problem is that 21
+        // pages each import the layout by hand and nothing checks that they do,
+        // so the same bug is one deleted import away from happening again -
+        // tracked in docs/roadmap.md.
+        <DashboardLayout>
+            <div className="space-y-6">
             <div className="flex items-center gap-3">
                 <Link
                     href="/dashboard/appointments"
@@ -131,7 +150,7 @@ export default function BriefingIndexPage() {
                     ))}
                 </ul>
             )}
-
             </div>
+        </DashboardLayout>
     );
 }
