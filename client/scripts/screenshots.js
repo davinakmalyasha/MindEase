@@ -115,10 +115,46 @@ async function stripOverlays(page) {
     .catch(() => {});
 }
 
-async function settle(page, ms = 1_200) {
+async function settle(page, ms = 2_200) {
   await page.waitForLoadState("networkidle").catch(() => {});
-  // Several of these screens animate. A capture taken mid-transition reads as a
-  // rendering bug to anyone who has not seen the app move.
+
+  // Wait for framer-motion to stop moving before capturing.
+  //
+  // The mood chart animates each bar from `height: 0` with a staggered delay of
+  // 30ms per bar, so the fourteenth bar finishes around 800ms - and the first
+  // capture of that page was taken while every bar was still at zero, which
+  // rendered as a chart with axes, a legend, and no data at all. That is not a
+  // cosmetic problem: a screenshot showing an empty chart next to "Logged 14
+  // entries" is a claim that the feature is broken.
+  //
+  // Rather than guess a longer sleep, this polls the DOM for the tallest animated
+  // element and waits until it stops growing. It returns as soon as the page is
+  // genuinely still, which is both faster and more reliable than any fixed
+  // delay.
+  const deadline = Date.now() + 8_000;
+  let lastHeight = -1;
+  let stableRounds = 0;
+  while (Date.now() < deadline) {
+    const height = await page
+      .evaluate(() => {
+        let max = 0;
+        for (const el of document.querySelectorAll("div[style*='height'], svg[style*='height']")) {
+          const h = el.getBoundingClientRect().height;
+          if (h > max) max = h;
+        }
+        return max;
+      })
+      .catch(() => 0);
+    if (height > 0 && height === lastHeight) {
+      stableRounds += 1;
+      if (stableRounds >= 2) break;
+    } else {
+      stableRounds = 0;
+    }
+    lastHeight = height;
+    await page.waitForTimeout(250);
+  }
+
   await page.waitForTimeout(ms);
 }
 
