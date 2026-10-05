@@ -216,17 +216,33 @@ jobs:
         # Compose service names, because `docker compose build <service>` is what
         # produces a correctly tagged image without inventing a tag here.
         service: [api, web, realtime]
+    outputs:
+      # The service name is the only thing these jobs can agree on. Each job
+      # writes the id of the image it actually built, and the gate job below
+      # needs all three of them, so it reads them out of here.
+      image-id: ${{ steps.resolve.outputs.ref }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Build the image
         run: docker compose build ${{ matrix.service }}
 
+      # Resolving the reference instead of predicting it. Compose tags a built
+      # service `<project>-<service>`, where `<project>` is the checkout
+      # directory lowercased, and nothing in this repository ever appended `:ci`
+      # -- so the previous version of this job scanned `mindease-api:ci`, which
+      # does not exist, and Trivy exited non-zero on three images. A scan that
+      # fails because it could not find the image is a scan that reports
+      # nothing, and it is a failure a reviewer learns to ignore.
+      - name: Resolve the built image id
+        id: resolve
+        run: echo "ref=$(docker compose images -q ${{ matrix.service }})" >> "$GITHUB_OUTPUT"
+
       - name: Scan the built image for CVEs
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: v0.70.0
-          image-ref: mindease-${{ matrix.service }}:ci
+          image-ref: ${{ steps.resolve.outputs.ref }}
           format: table
           # `os` for the base image and the OS packages it brings, `library` for
           # the language dependencies resolved into the image. Both were excluded

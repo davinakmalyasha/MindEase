@@ -166,12 +166,17 @@ check-migration-case: ## Fail on a migration whose table casing breaks on Linux.
 check-numbers: ## Fail if a documented count disagrees with the repository
 	node scripts/check-numbers.js
 
+.PHONY: check-workflows
+check-workflows: ## Fail on a workflow job with no permissions/timeout, a dangling needs:, or an unpinned action. Required in CI.
+	node scripts/check-workflows.test.js
+	node scripts/check-workflows.js
+
 .PHONY: numbers
 numbers: ## Print the measured counts the documentation quotes
 	node scripts/check-numbers.js
 
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

@@ -35,6 +35,34 @@ const indentOf = (line) => {
   return (line.match(/^ */) || [""])[0].length;
 };
 
+/**
+ * The job headers in a workflow: a two-space `key:` appearing after the
+ * top-level `jobs:` key.
+ *
+ * The `after jobs:` restriction is the whole point. `on:` also has two-space
+ * children - `push:`, `pull_request:`, `schedule:` - and every one of them looks
+ * exactly like a job header to a line-oriented reader. Both this file and its
+ * self-test exist because that mistake got made twice: once in the loop that
+ * inspects each job, and once more in the summary counter.
+ *
+ * Returns `[]` when there is no top-level `jobs:` key, so a malformed workflow is
+ * reported by the caller's structural checks rather than by a wrong count.
+ */
+function collectJobs(src) {
+  const jobsKeyIndex = src.split("\n").findIndex((l) => /^jobs:\s*$/.test(l));
+  if (jobsKeyIndex === -1) return [];
+
+  const header = /^ {2}([a-zA-Z0-9_-]+):\s*$/gm;
+  const jobs = [];
+  let m;
+  while ((m = header.exec(src)) !== null) {
+    const line = src.slice(0, m.index).split("\n").length;
+    if (line <= jobsKeyIndex + 1) continue;
+    jobs.push({ name: m[1], line });
+  }
+  return jobs;
+}
+
 for (const file of files) {
   const src = fs.readFileSync(path.join(DIR, file), "utf8");
   const lines = src.split("\n");
@@ -56,20 +84,13 @@ for (const file of files) {
     continue;
   }
 
-  const jobHeader = /^ {2}([a-zA-Z0-9_-]+):\s*$/gm;
-  const jobs = [];
-  let m;
-  while ((m = jobHeader.exec(src)) !== null) {
-    const lineNo = src.slice(0, m.index).split("\n").length;
-    if (lineNo <= jobsKeyIndex + 1) continue;
-    jobs.push({ name: m[1], startLine: lineNo });
-  }
+  const jobs = collectJobs(src);
   const jobNames = new Set(jobs.map((j) => j.name));
 
   for (const job of jobs) {
     // Everything between this job's header and the next one.
-    const from = job.startLine;
-    const nextStart = jobs.find((j) => j.startLine > from)?.startLine ?? lines.length + 1;
+    const from = job.line;
+    const nextStart = jobs.find((j) => j.line > from)?.line ?? lines.length + 1;
     const body = lines.slice(from - 1, nextStart - 1).join("\n");
 
     if (!/^\s+permissions:/m.test(body)) {
@@ -162,8 +183,13 @@ for (const file of files) {
 
 // --- report ------------------------------------------------------------------
 
+// Counted with `collectJobs`, the same function the per-job loop uses. It was
+// not: this summed every two-space `key:` in the file, so the trigger keys under
+// `on:` counted as jobs and the summary claimed 27 for a repository with 17. A
+// gate that reports the wrong denominator is a gate nobody can trust, and the
+// number it prints is the only part of the output anyone actually reads.
 const jobTotal = files.reduce(
-  (n, f) => n + (fs.readFileSync(path.join(DIR, f), "utf8").match(/^ {2}[a-zA-Z0-9_-]+:\s*$/gm) || []).length,
+  (n, f) => n + collectJobs(fs.readFileSync(path.join(DIR, f), "utf8")).length,
   0
 );
 const usesTotal = files.reduce(
@@ -175,16 +201,24 @@ const usesTotal = files.reduce(
   0
 );
 
-console.log(`check-workflows — ${files.length} files, ${jobTotal} jobs, ${usesTotal} action references\n`);
+const report = () => {
+  console.log(`check-workflows — ${files.length} files, ${jobTotal} jobs, ${usesTotal} action references\n`);
 
-if (problems.length === 0) {
-  console.log("Every job declares permissions, a timeout and a runner; every needs: resolves;");
-  console.log("every action reference is pinned to a SHA; no target-trigger, no set -x, and no");
-  console.log("secret interpolated into a script.");
-  process.exit(0);
+  if (problems.length === 0) {
+    console.log("Every job declares permissions, a timeout and a runner; every needs: resolves;");
+    console.log("every action reference is pinned to a SHA; no target-trigger, no set -x, and no");
+    console.log("secret interpolated into a script.");
+    return 0;
+  }
+
+  console.error(`check-workflows found ${problems.length} problem(s):\n`);
+  for (const p of problems) console.error(`  ${p}`);
+  console.error("");
+  return 1;
+};
+
+if (require.main === module) {
+  process.exit(report());
 }
 
-console.error(`check-workflows found ${problems.length} problem(s):\n`);
-for (const p of problems) console.error(`  ${p}`);
-console.error("");
-process.exit(1);
+module.exports = { collectJobs, countJobs: (src) => collectJobs(src).length, report };

@@ -74,18 +74,24 @@ jobs:
               missing=1
             fi
           done
+          # An empty Google client id is survivable - the sign-in page hides the
+          # button behind `GOOGLE_CLIENT_ID &&` - so it is a warning. The URLs
+          # are not: they are inlined into the bundle at build time and the only
+          # fallback is `localhost`.
+          #
+          # It was in the loop above anyway, which meant the comment described a
+          # behaviour the job did not have. A comment that promises a warning and
+          # a job that blocks the deploy are both defensible; having them disagree
+          # is the problem, because the next reader trusts the comment.
           for v in API_SERVICE REALTIME_SERVICE \
                    PRODUCTION_API_URL PRODUCTION_REALTIME_URL \
                    NEXT_PUBLIC_API_URL NEXT_PUBLIC_REALTIME_URL \
-                   NEXT_PUBLIC_SITE_URL NEXT_PUBLIC_GOOGLE_CLIENT_ID; do
+                   NEXT_PUBLIC_SITE_URL; do
             if [ -z "${!v}" ]; then
               echo "::error::repository variable $v is not set"
               missing=1
             fi
           done
-          # An empty Google client id is survivable - the sign-in page hides the
-          # button - so it is a warning. The URLs are not: they are inlined into
-          # the bundle at build time and the only fallback is `localhost`.
           if [ -z "${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}" ]; then
             echo "::warning::NEXT_PUBLIC_GOOGLE_CLIENT_ID is unset; Google sign-in will be hidden"
           fi

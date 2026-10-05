@@ -56,7 +56,7 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 5
-    name: Docs (numbers, encoding)
+    name: Docs (numbers, encoding, workflows)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -64,6 +64,16 @@ jobs:
         run: node scripts/check-numbers.js
       - name: Encoding guard (whole repo)
         run: node scripts/check-encoding.js
+      # The workflow checker exists to catch a job that cannot work, and it
+      # runs only in CI if CI runs it. It did not, for four weeks: the script
+      # was written, described in two documents, and never referenced by any
+      # workflow or Makefile target. A gate that is documented and not wired is
+      # indistinguishable from no gate, and it is the most comfortable kind of
+      # bug to ship, because writing the gate feels like doing the work.
+      - name: Workflow self-test, then workflow gate
+        run: |
+          node scripts/check-workflows.test.js
+          node scripts/check-workflows.js
 
   # --------------------------------------------------------------------
   # Compose file validation
