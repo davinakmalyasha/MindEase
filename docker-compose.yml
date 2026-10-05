@@ -58,7 +58,7 @@ services:
     # like a gate.
     #
     # `IMAGE_TAG` lets CI build under a predictable tag and scan precisely that.
-    image: mindease-api-${IMAGE_TAG:-latest}
+    image: mindease-api:${IMAGE_TAG:-latest}
     build: ./server
     container_name: mindease-api
     restart: unless-stopped
@@ -130,7 +130,7 @@ services:
       retries: 5
 
   realtime:
-    image: mindease-realtime-${IMAGE_TAG:-latest}
+    image: mindease-realtime:${IMAGE_TAG:-latest}
     build: ./server-realtime
     container_name: mindease-realtime
     restart: unless-stopped
@@ -155,7 +155,7 @@ services:
       retries: 5
 
   web:
-    image: mindease-web-${IMAGE_TAG:-latest}
+    image: mindease-web:${IMAGE_TAG:-latest}
     build:
       context: ./client
       # `NEXT_PUBLIC_*` values are inlined into the browser bundle at BUILD time.
