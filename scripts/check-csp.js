@@ -32,33 +32,28 @@ const path = require("path");
 
 const { parsePolicy } = require("./check-csp-lib.js");
 
-const CONFIG = path.join(__dirname, "..", "client", "next.config.mjs");
+// Imported, not required from `next.config.mjs`.
+//
+// It used to require the config, which imports `next-intl/plugin`, and the first
+// CI run failed with:
+//
+//     Cannot find package 'next-intl' imported from client/next.config.mjs
+//
+// because this gate is the only one in the `docs` job that does not install
+// dependencies. Every other gate reads files as text and runs on a bare checkout
+// in about eight seconds; this one was the odd one out, and the odd one out is
+// the one that eventually stops being run.
+//
+// So the policy lives in `client/lib/csp.mjs`, a module with no imports, and both
+// the Next config and this gate consume it. One copy, no drift, and the check
+// runs anywhere Node runs.
+const POLICY_MODULE = path.join(__dirname, "..", "client", "lib", "csp.mjs");
 
-/** Load next.config.mjs with `env` applied, and return its `/ :path *` CSP. */
-async function evaluate(env) {
-  const saved = {};
-  for (const [k, v] of Object.entries(env)) {
-    saved[k] = process.env[k];
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try {
-    // Fresh instance per evaluation, so `headers()` sees the env applied above.
-    delete require.cache[require.resolve(CONFIG)];
-    const mod = require(CONFIG);
-    const routes = await mod.default.headers();
-    if (!Array.isArray(routes)) throw new Error("headers() did not return an array");
-    for (const r of routes) {
-      const h = (r.headers || []).find((x) => x.key.toLowerCase() === "content-security-policy");
-      if (h) return h.value;
-    }
-    throw new Error("no Content-Security-Policy header on /:path*");
-  } finally {
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
+async function evaluate({ isProduction, env }) {
+  // Fresh instance per evaluation, so each configuration is built from scratch.
+  delete require.cache[require.resolve(POLICY_MODULE)];
+  const mod = await import(`file:///${POLICY_MODULE.replace(/\\/g, "/")}?v=${Date.now()}`);
+  return mod.buildCsp({ isProduction, env });
 }
 
 const problems = [];
@@ -81,13 +76,17 @@ const prodEnv = {
 };
 
 async function main() {
-  for (const [label, env] of [
-    ["local compose configuration", devEnv],
-    ["production configuration", prodEnv],
+  // Both the shape CI builds (`next build`) and the shape `next dev` serves are
+  // checked, because `script-src` is the one directive that differs between them
+  // and a policy that is wrong only in development is wrong exactly when a
+  // developer is looking at it.
+  for (const [label, env, isProduction] of [
+    ["local compose configuration", devEnv, false],
+    ["production configuration", prodEnv, true],
   ]) {
     let policy;
     try {
-      policy = await evaluate(env);
+      policy = await evaluate({ isProduction, env });
     } catch (e) {
       problems.push(`${label}: ${e.message}`);
       continue;
@@ -97,25 +96,29 @@ async function main() {
     }
   }
 
-  // 3. A malformed API URL must degrade the policy, not break the build. The
-  //    whole point of `originOf` returning null rather than throwing.
+  // A malformed API URL must degrade the policy, not break the build. The whole
+  // point of `originOf` returning null rather than throwing.
   try {
     const policy = await evaluate({
-      NEXT_PUBLIC_API_URL: "not a url",
-      NEXT_PUBLIC_REALTIME_URL: "",
-      NEXT_PUBLIC_SENTRY_DSN: "",
+      isProduction: true,
+      env: { NEXT_PUBLIC_API_URL: "not a url", NEXT_PUBLIC_REALTIME_URL: "", NEXT_PUBLIC_SENTRY_DSN: "" },
     });
     for (const p of parsePolicy(policy, null)) problems.push(`malformed API url: ${p}`);
   } catch (e) {
-    problems.push(`malformed API url: the config threw instead of omitting the origin - ${e.message}`);
+    problems.push(`malformed API url: the policy builder threw instead of omitting the origin - ${e.message}`);
   }
 
-  // 4. Guard against the original defect being reintroduced as a literal.
-  const src = fs.readFileSync(CONFIG, "utf8");
-  if (/connect-src[^`"']*'self'[^`"']*api\.dicebear/.test(src)) {
-    problems.push(
-      "next.config.mjs: connect-src is hardcoded again; derive it from NEXT_PUBLIC_* instead"
-    );
+  // Guard against the original defect being reintroduced as a literal, in either
+  // file. This is a text check on top of a structural one, because the structural
+  // check cannot tell "hardcoded" from "derived" when the derived value happens
+  // to be a URL - and the hardcoded version is exactly what shipped.
+  for (const file of [POLICY_MODULE, path.join(__dirname, "..", "client", "next.config.mjs")]) {
+    const src = fs.readFileSync(file, "utf8");
+    if (/connect-src[^`"']*'self'[^`"']*api\.dicebear/.test(src)) {
+      problems.push(
+        `${path.basename(file)}: connect-src is hardcoded again; derive it from NEXT_PUBLIC_* instead`
+      );
+    }
   }
 
   if (problems.length) {
@@ -126,7 +129,7 @@ async function main() {
   }
 
   console.log("check-csp: the policy is well-formed and permits the configured API origin.");
-  console.log("            verified a localhost configuration and a Railway-shaped one.");
+  console.log("            verified a localhost configuration and a Railway-shaped one, in dev and build.");
 }
 
 main().catch((e) => {

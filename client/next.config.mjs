@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import createNextIntlPlugin from "next-intl/plugin";
+import { buildCsp } from "./lib/csp.mjs";
 
 /**
  * @typedef {import('next').NextConfig} NextConfig
@@ -150,68 +151,7 @@ const nextConfig = {
    * `unsafe-inline` in `script-src` would void the benefit of having one.
    */
   async headers() {
-    const isDev = !isProduction;
-    const csp = [
-      "default-src 'self'",
-      // Next injects a small inline bootstrap; the hash-less form is required
-      // in development where the payload differs on every edit.
-      isDev
-        ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
-        : "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' data: https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https:",
-      // connect-src is where the realtime socket, the API and the video
-      // transport live.
-      //
-      // This used to be a fixed list - `'self'`, dicebear, `*.up.railway.app`
-      // and `wss:` - with a comment saying the API host would have to be edited
-      // per deployment. Editing it per deployment is exactly what nobody does.
-      // It was never edited, so `http://localhost:5000` was never allowed, and
-      // the browser blocked every call to this application's own API: signing in
-      // rendered "Network Error" with no network error anywhere. That is the
-      // entire local development experience, and it is also all twelve Playwright
-      // journeys, because compose defaults `NEXT_PUBLIC_API_URL` to
-      // `http://localhost:5000/api` for exactly the same reason.
-      //
-      // So the origins are derived from the same variables the client bundle
-      // uses. The header and the bundle can no longer disagree, which is the
-      // failure mode a hardcoded list guarantees.
-      //
-      // Two entries are kept deliberately broad.
-      //
-      // `wss:` stays because `https:` does not cover a WebSocket origin -
-      // `wss://api.up.railway.app` is not matched by `https://*.up.railway.app` -
-      // so narrowing to hosts would silently break the realtime socket in
-      // production.
-      //
-      // The Sentry hosts are here for the same reason: `lib/sentry.ts` wires up
-      // client-side error reporting whenever `NEXT_PUBLIC_SENTRY_DSN` is set, and
-      // without these two the browser drops every event on the floor. There is no
-      // visible failure for missing telemetry; it is the easiest kind of breakage
-      // to ship and the hardest to notice.
-      `connect-src ${[
-        "'self'",
-        originOf(process.env.NEXT_PUBLIC_API_URL),
-        originOf(process.env.NEXT_PUBLIC_REALTIME_URL),
-        originOf(process.env.NEXT_PUBLIC_SENTRY_DSN),
-        "https://api.dicebear.com",
-        "https://*.up.railway.app",
-        "wss:",
-      ]
-        .filter(Boolean)
-        .join(" ")}`,
-      // Only the degraded jitsi fallback needs a frame source. A livekit
-      // session connects with the SDK and frames nothing, so on a fully
-      // configured deployment this can be removed outright.
-      "frame-src https://meet.jit.si",
-      "media-src 'self' blob:",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "frame-ancestors 'none'",
-      "upgrade-insecure-requests",
-    ].join("; ");
+    const csp = buildCsp({ isProduction, env: process.env });
 
     return [
       {
