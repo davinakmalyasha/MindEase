@@ -42,6 +42,23 @@ services:
       retries: 10
 
   api:
+    # An explicit `image:` on every built service.
+    #
+    # Compose otherwise names a built image `<project>-<service>`, where
+    # `<project>` is the working directory lowercased - so the same image is
+    # `mindease-api` in one checkout and `repo-api` on a CI runner whose
+    # directory is the repository name. Nothing outside compose could name it
+    # reliably.
+    #
+    # It broke exactly that. The Trivy job resolved the image with
+    # `docker compose images -q`, which lists *containers*, and a job that only
+    # runs `docker compose build` has none - so the reference came back empty and
+    # Trivy exited non-zero with `could not parse reference: .` on all three
+    # images. A scan that cannot find its image reports nothing while looking
+    # like a gate.
+    #
+    # `IMAGE_TAG` lets CI build under a predictable tag and scan precisely that.
+    image: mindease-api-${IMAGE_TAG:-latest}
     build: ./server
     container_name: mindease-api
     restart: unless-stopped
@@ -113,6 +130,7 @@ services:
       retries: 5
 
   realtime:
+    image: mindease-realtime-${IMAGE_TAG:-latest}
     build: ./server-realtime
     container_name: mindease-realtime
     restart: unless-stopped
@@ -137,6 +155,7 @@ services:
       retries: 5
 
   web:
+    image: mindease-web-${IMAGE_TAG:-latest}
     build:
       context: ./client
       # `NEXT_PUBLIC_*` values are inlined into the browser bundle at BUILD time.

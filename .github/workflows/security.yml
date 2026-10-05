@@ -212,31 +212,35 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        # Compose service names, because `docker compose build <service>` is what
-        # produces a correctly tagged image without inventing a tag here.
+matrix:
+        # Compose service names. Each compose service now declares an explicit
+        # `image: mindease-<service>:${IMAGE_TAG:-latest}`, so the tag is
+        # knowable without asking docker what it called something.
         service: [api, web, realtime]
     outputs:
       # The service name is the only thing these jobs can agree on. Each job
-      # writes the id of the image it actually built, and the gate job below
-      # needs all three of them, so it reads them out of here.
-      image-id: ${{ steps.resolve.outputs.ref }}
+      # writes the reference it built and scanned, so the summary below can say
+      # what was covered.
+      image-ref: ${{ steps.resolve.outputs.ref }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Build the image
+        env:
+          IMAGE_TAG: ci
         run: docker compose build ${{ matrix.service }}
 
-      # Resolving the reference instead of predicting it. Compose tags a built
-      # service `<project>-<service>`, where `<project>` is the checkout
-      # directory lowercased, and nothing in this repository ever appended `:ci`
-      # -- so the previous version of this job scanned `mindease-api:ci`, which
-      # does not exist, and Trivy exited non-zero on three images. A scan that
-      # fails because it could not find the image is a scan that reports
-      # nothing, and it is a failure a reviewer learns to ignore.
-      - name: Resolve the built image id
+      # Predict the tag rather than asking docker. The previous version used
+      # `docker compose images -q`, which lists containers - and a job that only
+      # builds has none - so the reference was the empty string and Trivy exited
+      # non-zero on all three images with "could not parse reference: .". Before
+      # that it scanned `mindease-api:ci`, a tag nothing produced.
+      #
+      # Between the two: a gate that cannot find its image fails while reporting
+      # nothing, which is the failure mode most likely to be switched off.
+      - name: Resolve the image reference
         id: resolve
-        run: echo "ref=$(docker compose images -q ${{ matrix.service }})" >> "$GITHUB_OUTPUT"
+        run: echo "ref=mindease-${{ matrix.service }}:ci" >> "$GITHUB_OUTPUT"
 
       - name: Scan the built image for CVEs
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

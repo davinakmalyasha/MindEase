@@ -74,8 +74,47 @@ const walk = (dir) => {
         let contents;
         try {
             const bytes = fs.readFileSync(full);
-            // A NUL byte in the first block means this is not really text.
-            if (bytes.subarray(0, 512).includes(0)) continue;
+
+            // A NUL byte means this file claims to be text and is not.
+            //
+            // The previous version did `if (bytes.includes(0)) continue` - it
+            // silently skipped such files, on the assumption that a NUL means a
+            // binary file that happened to have a text extension. So
+            // `server/src/schemas/message.schema.ts` carried a literal NUL and a
+            // literal 0x1F inside a regex character class, where `[<NUL>-<0x1F>\s]`
+            // was intended to read `[\x00-\x1F\s]`, and this gate reported a clean
+            // tree. It was caught in CI instead, by `no-control-regex`.
+            //
+            // A control byte in a text source is corruption, not a format, and the
+            // only way to tell the difference is to look at the extension - which
+            // is what got us here. So it is reported.
+            const nulAt = bytes.indexOf(0);
+            if (nulAt !== -1) {
+                findings.push({
+                    file: path.relative(ROOT, full),
+                    line: 1,
+                    kind: "binary",
+                    text: `NUL byte at offset ${nulAt} in a file this gate treats as text`,
+                });
+                continue;
+            }
+
+            // Any other C0 control byte. Tab, newline and carriage return are the
+            // only ones a text file may contain.
+            for (let i = 0; i < bytes.length; i++) {
+                const b = bytes[i];
+                if (b === 9 || b === 10 || b === 13) continue;
+                if (b < 32 || b === 127) {
+                    findings.push({
+                        file: path.relative(ROOT, full),
+                        line: 1,
+                        kind: "control-char",
+                        text: `0x${b.toString(16).padStart(2, "0")} at offset ${i}; write it as an escape`,
+                    });
+                    break;
+                }
+            }
+
             contents = bytes.toString("utf8");
         } catch {
             continue;
