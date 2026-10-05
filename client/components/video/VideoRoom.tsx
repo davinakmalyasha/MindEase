@@ -178,7 +178,12 @@ export default function VideoRoom({
             cancelled = true;
             teardown();
         };
-    }, [degraded, grant.room, grant.token, isVoice, onPeerLeft, teardown]);
+    // `t` is in the dependency list because it is called inside the effect, at line
+    // the `joinFailed` fallback. next-intl memoises the translator on the
+    // messages and the locale, so listing it does not tear the call down and
+    // rebuild it on every render - and omitting it meant the linter had no way
+    // to see that the effect closes over a value that can change.
+    }, [degraded, grant.room, grant.token, isVoice, onPeerLeft, teardown, t]);
 
     const toggleMic = useCallback(async () => {
         const room = roomRef.current;

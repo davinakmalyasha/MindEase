@@ -109,7 +109,6 @@ function MessagesContent() {
         if (conversations.length === 0) return;
         const conv = conversations.find((c: any) => String(c.user.id) === id);
         if (conv) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setActiveUser(conv.user);
             setShowMobileThread(true);
             setUnmatchedId(null);
@@ -145,7 +144,11 @@ function MessagesContent() {
             window.removeEventListener("realtime:message", handler);
             window.removeEventListener("realtime:message-update", updateHandler);
         };
-    }, [activeUser, router]);
+    // `queryClient` closes over both handlers below, and TanStack Query's client is
+    // a stable singleton for the lifetime of the provider, so listing it changes
+    // nothing at runtime - but omitting it made the effect's dependency list a
+    // description of the code that was not true.
+    }, [activeUser, router, queryClient]);
 
     // Peer read receipts: when they read the thread, refresh to show checkmarks
     useEffect(() => {
@@ -158,7 +161,10 @@ function MessagesContent() {
         };
         window.addEventListener("realtime:read", handler);
         return () => window.removeEventListener("realtime:read", handler);
-    }, [activeUser]);
+    // TanStack Query's client is a stable singleton for the provider's lifetime, so
+    // naming it here changes nothing at runtime - but the dependency list should
+    // describe the code, and this effect closes over it twice.
+    }, [activeUser, queryClient]);
 
     // Peer typing indicator. `typing:stop` clears the indicator immediately;
     // previously both frames were the same event, so stopping left it showing

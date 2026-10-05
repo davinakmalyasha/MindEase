@@ -11,7 +11,7 @@ what it costs.
 |---|---|---|---|
 | **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 468 tests, 36 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
-| **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 46 tests, 6 files |
+| **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
 Counts are from `npx vitest list --run`, `go test -list` and the Vitest client
 run, not from prose elsewhere in the repository. If they disagree with a README

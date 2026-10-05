@@ -10,6 +10,19 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Coverage output, test traces and Playwright artefacts. All three are
+    // gitignored and all three are generated, and none of them is written by a
+    // human - but "generated" is not the same as "excluded", so eslint was
+    // reporting 30 warnings, every one of them an `Unused eslint-disable
+    // directive` inside a minified Istanbul bundle.
+    //
+    // That is worse than noise. Thirty warnings from files nobody wrote train a
+    // reader to skim the warning count, which is the only reason to run lint at
+    // all, and it means `npm run lint` is not a clean signal that anything in
+    // this repository passes.
+    "coverage/**",
+    "test-results/**",
+    "playwright-report/**",
   ]),
   {
     // The React Compiler rule set arrived in eslint-plugin-react-hooks v7, which

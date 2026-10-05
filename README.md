@@ -80,7 +80,7 @@ Numbers measured from the tree, not estimated.
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
 | **125** | API routes · **28** Prisma models · **16** migrations |
 | **468** | server tests across 36 files, against a real MySQL and real Argon2 |
-| **46** | client unit tests · **31** Go tests with `-race` · **12** Playwright journeys |
+| **49** | client unit tests · **31** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -162,7 +162,7 @@ MindEase/
 
 ### The repository checks its own prose
 
-`scripts/` holds four gates that run in CI and can be run by hand:
+`scripts/` holds the gates that run in CI and can be run by hand:
 
 | Script | What it fails on |
 |---|---|
@@ -170,9 +170,18 @@ MindEase/
 | `check-encoding.js` | mojibake — the fingerprint of a bulk text repair run through a console codepage. Caught three times here, once inside `schema.prisma` |
 | `check-migration-case.js` | a migration whose table casing resolves on Windows and fails on Linux |
 | `check-workflows.js` | a job without permissions or a timeout, a `needs:` that resolves to nothing, an unpinned action, a secret interpolated into a script |
+| `check-csp.js` | a malformed `Content-Security-Policy`, or one that does not permit the API the app is configured to call |
+| `check-i18n.js` | a `t("key")` that resolves in no locale. next-intl throws on those, so a missing message is a page that will not render, not a blank label |
+| `check-a11y-ids.js` | a duplicate `id`, a label with no `id`, and two labels sharing one `htmlFor` |
+
+Each of the last three has a `.test.js` beside it that pins the rules against
+policies, key sets and markup written by hand — including the specific broken
+intermediate each one was written to catch. A gate with no test proving it can
+still fail is a comment.
 
 Plus two maintenance tools: `pin-actions.js` rewrites every `uses:` to a commit
-SHA, and `check-encoding.js` doubles as the pre-commit guard.
+SHA, and `setup-env.js` generates the local signing secrets and checks that the
+API and the web app agree on one (`make doctor` runs the check).
 
 Every count in this file is produced by `make numbers`, which prints the measured
 values and exits non-zero if any of them disagrees with what is written here.

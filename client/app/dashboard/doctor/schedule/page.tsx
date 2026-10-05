@@ -92,8 +92,13 @@ export default function DoctorSchedule() {
         }
     };
 
+    // `fetchSlots` closes over the current filters, so the dependency list has to
+    // include the values it reads rather than the function identity: an inline
+    // `useCallback` around it would re-run on every render and refetch forever,
+    // which is the same bug wearing a different hat.
     useEffect(() => {
         if (user?.role === "doctor") fetchSlots();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
