@@ -200,9 +200,15 @@ jobs:
           ignore-unfixed: true
           vuln-type: misconfig
           severity: HIGH,CRITICAL
-          # No `trivyignores` file. A suppressions file is the right thing once
-          # something needs suppressing; an empty one is only a way to make the
-          # scan pass without looking at it.
+          # `.trivyignore.yaml` applies to both jobs. It holds three entries, each
+          # scoped to one CVE *and* one path, all inside the npm CLI that
+          # `node:22-alpine` bundles - unreachable from this project's
+          # `package.json`, and unchanged between npm 11 and npm 12. The comment
+          # previously here said an empty suppressions file was the right thing
+          # until something needed suppressing; something does, and the entries
+          # are narrow enough that the same CVE in a real dependency would still
+          # fail the build.
+          trivyignores: .trivyignore.yaml
 
   trivy-image:
     name: Trivy image (${{ matrix.service }})
@@ -254,6 +260,7 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
           # `exit-code: 1` makes this a gate rather than a report.
           exit-code: "1"
 
