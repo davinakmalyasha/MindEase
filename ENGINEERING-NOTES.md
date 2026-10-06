@@ -229,3 +229,72 @@ rows mid-test.
    pattern the rest of the app uses. Ten sites, four of them large pages.
 5. Write the accessibility pass. Icon-only buttons without labels, form errors
    that are never announced, and 224 uses of a grey that fails contrast at 2.54:1.
+
+---
+
+## The CI pass took nine commits, and the sequence is the point
+
+The image scan could not work, and each attempt failed in a way that was
+informative. In order:
+
+1. It scanned `mindease-api:ci` — a tag nothing in this repository produced. So
+   the build never had that tag.
+2. I resolved the reference by asking Compose, with `docker compose images -q`,
+   which lists *containers*. A job that only builds has none. Empty reference, and
+   Trivy exited non-zero on all three images.
+3. I gave every built service an explicit `image:` so the name would be knowable.
+   Then the build reported `naming to docker.io/library/mindease-api-ci` —
+   because `image: mindease-api-${IMAGE_TAG:-latest}` puts the variable in the
+   *repository*, so `mindease-api-ci` is a repository name with an implicit
+   `:latest`, not `mindease-api` at tag `ci`. The reference the scan asked for and
+   the tag the build produced still did not match, one character apart.
+4. With the name finally right, the scan worked and found ten HIGH findings. Ten
+   *real* findings — and every one was in `eslint`, a build-time linter that had
+   been shipped into the production image, because `npm install --no-save prisma@x`
+   re-resolves the tree without `--omit=dev`.
+5. Upgrading npm took it to three. The rest are inside npm itself, vendored, and
+   unreachable from any `package.json` here. npm 11 and npm 12 bundle the same
+   affected versions.
+6. So I wrote a suppression file. It took four more commits to become valid: first
+   a bare YAML list where Trivy wants a mapping, then `paths` written without a
+   leading slash, which matched nothing while the scan kept reporting all three
+   findings and nothing in the log said why.
+7. And then the actual fix, which had been available the whole time and was not
+   about npm's version: `scripts/start.sh` called `npx prisma`, and `npx` is npm.
+   The Prisma CLI is an ordinary dependency, so the binary is already on disk. One
+   line changed, and both runtime images no longer contain a package manager.
+8. Which broke the boot, because I wrote `exec` on the migration line: `exec` makes
+   Prisma PID 1, so the script never reached `node dist/index.js` and the container
+   migrated, exited 0, and restarted in a loop.
+
+Three things in that list are worth keeping.
+
+**A gate that cannot find its subject fails while reporting nothing.** The scan
+looked exactly like a gate passing a red build, three times in a row. The response
+people give to that is to delete it, and deleting it would have removed the only
+thing that eventually found the `eslint` finding.
+
+**Two diagnostics were worth more than any of the fixes.** `docker compose logs`
+on failure turned a CI cycle into one line of reading: the migration step's
+`exec` bug was visible immediately. And Trivy's table format does not print the
+path of a finding, which is why the suppression file took four commits of guessing
+at glob syntax — so the scan now prints `CVE<TAB>path` on failure.
+
+**Suppression was the wrong answer and it cost three commits to prove it.** The
+honest version of that sequence is: I could not fix the findings, so I tried to
+hide them, and hiding them was harder than the fix. A suppressions file that
+silently matches nothing looks identical to one that works, which makes it worse
+than having none.
+
+## One CI check I cannot read
+
+Eighteen of the nineteen checks pass, and all nineteen are ones I can explain.
+The exception is GitHub's own Advanced Security check on the pull request, which
+reports "13 new alerts including 1 high severity security vulnerability".
+
+Both CodeQL jobs I wrote pass, and they upload SARIF: the repository has **zero**
+code-scanning alerts, confirmed through the API on the commit, the branch and the
+PR ref. So this check's findings live in a surface my token cannot read, which
+means I cannot tell you what the high-severity finding is or whether it is real.
+
+I would rather say that than describe CI as green.
