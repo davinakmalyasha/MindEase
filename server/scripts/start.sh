@@ -15,7 +15,11 @@ echo "[start] Applying database migrations..."
 #
 # The Prisma CLI is installed as a normal dependency, so the binary is already
 # on disk at a stable path; `npx` was resolving it at runtime for no benefit.
-exec ./node_modules/.bin/prisma migrate deploy
+# Deliberately not `exec`. `exec` replaces this shell, so the Prisma process
+# becomes PID 1 and the script never reaches `node dist/index.js` - the container
+# migrates, exits 0, and compose restarts it in a loop. Only the final line
+# execs.
+./node_modules/.bin/prisma migrate deploy
 
 echo "[start] Starting API server..."
 exec node dist/index.js
