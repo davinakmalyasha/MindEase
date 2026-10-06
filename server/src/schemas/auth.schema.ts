@@ -135,8 +135,9 @@ export const TwoFactorCodeSchema = z.object({
  * confirmation `disable` does.
  *
  * The password is optional rather than required because a Google-only account
- * has none; `generateSecret` skips the check only when the stored hash is absent,
- * so a local account is still confirmed.
+ * has none. Which accounts those are is decided by `provider` inside
+ * `generateSecret`, not by whether the stored hash happens to be null - and it
+ * fails closed, so an unrecognised provider is confirmed rather than exempt.
  */
 export const TwoFactorSetupSchema = z.object({
     body: z

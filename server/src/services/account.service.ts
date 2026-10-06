@@ -68,7 +68,7 @@ export class AccountService {
         });
 
         const { subject, html } = MailerService.buildOtpEmail(otp, "reset");
-        await MailerService.send(user.email, subject, html).catch(() => {});
+        await MailerService.send(user.email, subject, html, otp).catch(() => {});
 
         return { success: true };
     }
@@ -143,7 +143,7 @@ export class AccountService {
         });
 
         const { subject, html } = MailerService.buildOtpEmail(otp, "verify");
-        await MailerService.send(user.email, subject, html).catch(() => {});
+        await MailerService.send(user.email, subject, html, otp).catch(() => {});
 
         return { success: true };
     }

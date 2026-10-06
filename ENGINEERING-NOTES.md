@@ -345,22 +345,76 @@ hide them, and hiding them was harder than the fix. A suppressions file that
 silently matches nothing looks identical to one that works, which makes it worse
 than having none.
 
-## The nineteenth check
+## Triage: what the security review found, and what I did about it
 
-When I got to this, GitHub's own Advanced Security check was the only failing
-check, and it reported "13 new alerts including 1 high severity security
-vulnerability".
+GitHub's Advanced Security check on the pull request reports findings as inline
+annotations, which are ordinary review comments — so unlike the code-scanning
+alerts, they *are* readable. Thirty-one in total by the end. Four mattered.
 
-Both CodeQL jobs I wrote pass, and they upload SARIF: the repository had **zero**
-code-scanning alerts, confirmed through the API on the commit, the branch and the
-PR ref. So its findings were in a surface my token could not read, and I could
-not tell you what the high-severity finding was.
+**"User-controlled bypass of security check" — `twoFactor.service.ts`.** The
+highest severity of the set, and the one worth having.
 
-Then I read the pull request's inline annotations — which are ordinary review
-comments, and therefore readable. There were fifteen. Four were mine.
+Enrolling a second factor is a privilege change, and every sibling one —
+disabling 2FA, changing a password, deleting an account — requires the password
+first. The check was:
 
-The two that mattered most were not on that list at all, and I only found them
-because I was already in `pin-actions.js` fixing one of the four.
+```ts
+if (existing?.password) {              // ← a security decision on a nullable column
+    const confirmed = password && await argon2.verify(existing.password, password);
+    if (!confirmed) throw badRequest(...);
+}
+```
+
+So whether a security control applied depended on the *absence of data* rather
+than on how the account authenticates. CodeQL is right to flag the shape. Today
+the only code that nulls that column is account deletion, which also sets
+`provider: "deleted"` and `isBanned: true`, so the difference is academic — but
+"the column happens to be null" is not a statement about authentication, and the
+next passwordless provider would have to remember to leave it null.
+
+It now keys off `provider`, and **fails closed**: anything not explicitly
+passwordless is confirmed, including a provider this code has never heard of.
+
+**"Incomplete multi-character sanitisation" and "polynomial regular expression" —
+`mailer.service.ts`.** Both on one expression, in the development fallback that
+prints the email body so a developer can copy the OTP:
+
+```ts
+logger.warn({ to, subject }, `[MAIL] ...\n${html.replace(/<[^>]+>/g, "")}`);
+```
+
+Three problems, one of which the two others were hiding behind: a regex is not a
+sufficient HTML sanitiser (`<!--` survives it, so an HTML comment opener can still
+reach a log viewer that renders it); it is flagged as a polynomial expression
+over attacker-controlled input; and `to` and `subject` are user-controlled values
+written into a log line, which is log injection — a crafted address containing a
+newline forges a second entry.
+
+None of that is fixed with a better regular expression. The caller already knows
+the code, so it passes it; the log gets the recipient, the subject and the code,
+each scrubbed of control characters and truncated.
+
+**And four false positives, which I am not going to "fix".**
+
+`server-realtime/hub/client.go` reports log injection three times on
+`log.Printf("user %d …", c.ID, err)`. The taint is real — `c.ID` comes out of a
+JWT — and the sink is safe, because `Client.ID` is an `int64` and `%d` on an
+integer cannot emit a newline or an escape sequence. Wrapping it in
+`strconv.FormatInt` would change nothing and make the code worse. The right
+response to a false positive is to say why, not to contort the code into
+satisfying the query.
+
+`scripts/check-a11y.js` is flagged for stripping HTML comments with a regex that
+does not match `<!-->`. That output is never rendered — it is tested for "does it
+contain a letter" and discarded — and a residual `<!--` cannot make an unlabelled
+button look labelled. The comment in the file now says so, because the next
+person should not have to re-derive it.
+
+**And one gate I wrote failed the same way.** `check-encoding.js` — strengthened
+in this pass to catch literal control bytes in source files — immediately caught
+me doing exactly that: the escape class I typed into `mailer.service.ts` landed as
+raw control bytes. It is the same incident as `message.schema.ts`, which is the
+argument for having had the gate before I needed it.
 
 ## A tool that cannot work on the platform its authors use
 

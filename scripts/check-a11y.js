@@ -126,7 +126,13 @@ function staticName(inner) {
   }
 
   const text = stripped
-    .replace(/<!--[\s\S]*?-->/g, "")
+    // Removes comments. This is a *strip*, not a sanitiser: the result is only
+    // ever tested for "does it contain a letter" and is never rendered or sent
+    // anywhere. CodeQL flags the pattern as incomplete HTML sanitisation because
+    // `<!-->` and nested forms are not matched - which would matter if the output
+    // reached a browser, and cannot matter here, since a residual `<!--` cannot
+    // make an unlabelled button look labelled.
+    .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();

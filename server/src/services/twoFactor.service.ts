@@ -30,14 +30,27 @@ export class TwoFactorService {
     static async generateSecret(user: { id: number; email: string }, password?: string) {
         const existing = await prisma.user.findUnique({
             where: { id: user.id },
-            select: { totpEnabled: true, password: true },
+            select: { totpEnabled: true, password: true, provider: true },
         });
 
-        // A Google-only account has no password to confirm with, and cannot be
-        // used to change a password either. Its identity rests on the OAuth
-        // session, which the access token in hand *is*.
-        if (existing?.password) {
-            const confirmed = password && (await argon2.verify(existing.password, password));
+        // Which accounts may enrol without a password confirmation is decided by
+        // `provider`, not by "is the password column null".
+        //
+        // It used to be the latter, and CodeQL flagged it: `password` is
+        // nullable, so a security decision depended on the absence of data.
+        // Today the only code that nulls it is account deletion - which also sets
+        // `provider: "deleted"` and `isBanned: true`, so the difference is
+        // academic. It is the wrong shape regardless, because "the column happens
+        // to be null" is not a statement about how this account authenticates, and
+        // the next feature that adds a passwordless provider would have to
+        // remember to leave the column null.
+        //
+        // Fails closed: anything not explicitly passwordless needs a
+        // confirmation, including a provider this code has never heard of.
+        const PASSWORDLESS_PROVIDERS = new Set(["google"]);
+        if (!PASSWORDLESS_PROVIDERS.has(existing?.provider ?? "")) {
+            const confirmed =
+                existing?.password && password ? await argon2.verify(existing.password, password) : false;
             if (!confirmed) {
                 throw badRequest("Password confirmation required to set up two-factor authentication");
             }
