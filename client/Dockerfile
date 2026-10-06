@@ -28,7 +28,13 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+RUN addgroup -S nodejs && adduser -S nextjs -G nodejs \
+    # npm bundles `pacote`, `sigstore`, `ip-address` and `brace-expansion`
+    # inside the base image. They are not this project's dependencies and
+    # `npm audit fix` cannot reach them, so the fix is to replace npm. Pinned to
+    # a major rather than `latest` so the image stays reproducible.
+    && npm install -g npm@11 \
+    && npm cache clean --force
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

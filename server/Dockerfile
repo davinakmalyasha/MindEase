@@ -40,10 +40,33 @@ ARG PRISMA_CLI_VERSION=6.12.0
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
+# `--omit=dev` has to be on *both* commands.
+#
+# The second one was the bug. `npm install --no-save prisma@x` re-resolves the
+# whole tree, and without `--omit=dev` it puts the devDependencies back - so the
+# stage that exists to assemble production-only dependencies shipped eslint,
+# nodemon and their transitive `brace-expansion`, which Trivy then reported as 10
+# HIGH CVEs in the runtime image. Every one of them was in a build-time linter
+# that never runs in production.
+#
+# The symptom is worse than a large image: the findings are real and unfixable
+# without the fix above, because no amount of `npm audit fix` reaches a
+# transitive dev dependency that should not be there.
 RUN npm ci --omit=dev \
-    && npm install --no-save prisma@${PRISMA_CLI_VERSION} \
+    && npm install --no-save --omit=dev prisma@${PRISMA_CLI_VERSION} \
     && npx prisma generate \
-    && npm cache clean --force
+    && npm cache clean --force \
+    # Assert the tree really is production-only. A CVE scanner is a late and
+    # indirect way to learn this; the check belongs where it can be read, and it
+    # costs nothing. `eslint` and `nodemon` are named because they are the two
+    # this project actually has, so a change to either one is caught here rather
+    # than as an unexplained HIGH finding three weeks later.
+    && if [ -d node_modules/eslint ] || [ -d node_modules/nodemon ] \
+         || [ -d node_modules/typescript-eslint ]; then \
+         echo "devDependencies present in the production image; check --omit=dev above" >&2; \
+         ls node_modules | head -50 >&2; \
+         exit 1; \
+       fi
 
 FROM node:22-alpine AS runner
 WORKDIR /app
@@ -51,7 +74,19 @@ WORKDIR /app
 # pin the container clock to Asia/Jakarta (tzdata needed for named zones).
 RUN apk add --no-cache tzdata \
     && addgroup -S nodejs \
-    && adduser -S api -G nodejs
+    && adduser -S api -G nodejs \
+    # npm itself ships inside the base image, and it bundles `pacote`,
+    # `sigstore`, `ip-address` and `brace-expansion`. Those are not this
+    # project's dependencies and `npm audit fix` cannot reach them, because they
+    # are vendored inside the npm CLI. Trivy correctly reports them as HIGH
+    # vulnerabilities in the image, and the fix is to replace npm.
+    #
+    # The API container does invoke npm-adjacent tooling at boot -
+    # `prisma migrate deploy` - so this is not entirely ceremonial, and pinning
+    # a major is better than `latest` because `npm@12` may not exist yet and a
+    # floating major makes the image non-reproducible.
+    && npm install -g npm@11 \
+    && npm cache clean --force
 ENV NODE_ENV=production
 ENV TZ=Asia/Jakarta
 COPY --from=prod-deps --chown=api:nodejs /app/node_modules ./node_modules
