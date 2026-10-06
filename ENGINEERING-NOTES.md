@@ -416,6 +416,26 @@ me doing exactly that: the escape class I typed into `mailer.service.ts` landed 
 raw control bytes. It is the same incident as `message.schema.ts`, which is the
 argument for having had the gate before I needed it.
 
+## The check that stays red
+
+After all of that, GitHub's Advanced Security check still fails, and I do not
+think it can be made to pass on this pull request.
+
+It reports on the accumulated diff — about 36,000 added lines — and GitHub does
+not retract an inline annotation when the finding is fixed. Nine of the thirteen
+"unused variable" annotations were stale by the time I looked at them, pointing
+at imports I had already deleted. A list that only ever grows is a list a
+reviewer learns to skim, which is how the four that mattered ended up buried under
+nine that did not.
+
+So the useful question is not "why is it red" but "is anything still red". Both
+CodeQL jobs I wrote pass and upload SARIF; the repository has **zero**
+code-scanning alerts, confirmed through the API against the commit, the branch
+and the PR ref. Every annotation I could read is either fixed or documented above
+with a reason.
+
+I would rather say that than describe CI as green.
+
 ## A tool that cannot work on the platform its authors use
 
 `pin-actions.js` exists to rewrite unpinned action references to commit SHAs.
