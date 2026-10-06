@@ -190,8 +190,13 @@ check-i18n: ## Fail on a t("key") that resolves in no locale. Required in CI.
 	node scripts/check-i18n.test.js
 	node scripts/check-i18n.js
 
+.PHONY: check-schema-indexes
+check-schema-indexes: ## Fail on a foreign-key column with no index and no written reason. Required in CI.
+	node scripts/check-schema-indexes.test.js
+	node scripts/check-schema-indexes.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

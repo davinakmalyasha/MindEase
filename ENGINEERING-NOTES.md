@@ -222,9 +222,32 @@ rows mid-test.
    an error. Two of them are fixed in this pass; the rest are the same defect.
 2. Give `TrajectoryChart` a legend and a text alternative. The severity bands are
    the entire clinical meaning of that chart, they are colour-only, and the axis
-   labels render at 4.7px on a phone.
-3. Add the missing `@@index` on `Review.userId`, which is on the account-deletion
-   path and currently scanned.
+   labels render at 4.7px on a phone. `MoodChart` now has both; this one does not.
+3. ~~Add the missing `@@index` on `Review.userId`.~~ **This was wrong, and I wrote
+   it as though it were right.** `Review.userId` is not unindexed. InnoDB creates
+   an index for every foreign key, and this one is called `Review_userId_fkey`:
+
+       PRIMARY                              id
+       Review_appointmentId_key             appointmentId
+       Review_doctorId_hidden_createdAt_idx doctorId, hidden, createdAt
+       Review_userId_fkey                   userId
+
+   So the account-deletion query is indexed, and both responses available to me
+   were wrong: add a redundant index, or leave a false performance claim in the
+   documentation where the next person would trust it.
+
+   The real defect was that the schema does not say any of this, so it reads as
+   an oversight — and there are five such columns across five models, plus six
+   more that carry an inline `@unique`. `scripts/check-schema-indexes.js` now
+   requires each one to be acknowledged with a reason, so adding a relation forces
+   somebody to decide whether it needs an index rather than leaving the question
+   open forever.
+
+   Writing that gate also caught me twice: it does not count an inline `@unique`
+   as an index, so six acknowledgements were for columns that already had one —
+   saying "reviewed and fine" about nothing — and its own stale-entry check tested
+   truthiness against values that are empty strings, so it reported all five real
+   entries as stale.
 4. Move the client off `useEffect` + `fetch` + `useState` onto the `useQuery`
    pattern the rest of the app uses. Ten sites, four of them large pages.
 5. Write the accessibility pass. Icon-only buttons without labels, form errors

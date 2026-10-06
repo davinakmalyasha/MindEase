@@ -106,6 +106,16 @@ jobs:
         run: |
           node scripts/check-i18n.test.js
           node scripts/check-i18n.js
+      # InnoDB creates an index for every foreign key, so a foreign-key column with
+      # no `@@index` is not a slow query - which is exactly why it reads as an
+      # oversight. ENGINEERING-NOTES.md claimed `Review.userId` was unindexed and
+      # "currently scanned" on the account-deletion path; it is indexed, as
+      # `Review_userId_fkey`. This gate requires every such column to carry a
+      # written reason, and fails when an acknowledgement goes stale.
+      - name: Schema-index self-test, then schema-index gate
+        run: |
+          node scripts/check-schema-indexes.test.js
+          node scripts/check-schema-indexes.js
 
   # --------------------------------------------------------------------
   # Compose file validation
