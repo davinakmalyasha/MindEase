@@ -83,9 +83,10 @@ RUN apk add --no-cache tzdata \
     #
     # The API container does invoke npm-adjacent tooling at boot -
     # `prisma migrate deploy` - so this is not entirely ceremonial, and pinning
-    # a major is better than `latest` because `npm@12` may not exist yet and a
-    # floating major makes the image non-reproducible.
-    && npm install -g npm@11 \
+    # a major is better than `latest` because a floating major makes the image
+    # non-reproducible. `npm@11` still bundled a `brace-expansion` and an
+    # `undici` with open HIGH advisories, which is why this is 12.
+    && npm install -g npm@12 \
     && npm cache clean --force
 ENV NODE_ENV=production
 ENV TZ=Asia/Jakarta

@@ -32,8 +32,9 @@ RUN addgroup -S nodejs && adduser -S nextjs -G nodejs \
     # npm bundles `pacote`, `sigstore`, `ip-address` and `brace-expansion`
     # inside the base image. They are not this project's dependencies and
     # `npm audit fix` cannot reach them, so the fix is to replace npm. Pinned to
-    # a major rather than `latest` so the image stays reproducible.
-    && npm install -g npm@11 \
+    # a major rather than `latest` so the image stays reproducible; 12 rather than 11
+    # because `npm@11` still bundled a `brace-expansion` with an open HIGH advisory.
+    && npm install -g npm@12 \
     && npm cache clean --force
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
