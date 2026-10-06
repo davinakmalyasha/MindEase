@@ -11,7 +11,7 @@
 
 const assert = require("assert");
 
-const { findUndeclared, declaredIndexes, ACKNOWLEDGED } = require("./check-schema-indexes.js");
+const { findUndeclared, ACKNOWLEDGED } = require("./check-schema-indexes.js");
 
 const cases = [
   {
