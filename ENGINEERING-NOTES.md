@@ -286,15 +286,62 @@ hide them, and hiding them was harder than the fix. A suppressions file that
 silently matches nothing looks identical to one that works, which makes it worse
 than having none.
 
-## One CI check I cannot read
+## The nineteenth check
 
-Eighteen of the nineteen checks pass, and all nineteen are ones I can explain.
-The exception is GitHub's own Advanced Security check on the pull request, which
-reports "13 new alerts including 1 high severity security vulnerability".
+When I got to this, GitHub's own Advanced Security check was the only failing
+check, and it reported "13 new alerts including 1 high severity security
+vulnerability".
 
-Both CodeQL jobs I wrote pass, and they upload SARIF: the repository has **zero**
+Both CodeQL jobs I wrote pass, and they upload SARIF: the repository had **zero**
 code-scanning alerts, confirmed through the API on the commit, the branch and the
-PR ref. So this check's findings live in a surface my token cannot read, which
-means I cannot tell you what the high-severity finding is or whether it is real.
+PR ref. So its findings were in a surface my token could not read, and I could
+not tell you what the high-severity finding was.
 
-I would rather say that than describe CI as green.
+Then I read the pull request's inline annotations — which are ordinary review
+comments, and therefore readable. There were fifteen. Four were mine.
+
+The two that mattered most were not on that list at all, and I only found them
+because I was already in `pin-actions.js` fixing one of the four.
+
+## A tool that cannot work on the platform its authors use
+
+`pin-actions.js` exists to rewrite unpinned action references to commit SHAs.
+It reported:
+
+    3 workflow files
+    0 references already pinned to a SHA
+    0 references on a mutable tag
+    Every action reference is pinned. Nothing to do.
+
+There are thirty references and all thirty are pinned, so "nothing to do" is the
+right conclusion — arrived at by a mechanism that had looked at nothing.
+
+Two bugs. The scan `continue`d past pinned references before pushing to a list,
+and the summary computed the pinned count as `list.length - unpinned.length`, so
+the number was structurally incapable of being non-zero. And it read files with
+`split("\n")` against a regex ending in `$`; `.` does not match a carriage
+return, so in `security.yml` — which is checked out with CRLF — *every*
+reference was invisible.
+
+On a fresh clone of this branch, with one reference unpinned, that script would
+have reported "everything is pinned" and changed nothing. It is the most
+dangerous shape a maintenance tool can have: it looks like it ran, and it is
+believed, and it does nothing. Both are pinned by `pin-actions.test.js` now, and
+the reason is in the test names rather than only in the diff.
+
+## The finding I could not see, and what it turned out to be
+
+The high-severity one was `scripts/pin-actions.js`: an outbound request whose
+path is assembled from `owner` and `action` read out of workflow files, with only
+`ref` escaped.
+
+The obvious fix was to escape all three. The better fix was to stop building
+paths from file content at all: validate `owner`, `action` and `ref` against
+allowlists before the path is constructed, so the question being answered is "is
+this a GitHub API path" rather than "did I escape the parts". `ref` excludes `/`
+— a git branch name may contain one, but this only ever resolves tags, so
+excluding it means `..` cannot appear and there is nothing to defend against.
+
+And the test suite caught my first version of that allowlist, which permitted
+`/` and therefore accepted `v5/../../admin`. The encoding would have made the
+request safe, which is exactly why relying on it was the wrong answer.
