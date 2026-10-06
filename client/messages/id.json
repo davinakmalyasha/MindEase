@@ -214,7 +214,8 @@
     },
     "chat": {
       "typing": "mengetik...",
-      "viewAttachment": "Lihat lampiran"
+      "viewAttachment": "Lihat lampiran",
+      "send": "Kirim pesan"
     },
     "sos": {
       "title": "SOS — Saya butuh bantuan sekarang",

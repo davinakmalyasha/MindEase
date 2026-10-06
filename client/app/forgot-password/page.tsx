@@ -89,8 +89,18 @@ await api.post("/account/reset-password", { email, ...data });
                     <form onSubmit={emailForm.handleSubmit(requestCode)} className="space-y-4">
                         <div>
                             <label htmlFor="fp-email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                            <input id="fp-email" {...emailForm.register("email")} className={inputClass} />
-                            {emailForm.formState.errors.email && <p className="text-red-500 text-xs mt-1">{emailForm.formState.errors.email.message}</p>}
+                            <input
+                                id="fp-email"
+                                {...emailForm.register("email")}
+                                aria-invalid={emailForm.formState.errors.email ? true : undefined}
+                                aria-describedby={emailForm.formState.errors.email ? "fp-email-error" : undefined}
+                                className={inputClass}
+                            />
+                            {emailForm.formState.errors.email && (
+                                <p id="fp-email-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                    {emailForm.formState.errors.email.message}
+                                </p>
+                            )}
                         </div>
                         <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
                             {isLoading ? <Loader2 className="animate-spin" /> : "Send Reset Code"}
@@ -100,14 +110,40 @@ await api.post("/account/reset-password", { email, ...data });
                     <form onSubmit={resetForm.handleSubmit(resetPassword)} className="space-y-4">
                         <div>
                             <label htmlFor="fp-otp" className="block text-sm font-medium text-gray-700 mb-1">6-Digit Code</label>
-                            <input id="fp-otp" {...resetForm.register("otp")} inputMode="numeric" maxLength={6} className={`${inputClass} tracking-[0.5em] text-center font-bold`} />
-                            {resetForm.formState.errors.otp && <p className="text-red-500 text-xs mt-1">{resetForm.formState.errors.otp.message}</p>}
+                            <input
+                                id="fp-otp"
+                                {...resetForm.register("otp")}
+                                inputMode="numeric"
+                                maxLength={6}
+                                aria-invalid={resetForm.formState.errors.otp ? true : undefined}
+                                aria-describedby={resetForm.formState.errors.otp ? "fp-otp-error" : undefined}
+                                className={`${inputClass} tracking-[0.5em] text-center font-bold`}
+                            />
+                            {resetForm.formState.errors.otp && (
+                                <p id="fp-otp-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                    {resetForm.formState.errors.otp.message}
+                                </p>
+                            )}
                         </div>
                         <div>
                             <label htmlFor="fp-password" className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                            <input id="fp-password" type="password" {...resetForm.register("newPassword")} className={inputClass} />
-                            <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
-                            {resetForm.formState.errors.newPassword && <p className="text-red-500 text-xs mt-1">{resetForm.formState.errors.newPassword.message}</p>}
+                            <input
+                                id="fp-password"
+                                type="password"
+                                {...resetForm.register("newPassword")}
+                                aria-invalid={resetForm.formState.errors.newPassword ? true : undefined}
+                                aria-describedby={resetForm.formState.errors.newPassword ? "fp-password-error" : "fp-password-hint"}
+                                className={inputClass}
+                            />
+                            {/* gray-400 on white is 2.54:1 and fails AA outright. */}
+                            <p id="fp-password-hint" className="text-[10px] text-gray-500 mt-1">
+                                8+ characters with uppercase, number & special character
+                            </p>
+                            {resetForm.formState.errors.newPassword && (
+                                <p id="fp-password-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                    {resetForm.formState.errors.newPassword.message}
+                                </p>
+                            )}
                         </div>
                         <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
                             {isLoading ? <Loader2 className="animate-spin" /> : "Set New Password"}

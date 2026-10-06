@@ -266,13 +266,34 @@ function AuthForm() {
                                 )}
                                 <div>
                                     <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
-                                    <input id="auth-email" {...loginRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {loginErrors.email && <p className="text-red-500 text-xs mt-1">{loginErrors.email.message}</p>}
+                                    <input
+                                        id="auth-email"
+                                        {...loginRegister("email")}
+                                        aria-invalid={loginErrors.email ? true : undefined}
+                                        aria-describedby={loginErrors.email ? "auth-email-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {loginErrors.email && (
+                                        <p id="auth-email-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {loginErrors.email.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
-                                    <input id="auth-password" type="password" {...loginRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {loginErrors.password && <p className="text-red-500 text-xs mt-1">{loginErrors.password.message}</p>}
+                                    <input
+                                        id="auth-password"
+                                        type="password"
+                                        {...loginRegister("password")}
+                                        aria-invalid={loginErrors.password ? true : undefined}
+                                        aria-describedby={loginErrors.password ? "auth-password-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {loginErrors.password && (
+                                        <p id="auth-password-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {loginErrors.password.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="flex justify-end">
                                     <Link href="/forgot-password" className="text-xs font-semibold text-indigo-600 hover:underline">
@@ -295,13 +316,33 @@ function AuthForm() {
                             >
                                 <div>
                                     <label htmlFor="register-name" className="block text-sm font-medium text-gray-700 mb-1">{t("fullName")}</label>
-                                    <input id="register-name" {...registerRegister("name")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {registerErrors.name && <p className="text-red-500 text-xs mt-1">{registerErrors.name.message}</p>}
+                                    <input
+                                        id="register-name"
+                                        {...registerRegister("name")}
+                                        aria-invalid={registerErrors.name ? true : undefined}
+                                        aria-describedby={registerErrors.name ? "register-name-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {registerErrors.name && (
+                                        <p id="register-name-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.name.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="register-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
-                                    <input id="register-email" {...registerRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {registerErrors.email && <p className="text-red-500 text-xs mt-1">{registerErrors.email.message}</p>}
+                                    <input
+                                        id="register-email"
+                                        {...registerRegister("email")}
+                                        aria-invalid={registerErrors.email ? true : undefined}
+                                        aria-describedby={registerErrors.email ? "register-email-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {registerErrors.email && (
+                                        <p id="register-email-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.email.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="register-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
@@ -309,15 +350,35 @@ function AuthForm() {
                                         id="register-phone"
                                         {...registerRegister("phone_number")}
                                         placeholder="+6281234567890"
+                                        aria-invalid={registerErrors.phone_number ? true : undefined}
+                                        aria-describedby={registerErrors.phone_number ? "register-phone-error" : undefined}
                                         className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
                                     />
-                                    {registerErrors.phone_number && <p className="text-red-500 text-xs mt-1">{registerErrors.phone_number.message as string}</p>}
+                                    {registerErrors.phone_number && (
+                                        <p id="register-phone-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.phone_number.message as string}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
-                                    <input id="register-password" type="password" {...registerRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
-                                    {registerErrors.password && <p className="text-red-500 text-xs mt-1">{registerErrors.password.message}</p>}
+                                    <input
+                                        id="register-password"
+                                        type="password"
+                                        {...registerRegister("password")}
+                                        aria-invalid={registerErrors.password ? true : undefined}
+                                        aria-describedby={registerErrors.password ? "register-password-error" : "register-password-hint"}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {/* gray-400 on white is 2.54:1 and fails AA; gray-500 is 4.83:1. */}
+                                    <p id="register-password-hint" className="text-[10px] text-gray-500 mt-1">
+                                        8+ characters with uppercase, number & special character
+                                    </p>
+                                    {registerErrors.password && (
+                                        <p id="register-password-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.password.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">I want to join as</label>

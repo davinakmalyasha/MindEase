@@ -195,8 +195,9 @@ MindEase/
 | `check-i18n.js` | a `t("key")` that resolves in no locale. next-intl throws on those, so a missing message is a page that will not render, not a blank label |
 | `check-a11y-ids.js` | a duplicate `id`, a label with no `id`, and two labels sharing one `htmlFor` |
 | `check-schema-indexes.js` | a foreign-key column with no index and no written reason. InnoDB creates one for every FK, so those are not slow queries — which is exactly why they read as an oversight |
+| `check-a11y.js` | a `<button>` with no accessible name, a form error rendered without `role="alert"`, and any *new* sub-AA text colour |
 
-Each of the last four has a `.test.js` beside it that pins the rules against
+Each of the last five has a `.test.js` beside it that pins the rules against
 policies, key sets and markup written by hand — including the specific broken
 intermediate each one was written to catch. A gate with no test proving it can
 still fail is a comment.

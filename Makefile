@@ -195,8 +195,13 @@ check-schema-indexes: ## Fail on a foreign-key column with no index and no writt
 	node scripts/check-schema-indexes.test.js
 	node scripts/check-schema-indexes.js
 
+.PHONY: check-a11y
+check-a11y: ## Fail on an unnamed button, a silently-rendered field error, or new sub-AA text. Required in CI.
+	node scripts/check-a11y.test.js
+	node scripts/check-a11y.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

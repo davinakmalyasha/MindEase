@@ -250,8 +250,44 @@ rows mid-test.
    entries as stale.
 4. Move the client off `useEffect` + `fetch` + `useState` onto the `useQuery`
    pattern the rest of the app uses. Ten sites, four of them large pages.
-5. Write the accessibility pass. Icon-only buttons without labels, form errors
-   that are never announced, and 224 uses of a grey that fails contrast at 2.54:1.
+5. ~~Write the accessibility pass.~~ **Partly done, and my description of it was
+   wrong twice.** I wrote "icon-only buttons without labels, form errors that are
+   never announced, and 224 uses of a grey that fails contrast at 2.54:1."
+
+   Measured, the first two were much smaller than that and the third was larger:
+
+   | | I said | Measured |
+   |---|---|---|
+   | buttons with no accessible name | "several" | **2** |
+   | field errors never announced | "several" | **12**, in two files |
+   | sub-AA text uses | 224 | **286**, across 59 files |
+
+   And the first measurement was wrong in the direction that matters. The
+   detector stripped `{...}` groups before looking for text, which removed the
+   string inside `{cond ? <Loader2/> : "Verify & Sign In"}` and reported **26**
+   buttons. Twenty-four were correctly labelled. A false positive in a detector
+   like this gets an `aria-label` bolted onto a button that already has a name,
+   which is harmless to a screen reader and ruinous to review — so it is pinned
+   by a test case now.
+
+   Then the gate, once written, had the bug in the other direction. It took
+   string literals from the whole `{...}` group, so
+   `{isLoading ? <Loader2 className="animate-spin" /> : null}` produced the name
+   `"animate-spin"` and an icon-only button passed. That is a **false negative on
+   exactly the buttons the rule exists to find**, and the two real ones were only
+   fixed because I read the markup — which is the thing the gate was supposed to
+   stop requiring.
+
+   `scripts/check-a11y.integration.js` now breaks a real button and a real error in
+   a real file, checks the gate fails, and restores the file. A rule that has never
+   been observed failing is a rule of unknown value.
+
+   On contrast: 286 uses of `text-gray-50..400` across 59 files, and `gray-400` on
+   white is 2.54:1 against an AA requirement of 4.5:1. Fixing that in one commit
+   would be 59 files of visual change nobody could review, so the gate holds a
+   **budget that may only shrink** — currently 283, since `gray-500` is 4.83:1 and
+   swapping one shade is the least change that actually fixes anything. A gate
+   demanding zero would have been disabled on its first day.
 
 ---
 

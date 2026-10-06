@@ -586,12 +586,18 @@ function MessagesContent() {
                                         placeholder="Type a message..."
                                         className="flex-1 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-medium"
                                     />
+                                    {/* Icon only, so the name has to be explicit. Without it the button is
+                                        announced as "button" and nothing else, which is
+                                        indistinguishable from the dozen other buttons on
+                                        this screen. */}
                                     <button
+                                        type="button"
                                         onClick={submit}
                                         disabled={!draft.trim() || sendMessage.isPending}
+                                        aria-label={t("send")}
                                         className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-indigo-200"
                                     >
-                                        <Send className="w-5 h-5" />
+                                        <Send className="w-5 h-5" aria-hidden="true" />
                                     </button>
                                 </div>
                             </>

@@ -101,13 +101,33 @@ export default function RegisterPage() {
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                     <div>
                         <label htmlFor="reg-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                        <input id="reg-name" {...field("name")} className={inputClass} />
-                        {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+                        <input
+                            id="reg-name"
+                            {...field("name")}
+                            aria-invalid={errors.name ? true : undefined}
+                            aria-describedby={errors.name ? "reg-name-error" : undefined}
+                            className={inputClass}
+                        />
+                        {errors.name && (
+                            <p id="reg-name-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                {errors.name.message}
+                            </p>
+                        )}
                     </div>
                     <div>
                         <label htmlFor="reg-email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                        <input id="reg-email" {...field("email")} className={inputClass} />
-                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
+                        <input
+                            id="reg-email"
+                            {...field("email")}
+                            aria-invalid={errors.email ? true : undefined}
+                            aria-describedby={errors.email ? "reg-email-error" : undefined}
+                            className={inputClass}
+                        />
+                        {errors.email && (
+                            <p id="reg-email-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                {errors.email.message}
+                            </p>
+                        )}
                     </div>
                     <div>
                         <label htmlFor="reg-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
@@ -115,9 +135,25 @@ export default function RegisterPage() {
                     </div>
                     <div>
                         <label htmlFor="reg-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                        <input id="reg-password" type="password" {...field("password")} className={inputClass} />
-                        <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
-                        {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
+                        <input
+                            id="reg-password"
+                            type="password"
+                            {...field("password")}
+                            aria-invalid={errors.password ? true : undefined}
+                            aria-describedby={errors.password ? "reg-password-error" : "reg-password-hint"}
+                            className={inputClass}
+                        />
+                        {/* gray-400 on white is 2.54:1 and fails AA outright. gray-500
+                            is 4.83:1, which is the nearest shade that passes and so
+                            the least visible change that actually fixes it. */}
+                        <p id="reg-password-hint" className="text-[10px] text-gray-500 mt-1">
+                            8+ characters with uppercase, number & special character
+                        </p>
+                        {errors.password && (
+                            <p id="reg-password-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                {errors.password.message}
+                            </p>
+                        )}
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">{ta("joinAs")}</label>

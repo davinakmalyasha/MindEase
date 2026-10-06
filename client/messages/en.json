@@ -214,7 +214,8 @@
     },
     "chat": {
       "typing": "typing...",
-      "viewAttachment": "View attachment"
+      "viewAttachment": "View attachment",
+      "send": "Send message"
     },
     "sos": {
       "title": "SOS — I need help now",

@@ -116,6 +116,23 @@ jobs:
         run: |
           node scripts/check-schema-indexes.test.js
           node scripts/check-schema-indexes.js
+      # Every button has a name, every field error is announced, and the count of
+      # sub-AA text colours has not risen.
+      #
+      # The third rule is a budget rather than a requirement, on purpose. There
+      # were 286 uses of `text-gray-50..400` across 59 files and `gray-400` on
+      # white is 2.54:1, so the debt is real and is now measured. A gate
+      # requiring zero would have been disabled on the first day; this one can
+      # only shrink.
+      #
+      # The gate's own first version pulled `"animate-spin"` out of a JSX
+      # attribute and called it an accessible name, so it produced false negatives
+      # on exactly the icon-only buttons it exists to find. The integration test
+      # breaks a real button and a real error to prove it can still fail.
+      - name: A11y self-test, then a11y gate
+        run: |
+          node scripts/check-a11y.test.js
+          node scripts/check-a11y.js
 
   # --------------------------------------------------------------------
   # Compose file validation
