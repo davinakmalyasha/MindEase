@@ -29,30 +29,36 @@
 # `expiredDate` is set so these stop being silently accepted: if npm ever ships
 # patched bundles, or this reasoning stops being true, the scan starts failing
 # again instead of quietly continuing to pass.
+#
+# The top level is a mapping, not a list. Trivy decodes this file into a struct
+# with `vulnerabilities` and `misconfigurations` keys, and a bare YAML sequence
+# fails with `cannot unmarshal !!seq into result.IgnoreConfig` - which is what a
+# version of this file that started as a plain list did.
 
-- id: CVE-2026-102276
-  paths:
-    - usr/local/lib/node_modules/npm
-  statement: >-
-    brace-expansion bundled inside the npm CLI shipped by node:22-alpine. npm
-    vendors this package; it is not reachable from this project's
-    package.json, and npm@11 and npm@12 both bundle the affected version.
-    The container never evaluates an attacker-controlled glob.
-  expiredDate: 2026-11-06
+vulnerabilities:
+  - id: CVE-2026-102276
+    paths:
+      - usr/local/lib/node_modules/npm
+    statement: >-
+      brace-expansion bundled inside the npm CLI shipped by node:22-alpine. npm
+      vendors this package; it is not reachable from this project's package.json,
+      and npm@11 and npm@12 both bundle the affected version. The container never
+      evaluates an attacker-controlled glob.
+    expiredDate: "2026-11-06"
 
-- id: CVE-2026-102278
-  paths:
-    - usr/local/lib/node_modules/npm
-  statement: >-
-    brace-expansion bundled inside the npm CLI shipped by node:22-alpine. See
-    the entry for CVE-2026-102276; same package, same reachability argument.
-  expiredDate: 2026-11-06
+  - id: CVE-2026-102278
+    paths:
+      - usr/local/lib/node_modules/npm
+    statement: >-
+      brace-expansion bundled inside the npm CLI shipped by node:22-alpine. See
+      the entry for CVE-2026-102276; same package, same reachability argument.
+    expiredDate: "2026-11-06"
 
-- id: CVE-2026-19534
-  paths:
-    - usr/local/lib/node_modules/npm
-  statement: >-
-    undici bundled inside the npm CLI shipped by node:22-alpine. Requires an
-    unrequested WebSocket connection; nothing in this application opens one, and
-    npm is not used as a library here.
-  expiredDate: 2026-11-06
+  - id: CVE-2026-19534
+    paths:
+      - usr/local/lib/node_modules/npm
+    statement: >-
+      undici bundled inside the npm CLI shipped by node:22-alpine. Requires an
+      unrequested WebSocket connection; nothing in this application opens one,
+      and npm is not used as a library here.
+    expiredDate: "2026-11-06"
