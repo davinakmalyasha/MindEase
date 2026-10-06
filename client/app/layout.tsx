@@ -30,20 +30,14 @@ import "./globals.css";
 // both times. A build that fails on someone else's connection is not a build.
 //
 // The files are committed under `app/fonts/` (SIL OFL 1.1); see the README there
-// and `scripts/fetch-fonts.js` to upgrade them. All three are variable fonts, so
-// one file each covers every weight the UI uses and `weight` is omitted.
-const geistSans = localFont({
-  src: "./fonts/Geist-Variable.woff2",
-  variable: "--font-geist-sans",
-  display: "swap",
-});
-
-const geistMono = localFont({
-  src: "./fonts/GeistMono-Variable.woff2",
-  variable: "--font-geist-mono",
-  display: "swap",
-});
-
+// and `scripts/fetch-fonts.js` to upgrade them. The font is a variable font, so
+// one file covers every weight the UI uses and `weight` is omitted.
+//
+// Only Plus Jakarta is declared. Geist Sans and Geist Mono were also declared
+// here, each registering a CSS variable that nothing applied - the body has only
+// ever carried `jakarta`'s - so both were downloaded and served to every visitor
+// and then never used. They were removed rather than applied, because wiring a
+// font into a design is a decision and deleting an unused one is not.
 const jakarta = localFont({
   src: "./fonts/PlusJakartaSans-Variable.woff2",
   display: "swap",

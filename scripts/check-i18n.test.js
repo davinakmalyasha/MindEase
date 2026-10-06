@@ -11,7 +11,6 @@
 //    reports 26 phantom defects gets deleted, and then the one real defect goes
 //    with it.
 
-const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 

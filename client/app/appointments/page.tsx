@@ -6,10 +6,9 @@ import Navbar from "@/components/layout/Navbar";
 import DoctorCard from "@/components/appointments/DoctorCard";
 import DoctorCardSkeleton from "@/components/appointments/DoctorCardSkeleton";
 import {
-    Search,
-    SlidersHorizontal,
-    ArrowUpDown,
-    Star,
+Search,
+SlidersHorizontal,
+Star,
     TrendingDown,
     Briefcase,
     Users

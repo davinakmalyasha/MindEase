@@ -124,12 +124,36 @@ function buildClientEnv(jwtSecret) {
   return lines.join("\n");
 }
 
+/**
+ * Write a file only if it does not exist, atomically.
+ *
+ * The previous version did `if (!fs.existsSync(p)) fs.writeFileSync(p, ...)`.
+ * That is a time-of-check/time-of-use race: anything that created the file between
+ * the check and the write would have it silently overwritten, and for this
+ * particular file that means silently overwriting a **signing secret**. CodeQL's
+ * "potential file system race condition" query is right about the shape even
+ * though nobody is racing this script in practice.
+ *
+ * `flag: "wx"` is the correct primitive rather than a mitigation: the open is
+ * exclusive and fails with `EEXIST`, so there is no window in which the file can
+ * be replaced. The race stops existing rather than becoming unlikely.
+ *
+ * @returns {boolean} true if this call created the file
+ */
+function createIfAbsent(file, contents) {
+  try {
+    fs.writeFileSync(file, contents, { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (e) {
+    if (e && e.code === "EEXIST") return false;
+    throw e;
+  }
+}
+
 function create() {
   const actions = [];
 
-  if (!fs.existsSync(SERVER_ENV)) {
-    const secret = newSecret();
-    fs.writeFileSync(SERVER_ENV, buildServerEnv(secret), "utf8");
+  if (createIfAbsent(SERVER_ENV, buildServerEnv(newSecret()))) {
     actions.push("created server/.env with freshly generated secrets");
   } else {
     actions.push("kept server/.env (already exists, not overwritten)");
@@ -138,8 +162,7 @@ function create() {
   const serverEnv = parseEnv(read(SERVER_ENV));
   const jwt = serverEnv.get("JWT_SECRET");
 
-  if (!fs.existsSync(CLIENT_ENV)) {
-    fs.writeFileSync(CLIENT_ENV, buildClientEnv(jwt || newSecret()), "utf8");
+  if (createIfAbsent(CLIENT_ENV, buildClientEnv(jwt || newSecret()))) {
     actions.push("created client/.env.local with a matching JWT_SECRET");
   } else {
     actions.push("kept client/.env.local (already exists, not overwritten)");

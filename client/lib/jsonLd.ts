@@ -44,7 +44,12 @@ const UNSAFE: Readonly<Record<string, string>> = {
 
 // Built by iterating the object rather than written as a character class, for
 // the same reason: a literal class is where the invisible characters go wrong.
-const UNSAFE_CHARS = Object.keys(UNSAFE).join("");
+//
+// No `UNSAFE_CHARS` join is exported: the serialiser below iterates the object
+// directly, so the joined string had no reader. A constant that nothing reads is
+// a constant that can drift out of step with the thing it was derived from, and
+// this one would have failed silently - the escaping would still have been
+// correct, because the code did not use it.
 
 /** Serialises `value` for embedding inside a `<script>` element. */
 export function jsonLdScript(value: unknown): string {

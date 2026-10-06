@@ -77,22 +77,6 @@ const stampServiceWorker = () => {
   }
 };
 
-/**
- * The origin of a configured endpoint, for `connect-src`.
- *
- * Returns `null` rather than throwing on an unparseable value, because a
- * malformed `NEXT_PUBLIC_API_URL` should produce a CSP that simply omits it —
- * the request then fails loudly with a CSP error naming the directive, which is
- * a better failure than a build that will not start.
- */
-const originOf = (value) => {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-};
 
 /** @type {NextConfig} */
 const nextConfig = {

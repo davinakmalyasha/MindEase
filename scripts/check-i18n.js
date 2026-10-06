@@ -53,6 +53,18 @@ if (!locales.length) {
 
 const problems = [];
 
+/**
+ * A call-shaped string: an identifier, optionally a property access, then an
+ * opening paren and a quoted string.
+ *
+ * Deliberately matches more than it consumes. A file has many functions and many
+ * strings; the ones whose identifier is not a translator binding are skipped
+ * below, and being permissive here is the safe direction - it produces extra
+ * candidates rather than missing a call site, and a missed call site is the
+ * failure this gate exists to prevent.
+ */
+const CALL_SHAPE = /\b([A-Za-z_$][\w$]*)(?:\.\w+)?\(\s*"([^"]+)"/g;
+
 for (const file of walk(CLIENT)) {
   const rel = path.relative(CLIENT, file).replace(/\\/g, "/");
   const src = fs.readFileSync(file, "utf8");
@@ -83,18 +95,26 @@ for (const file of walk(CLIENT)) {
 
   if (!byName.size) continue;
 
-  for (const [name, namespaces] of byName) {
-    const escaped = name.replace(/\$/g, "\\$");
-    // Calls on a known binding: `t("key")`, `t.rich("key")`, `tc("key")`.
-    const callRe = new RegExp(`\\b${escaped}(?:\\.\\w+)?\\(\\s*"([^"]+)"`, "g");
-    for (const [, key] of src.matchAll(callRe)) {
-      const candidates = [...namespaces].map((ns) => `${ns}.${key}`);
-      for (const loc of locales) {
-        if (candidates.some((d) => resolves(loc.data, d))) continue;
-        problems.push(
-          `${rel}: ${name}("${key}") -> ${candidates.map((d) => `"${d}"`).join(" or ")} is missing from messages/${loc.name}.json`
-        );
-      }
+  // One regex for every call-shaped string in the file, then filtered to the
+  // names that are actually translator bindings.
+  //
+  // The previous version built a `new RegExp` per binding by interpolating the
+  // binding name, escaping only `$`. A JavaScript identifier cannot contain a
+  // regex metacharacter, so it was correct - but "correct because of an invariant
+  // the reader has to notice" is exactly what CodeQL's incomplete-escaping query
+  // flags, and it flagged it, and the fix that satisfies both the query and the
+  // code is to stop constructing patterns from data at all.
+  for (const match of src.matchAll(CALL_SHAPE)) {
+    const [, name, key] = match;
+    const namespaces = byName.get(name);
+    if (!namespaces) continue;
+
+    const candidates = [...namespaces].map((ns) => `${ns}.${key}`);
+    for (const loc of locales) {
+      if (candidates.some((d) => resolves(loc.data, d))) continue;
+      problems.push(
+        `${rel}: ${name}("${key}") -> ${candidates.map((d) => `"${d}"`).join(" or ")} is missing from messages/${loc.name}.json`
+      );
     }
   }
 }

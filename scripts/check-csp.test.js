@@ -11,7 +11,6 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 
 // The parser is the thing under test, so it is exercised directly on policies

@@ -98,7 +98,6 @@ function MessagesContent() {
     // conversation list the old code just did nothing, so the user landed on an
     // empty messages screen with no thread open and no explanation. `unmatchedId`
     // records the miss so it can be reported rather than swallowed.
-    const withId = searchParams.get("with");
     const [unmatchedId, setUnmatchedId] = useState<string | null>(null);
     useEffect(() => {
         const id = searchParams.get("with");

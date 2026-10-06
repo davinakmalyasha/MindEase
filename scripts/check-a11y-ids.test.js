@@ -4,7 +4,6 @@
 // still detects. Each case is written to a temporary .tsx file inside
 // client/, which is the only directory the checker walks.
 
-const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
