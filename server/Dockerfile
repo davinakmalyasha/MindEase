@@ -74,20 +74,27 @@ WORKDIR /app
 # pin the container clock to Asia/Jakarta (tzdata needed for named zones).
 RUN apk add --no-cache tzdata \
     && addgroup -S nodejs \
-    && adduser -S api -G nodejs \
-    # npm itself ships inside the base image, and it bundles `pacote`,
-    # `sigstore`, `ip-address` and `brace-expansion`. Those are not this
-    # project's dependencies and `npm audit fix` cannot reach them, because they
-    # are vendored inside the npm CLI. Trivy correctly reports them as HIGH
-    # vulnerabilities in the image, and the fix is to replace npm.
-    #
-    # The API container does invoke npm-adjacent tooling at boot -
-    # `prisma migrate deploy` - so this is not entirely ceremonial, and pinning
-    # a major is better than `latest` because a floating major makes the image
-    # non-reproducible. `npm@11` still bundled a `brace-expansion` and an
-    # `undici` with open HIGH advisories, which is why this is 12.
-    && npm install -g npm@12 \
-    && npm cache clean --force
+    && adduser -S api -G nodejs
+
+# npm is removed from the runtime image.
+#
+# `node:22-alpine` ships an npm that vendors `brace-expansion` and `undici`,
+# both with open HIGH advisories. They are not reachable from this project's
+# `package.json`, so `npm audit fix`, a dependency bump and
+# `npm install -g npm@latest` are all unable to fix them - npm@11 and npm@12
+# were both tried and bundle the same versions, and the resulting image carried
+# three findings that could only be suppressed, not solved.
+#
+# Nothing at runtime needs it. `scripts/start.sh` used to call `npx prisma`,
+# which is npm; it now calls `./node_modules/.bin/prisma` directly, so the CLI is
+# invoked without a package manager.
+#
+# A production image should not contain a package manager. This is not a
+# hardening measure for later - it is the reason the vulnerability was there at
+# all.
+RUN npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production
 ENV TZ=Asia/Jakarta
 COPY --from=prod-deps --chown=api:nodejs /app/node_modules ./node_modules

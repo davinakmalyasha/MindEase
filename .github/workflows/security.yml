@@ -200,15 +200,13 @@ jobs:
           ignore-unfixed: true
           vuln-type: misconfig
           severity: HIGH,CRITICAL
-          # `.trivyignore.yaml` applies to both jobs. It holds three entries, each
-          # scoped to one CVE *and* one path, all inside the npm CLI that
-          # `node:22-alpine` bundles - unreachable from this project's
-          # `package.json`, and unchanged between npm 11 and npm 12. The comment
-          # previously here said an empty suppressions file was the right thing
-          # until something needed suppressing; something does, and the entries
-          # are narrow enough that the same CVE in a real dependency would still
-          # fail the build.
-          trivyignores: .trivyignore.yaml
+          # No suppressions file.
+          #
+          # There was one, for three findings in npm's own bundled dependencies.
+          # It was deleted because the fix turned out to be available after all:
+          # the runtime images no longer contain npm at all. A suppression for a
+          # problem that has been removed is worse than no suppression, because
+          # it keeps looking like the problem is handled.
 
   trivy-image:
     name: Trivy image (${{ matrix.service }})
@@ -260,25 +258,25 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          trivyignores: .trivyignore.yaml
+          # No `trivyignores`. Both images have npm removed from them, so there
+          # is nothing left to suppress - see the note on the config job.
           # `exit-code: 1` makes this a gate rather than a report.
           exit-code: "1"
 
-      # The table format does not include the path of a finding, and a
-      # suppression with a `paths` filter that does not match fails silently -
-      # the scan keeps reporting the finding and there is nothing in the log that
-      # says why the ignore did not apply. That cost four CI cycles on this file.
+      # Prints the path of every finding when the scan fails.
       #
-      # So when the scan fails, print the JSON. One line per finding is enough,
-      # and the answer is then in the log rather than in a guess about glob
-      # syntax.
+      # Trivy's table format does not include it, and four cycles were spent on
+      # this job guessing at suppression glob syntax with nothing in the log to
+      # check against. The JSON output names the path, so the next mismatch is
+      # readable. `trivy` is on the PATH here because the action above installs
+      # it globally.
       - name: Which paths were actually reported
         if: failure()
         env:
           IMAGE_REF: mindease-${{ matrix.service }}:ci
         run: |
           trivy image --format json --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile /dev/null "$IMAGE_REF" 2>/dev/null \
+            "$IMAGE_REF" 2>/dev/null \
             | jq -r '.Results[]? | .Target as $t | (.Vulnerabilities // [])[] | "\(.VulnerabilityID)\t\($t)"' \
             || true
 

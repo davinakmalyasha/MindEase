@@ -28,14 +28,16 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN addgroup -S nodejs && adduser -S nextjs -G nodejs \
-    # npm bundles `pacote`, `sigstore`, `ip-address` and `brace-expansion`
-    # inside the base image. They are not this project's dependencies and
-    # `npm audit fix` cannot reach them, so the fix is to replace npm. Pinned to
-    # a major rather than `latest` so the image stays reproducible; 12 rather than 11
-    # because `npm@11` still bundled a `brace-expansion` with an open HIGH advisory.
-    && npm install -g npm@12 \
-    && npm cache clean --force
+RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+
+# npm is removed from the runtime image. `node:22-alpine` ships an npm that
+# vendors `brace-expansion` and `undici`, both with open HIGH advisories that no
+# `package.json` here can fix - npm@11 and npm@12 were both tried and bundle the
+# affected versions. The web container runs `node server.js` and never needs a
+# package manager at runtime, so it does not have one.
+RUN npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
