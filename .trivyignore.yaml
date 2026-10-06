@@ -34,11 +34,18 @@
 # with `vulnerabilities` and `misconfigurations` keys, and a bare YAML sequence
 # fails with `cannot unmarshal !!seq into result.IgnoreConfig` - which is what a
 # version of this file that started as a plain list did.
+#
+# The `paths` are absolute globs. They were first written without a leading
+# slash, which matches nothing - Trivy compares them against the full path
+# inside the image - and the suppression silently did nothing while the scan
+# kept reporting all three findings. The `diagnostics` step in the Trivy job
+# prints the paths that were actually reported, so the next mismatch is
+# diagnosable from the log instead of by guessing.
 
 vulnerabilities:
   - id: CVE-2026-102276
     paths:
-      - usr/local/lib/node_modules/npm
+      - /usr/local/lib/node_modules/npm/**
     statement: >-
       brace-expansion bundled inside the npm CLI shipped by node:22-alpine. npm
       vendors this package; it is not reachable from this project's package.json,
@@ -48,7 +55,7 @@ vulnerabilities:
 
   - id: CVE-2026-102278
     paths:
-      - usr/local/lib/node_modules/npm
+      - /usr/local/lib/node_modules/npm/**
     statement: >-
       brace-expansion bundled inside the npm CLI shipped by node:22-alpine. See
       the entry for CVE-2026-102276; same package, same reachability argument.
@@ -56,7 +63,7 @@ vulnerabilities:
 
   - id: CVE-2026-19534
     paths:
-      - usr/local/lib/node_modules/npm
+      - /usr/local/lib/node_modules/npm/**
     statement: >-
       undici bundled inside the npm CLI shipped by node:22-alpine. Requires an
       unrequested WebSocket connection; nothing in this application opens one,

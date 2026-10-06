@@ -264,6 +264,24 @@ jobs:
           # `exit-code: 1` makes this a gate rather than a report.
           exit-code: "1"
 
+      # The table format does not include the path of a finding, and a
+      # suppression with a `paths` filter that does not match fails silently -
+      # the scan keeps reporting the finding and there is nothing in the log that
+      # says why the ignore did not apply. That cost four CI cycles on this file.
+      #
+      # So when the scan fails, print the JSON. One line per finding is enough,
+      # and the answer is then in the log rather than in a guess about glob
+      # syntax.
+      - name: Which paths were actually reported
+        if: failure()
+        env:
+          IMAGE_REF: mindease-${{ matrix.service }}:ci
+        run: |
+          trivy image --format json --severity HIGH,CRITICAL --ignore-unfixed \
+            --ignorefile /dev/null "$IMAGE_REF" 2>/dev/null \
+            | jq -r '.Results[]? | .Target as $t | (.Vulnerabilities // [])[] | "\(.VulnerabilityID)\t\($t)"' \
+            || true
+
   # ---------------------------------------------------------------------
   # Dependency advisories
   # ---------------------------------------------------------------------
