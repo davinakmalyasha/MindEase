@@ -535,9 +535,9 @@ export class AppointmentService {
         // livekit room name is derived from it, and the jitsi URL is not used at
         // all when livekit is configured.
         if (status === "confirmed" && !updated.roomSeed && ["video", "voice"].includes(updated.consultationType)) {
-            const roomSeed = crypto.randomBytes(8).toString("hex");
-            await prisma.appointment.update({ where: { id }, data: { roomSeed } });
-            updated.roomSeed = roomSeed;
+            // Same claim-and-read-back as the join path, so a confirm racing a
+            // join cannot leave the two of them holding different seeds.
+            updated.roomSeed = await this.ensureRoomSeed(id, null);
 
             // Only mint the persistent URL on the degraded jitsi path. On livekit
             // there is no URL: a stored, unauthenticated room link is exactly the
@@ -782,6 +782,46 @@ export class AppointmentService {
     }
 
     /**
+     * The room identity for an appointment, minted once and never replaced.
+     *
+     * ## Why the write is conditional and the value is read back
+     *
+     * The two participants reach `joinRoom` independently. If either generates a
+     * seed per request they land in different rooms, which presents as "the other
+     * person never joined" and is indistinguishable, from either side, from the
+     * other person not having tried.
+     *
+     * Persisting it was the fix for that, but the write was still unconditional:
+     * both callers could read `roomSeed: null` - the normal state for an
+     * appointment confirmed before this code ran - and both then generated and
+     * wrote. The loser's write was overwritten in the database while the loser
+     * kept its own value in memory, so the stored seed and the loser's token
+     * disagreed and the two participants were issued different room names.
+     *
+     * So: claim the column only while it is empty, then read back whatever is
+     * persisted and use *that*. Whichever caller loses the claim gets the
+     * winner's seed rather than its own, which is the whole point.
+     */
+    private static async ensureRoomSeed(id: number, known: string | null): Promise<string> {
+        if (known) return known;
+
+        const candidate = crypto.randomBytes(8).toString("hex");
+        await prisma.appointment.updateMany({
+            where: { id, roomSeed: null },
+            data: { roomSeed: candidate },
+        });
+
+        const persisted = await prisma.appointment.findUniqueOrThrow({
+            where: { id },
+            select: { roomSeed: true },
+        });
+        // The fallback is unreachable in practice - the row exists, and either
+        // this call or a racing one has just written a seed - but returning a
+        // seed is the only safe outcome here, so it does not depend on that.
+        return persisted.roomSeed ?? candidate;
+    }
+
+    /**
      * Joins a confirmed consultation room. Only the two participants may join;
      * the room is available from 15 minutes before the start until 1 hour after.
      * Publishes a realtime event so the counterpart gets pinged.
@@ -863,13 +903,9 @@ export class AppointmentService {
 
         // The room seed is generated once and persisted, because the two
         // participants arrive at this method independently and must land in the
-        // same room. Deriving it per request would put each of them somewhere
-        // different, which presents as "the other person never joined".
-        let roomSeed = appointment.roomSeed;
-        if (!roomSeed) {
-            roomSeed = crypto.randomBytes(8).toString("hex");
-            await prisma.appointment.update({ where: { id }, data: { roomSeed } });
-        }
+        // same room. See `ensureRoomSeed` for why that is not as simple as
+        // writing it when the column is empty.
+        const roomSeed = await this.ensureRoomSeed(id, appointment.roomSeed);
 
         // The token is scoped to the end of the window, not to a constant, so a
         // token captured from a proxy log is useless once the session is over.

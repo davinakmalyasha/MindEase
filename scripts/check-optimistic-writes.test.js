@@ -207,5 +207,23 @@ console.log("\n--- it catches an unclaimed lifecycle transition ---");
     }
 }
 
+console.log("\n--- it catches a room seed minted per caller again ---");
+{
+    const key = "server/src/services/appointment.service.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    // The regression: the conditional claim inside ensureRoomSeed becomes a
+    // plain write, which is what put two participants in two rooms.
+    const regressed = src.replace(
+        /await prisma\.appointment\.updateMany\(\{\s*where: \{ id, roomSeed: null \},\s*data: \{ roomSeed: candidate \},\s*\}\);/,
+        "await prisma.appointment.update({ where: { id }, data: { roomSeed: candidate } });"
+    );
+    if (regressed === src) bad("catches a per-caller room seed", "could not converge the replacement");
+    else {
+        const r = run({ [key]: regressed });
+        if (r.code !== 0 && /claims the column/.test(r.out)) ok("flags a seed written without a claim");
+        else bad("flags a seed written without a claim", `exit=${r.code}`);
+    }
+}
+
 console.log(`\ncheck-optimistic-writes self-test: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

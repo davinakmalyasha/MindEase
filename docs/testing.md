@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 496 tests, 40 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 497 tests, 40 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
@@ -354,7 +354,7 @@ once green.
 | `crisis-triage.test.ts` | 17 | `detectFreeTextRisk` pattern behaviour, the third-party mention that informs an alert without suppressing it, `lastIndex` safety, patient-only gating, the message path end to end, markup stripping |
 | `doctor-directory.test.ts` | 8 | Public directory filtering, pagination, `/specialties` derived from data |
 | `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
-| `features.test.ts` | 53 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms, weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
+| `features.test.ts` | 54 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms (including two participants joining at once), weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
 | `hardening.test.ts` | 14 | Booking integrity, referral credits, package reservation integrity (including two simultaneous follow-ups spending one session, and a cancellation refunded twice), 2FA backup codes (including two simultaneous spends of one code), journal ownership, waitlist maintenance |
 | `health-schema.test.ts` | 2 | `/api/health/db` reports the table count when the schema matches, and 503 with a drift status — but no table names — when a table is missing. Drops the real table rather than mocking the check, then re-applies the migration's own DDL so the file leaves the schema as it found it |
 | `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |

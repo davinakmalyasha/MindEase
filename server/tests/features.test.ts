@@ -472,6 +472,50 @@ describe("Consultation rooms (video/voice join)", () => {
         expect(res.status).toBe(403);
     });
 
+    it("puts both participants in one room when they join at the same moment", async () => {
+        // The seed decides the room name and is minted on first join, so two
+        // participants arriving together is exactly the case that decides
+        // whether they share a room. Both used to read `roomSeed: null`, both
+        // generate a different seed, and both write - the loser keeping its own
+        // value, so each was issued a token for a room the other was not in. It
+        // presents as "the other person never joined".
+        //
+        // The status is set directly rather than through the confirm endpoint,
+        // because that endpoint mints the seed itself and would mask the race.
+        // This is the pre-existing state the comment in `joinRoom` describes: an
+        // appointment that is confirmed with no seed yet.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        const win = imminentWindow();
+
+        const book = await patient.agent
+            .post("/api/appointments/book")
+            .set("X-CSRF-Token", patient.csrf)
+            .send({
+                doctorId: doctor.doctorId,
+                appointmentDate: win.date,
+                startTime: win.startTime,
+                endTime: win.endTime,
+                consultationType: "voice",
+            });
+        const appId = book.body.data.id;
+        await prisma.appointment.update({
+            where: { id: appId },
+            data: { status: "confirmed", roomSeed: null },
+        });
+
+        const [a, b] = await Promise.all([
+            patient.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", patient.csrf),
+            doctor.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", doctor.csrf),
+        ]);
+
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
+        expect(a.body.data.room, "the two participants were sent to different rooms").toBe(
+            b.body.data.room
+        );
+    });
+
     it("rejects joining outside the window with a friendly message", async () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();

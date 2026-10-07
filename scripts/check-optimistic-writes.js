@@ -303,5 +303,36 @@ console.log("\n--- a lifecycle transition is claimed, not assigned ---");
     }
 }
 
+console.log("\n--- a shared room identity is claimed once, not generated per caller ---");
+{
+    // The video room name derives from `roomSeed`, and the two participants
+    // reach `joinRoom` independently. Both read `roomSeed: null`, both generated
+    // a seed, and both wrote - so each kept its own value in memory and the two
+    // were issued tokens for different rooms. It presents as "the other person
+    // never joined", and it is unfalsifiable from either side.
+    const src = read("server/src/services/appointment.service.ts");
+    const body = methodBody(src, "ensureRoomSeed");
+    if (!body) {
+        bad("ensureRoomSeed() is findable", "not found - the join path may mint the seed inline again");
+    } else {
+        if (/updateMany\(/.test(body) && /where:\s*\{[^}]*roomSeed:\s*null/.test(body)) {
+            ok("ensureRoomSeed() claims the column only while it is empty");
+        } else {
+            bad(
+                "ensureRoomSeed() claims the column only while it is empty",
+                "the seed is written unconditionally, so two callers can each keep their own"
+            );
+        }
+        if (/findUniqueOrThrow\(/.test(body) && /return[\s\S]*roomSeed/.test(body)) {
+            ok("ensureRoomSeed() reads back the persisted value and returns it");
+        } else {
+            bad(
+                "ensureRoomSeed() reads back the persisted value and returns it",
+                "the caller may return a seed that was overwritten in the database"
+            );
+        }
+    }
+}
+
 console.log(`\ncheck-optimistic-writes: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
