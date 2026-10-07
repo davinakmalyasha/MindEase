@@ -524,6 +524,50 @@ me doing exactly that: the escape class I typed into `mailer.service.ts` landed 
 raw control bytes. It is the same incident as `message.schema.ts`, which is the
 argument for having had the gate before I needed it.
 
+## The check that could not fail
+
+The most useful thing in this pass was a gate that turned out to be decorative.
+
+`scripts/check-auth-coverage.js` walks every route registration and reports the
+ones with no authentication middleware. I wrote it after finding that
+`GET /api/reviews/doctor/:doctorId` — unauthenticated by design, because reviews
+belong on a clinician's public profile — returned `user: { id, name, avatar }`
+for every review. An anonymous caller walking `/doctor/1`, `/doctor/2`,
+`/doctor/3` collected the real name, avatar and internal user id of every patient
+who had reviewed a clinician. That is the identity of someone recorded as having
+received mental healthcare from a named person, enumerable without an account.
+
+`GET /doctors/:id` had already been rewritten to an explicit allowlist for
+exactly this class of leak. This endpoint was missed because it lives in a
+different service, and because the comment above it says *public* — which reads
+as reassurance rather than as a warning about what public *means*.
+
+The service now selects only the id and derives a stable pseudonym from it.
+Clinician replies stay attached, because a clinician answering a specific
+concern publicly is the feature and not a disclosure.
+
+**And then the gate itself was wrong four times**, which is the part worth
+recording:
+
+1. It had no `process.exit`. It printed `2 unguarded` to stdout and exited **0**.
+   In CI it would have looked like a passing step while reporting failures, and
+   would never have stopped a merge. A checker that cannot fail is a comment.
+2. It read each registration in isolation, so the twelve admin endpoints behind
+   `router.use(authenticate, requireAdmin)` were all reported unguarded.
+3. Once that was fixed, it scanned a 14-line window that included the
+   `import { authenticate }` line — so every route within a dozen lines of the
+   import block passed for free. Deleting `router.use(authenticate)` from
+   `wellness.routes.ts` still produced a clean report.
+4. Its leak regex was written `select\s*:\{`, which does not match `select: {`.
+   It matched nothing, and so reported the *fixed* code as clean.
+
+Every one of those was found by the self-test, which rebuilds the pre-fix code
+from git and requires a non-zero exit. Then it found a fifth problem in my own
+remediation: the first leak regex was unscoped, so it also matched
+`createReview` — which returns the review to the patient who wrote it, where the
+name is correct and necessary. A check that flags correct code gets disabled,
+and then it protects nothing.
+
 ## The check that stays red
 
 After all of that, GitHub's Advanced Security check still fails, and I do not

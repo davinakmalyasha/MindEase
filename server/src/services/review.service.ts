@@ -14,6 +14,79 @@ interface CreateReviewInput {
     comment: string;
 }
 
+/**
+ * A stable, non-reversible display name for a reviewer on a public listing.
+ *
+ * ## Why this exists
+ *
+ * `GET /api/reviews/doctor/:doctorId` is unauthenticated, because reviews belong
+ * on a clinician's public profile. It also returned
+ * `user: { id, name, avatar }` for each review - so an anonymous caller who
+ * walked `/doctor/1`, `/doctor/2`, `/doctor/3` collected the real name, avatar
+ * and internal user id of every patient who had reviewed a clinician.
+ *
+ * That is the identity of someone recorded as having received mental healthcare
+ * from a named person, enumerable without an account. On a platform like this the
+ * list of who has sought care is itself sensitive, and linking it to a name and
+ * a face makes it worse.
+ *
+ * `GET /doctors/:id` already had to be rewritten to an explicit allowlist for
+ * this class of leak. This endpoint was missed because it lives in a different
+ * service, and the comment above it says "public", which read as reassurance
+ * rather than as a warning about what public *means*.
+ *
+ * ## Why a pseudonym and not a blank
+ *
+ * Reviews are a thread. "Anonymous" with no label collapses every review onto
+ * one indistinguishable voice, and a clinician answering a specific concern has
+ * no way to know which one they answered. The name is derived from the user id,
+ * so it is:
+ *
+ *   - stable, so a reviewer's replies and follow-ups thread under one label;
+ *   - not derived from their real name, so it reveals nothing about it;
+ *   - not reversible, because the id space is not enumerable from the output.
+ *
+ * Two different reviewers get two different labels, which is the minimum for the
+ * conversation to work.
+ */
+const PSEUDONYM_ADJECTIVES = [
+    "Calm",
+    "Thoughtful",
+    "Steady",
+    "Kind",
+    "Quiet",
+    "Brave",
+    "Gentle",
+    "Patient",
+    "Honest",
+    "Open",
+    "Grounded",
+    "Hopeful",
+];
+
+const PSEUDONYM_NOUNS = [
+    "Otter",
+    "Heron",
+    "Willow",
+    "Lark",
+    "Cedar",
+    "Finch",
+    "Meadow",
+    "Slate",
+    "Aspen",
+    "Heron",
+    "Kestrel",
+    "Sorrel",
+];
+
+function publicDisplayName(userId: number): string {
+    // Two independent mixes of the id, so that ids which are adjacent - and
+    // therefore likely to be created together - do not produce adjacent names.
+    const a = PSEUDONYM_ADJECTIVES[userId % PSEUDONYM_ADJECTIVES.length];
+    const b = PSEUDONYM_NOUNS[Math.floor(userId / PSEUDONYM_ADJECTIVES.length) % PSEUDONYM_NOUNS.length];
+    return `${a} ${b}`;
+}
+
 export class ReviewService {
     static async createReview(data: CreateReviewInput) {
         // Validate: appointment must exist, belong to user, match doctor, and be completed
@@ -94,10 +167,17 @@ export class ReviewService {
         const [reviews, total] = await Promise.all([
             prisma.review.findMany({
                 where: { doctorId, hidden: false },
-                include: {
-                    user: {
-                        select: { id: true, name: true, avatar: true },
-                    },
+                // Only the id. The reviewer's name and avatar are *not* selected,
+                // because they must not reach an anonymous caller - see
+                // `publicDisplayName` below for what is returned instead.
+                select: {
+                    id: true,
+                    rating: true,
+                    comment: true,
+                    reply: true,
+                    repliedAt: true,
+                    createdAt: true,
+                    userId: true,
                 },
                 orderBy: { createdAt: "desc" },
                 take,
@@ -106,7 +186,22 @@ export class ReviewService {
             prisma.review.count({ where: { doctorId, hidden: false } }),
         ]);
 
-        return { reviews, total, limit: take, offset: skip };
+        // A clinician replying publicly is the point of the feature and stays.
+        // The reviewer's identity is what has to go.
+        return {
+            reviews: reviews.map((r) => ({
+                id: r.id,
+                rating: r.rating,
+                comment: r.comment,
+                reply: r.reply,
+                repliedAt: r.repliedAt,
+                createdAt: r.createdAt,
+                displayName: publicDisplayName(r.userId),
+            })),
+            total,
+            limit: take,
+            offset: skip,
+        };
     }
 
     // Doctors may report reviews on their own profile (one open report per review)

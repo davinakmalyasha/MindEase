@@ -154,6 +154,15 @@ jobs:
           node scripts/check-stale-writes.test.js
           node scripts/check-stale-writes.js
 
+      # Route authorization. A missing guard is invisible in review: no type
+      # error, and no test, because there is no test that asserts the absence of
+      # an endpoint. This also pins the two deliberately public routes that
+      # return per-person rows, which is where the review-listing leak was.
+      - name: Auth-coverage self-test, then gate
+        run: |
+          node scripts/check-auth-coverage.test.js
+          node scripts/check-auth-coverage.js
+
   # --------------------------------------------------------------------
   # Compose file validation
   #

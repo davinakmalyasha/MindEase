@@ -17,13 +17,23 @@ interface ApiReview {
     reply?: string | null;
     repliedAt?: string | null;
     createdAt: string;
-    user: { id: number; name: string; avatar?: string };
+    /**
+     * A pseudonym, not the reviewer's name.
+     *
+     * This endpoint is unauthenticated, so the server sends a stable label
+     * derived from the user id rather than the patient's real name or avatar.
+     * It used to send `user: { id, name, avatar }`, which let any anonymous
+     * caller enumerate who had received mental healthcare from each clinician.
+     */
+    displayName: string;
 }
 
 const mapReview = (r: ApiReview) => ({
     id: r.id,
-    name: r.user?.name || "Patient",
-    avatar: r.user?.avatar,
+    // No avatar: the patient's own picture is the thing that must not be
+    // published, and a dicebear generated from a pseudonym would be noise.
+    name: r.displayName,
+    avatar: "",
     rating: r.rating,
     date: new Date(r.createdAt).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }),
     comment: r.comment,
