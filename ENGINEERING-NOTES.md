@@ -397,6 +397,34 @@ On contrast: 286 uses of `text-gray-50..400` across 59 files, and `gray-400` on
    already had a passing shade and I had used the failing one anyway. A gate
    demanding zero would have been disabled on its first day.
 
+6. ~~Add a read audit trail for clinical records.~~ **Done**, and it turned out to
+   be the smallest gap with the largest consequence, which is how the roadmap
+   ranked it. `AuditService.logRead` records the reader and the patient as
+   **separate** fields, because they are not derivable from each other — an
+   access trail that cannot answer "who has seen *this person*" is not an access
+   trail. It covers the disclosure queue, the briefing, the message thread, both
+   plan documents, and bulk admin exports, and it deliberately excludes
+   self-service: a log that fires when someone opens their own file is a log
+   nobody reads.
+
+   The load-bearing property is that a failed audit write must not deny the read.
+   If it could reject, a database hiccup would become a clinician unable to open
+   a crisis disclosure. So the failure mode is "a gap in the record", logged at
+   `error` with the actor and subject — never "a patient does not get help". A
+   test asserts both halves, including that the gap is real.
+
+   And the calls are held by a source check rather than a test, because the audit
+   tests still pass if one method loses its call while the others keep theirs.
+
+7. ~~Nothing records who read a clinical record, and nothing checks the schema on
+   a deploy.~~ Two smaller ones, also **done**:
+   `/api/health/db` now compares `INFORMATION_SCHEMA` against the generated
+   client, so a skipped migration is a 503 rather than a healthy probe followed
+   by a 500 from the first request that touches a new column. The comparison is
+   case-insensitive, because MySQL's `lower_case_table_names` differs between
+   Windows and Linux and a case-sensitive check is a false alarm on exactly one
+   of them.
+
 ---
 
 ## The CI pass took nine commits, and the sequence is the point
@@ -630,3 +658,142 @@ excluding it means `..` cannot appear and there is nothing to defend against.
 And the test suite caught my first version of that allowlist, which permitted
 `/` and therefore accepted `v5/../../admin`. The encoding would have made the
 request safe, which is exactly why relying on it was the wrong answer.
+
+## Six ways a write was wrong, and they are one bug
+
+The most valuable thing in this pass was not a bug. It was a shape.
+
+Read a value. Check something about it. Write. That is correct under one user and
+wrong under two, because the check and the write are not the same operation. Every
+instance below was found by reading, every one was invisible to a suite that runs
+tests one at a time, and every one is now a **claim**: a write that is conditional
+on the value that was read, whose result is checked.
+
+**Plans.** `CarePlan` and `SafetyPlan` are patient-owned *and* editable by a
+clinician, so two editors is the normal case. No version column, so the second
+save overwrote the first and answered `200`. Now `version Int @default(0)` and a
+conditional update; the loser gets a 409 and, on the safety plan, a panel that
+says so instead of a toast that leaves an editable form over a version that no
+longer exists.
+
+**Backup codes.** Two verifications of the same one-time code both verified
+(argon2 is slow enough to interleave) and both wrote an array computed before
+either write. Both sessions were admitted while the code was removed once —
+`got 200 and 200`. A second variant resurrected an already-spent code. The write
+is now a compare-and-swap on the stored set.
+
+**Entitlements.** A follow-up reservation read "a purchase with sessions left"
+and decremented by id. Two acceptances left `sessionsLeft` at **−1**: one
+remaining session covered two bookings. The booking path had always done this
+correctly, with `sessionsLeft: { gte: 1 }` in the write's `where`. The follow-up
+path had drifted from it — same table, same intent, one of them atomic. The
+referral-credit branch had the same defect, and an Integer column has no floor.
+
+**Lifecycle.** `updateStatus` read the appointment, validated the transition, and
+wrote the new status by id. Two cancels both passed and both wrote, so the slot
+was released twice, the waitlist was notified twice, and the session was
+**refunded twice** — `got 200 and 200`. A double-tap on Cancel is the whole
+reproduction.
+
+**Rooms.** The video room name derives from a seed minted on first join. Both
+participants minted their own:
+
+    expected 'mindease-1343-0054b72540976e8a' to be 'mindease-1343-573bcf882fa9e1a2'
+
+They were sent to different rooms, which presents as "the other person never
+joined" and is unfalsifiable from either side. The comment above the old code
+described exactly this failure — "deriving it per request would put each of them
+somewhere different" — so the intent was right and the write was not. That is why
+this class survives review: the comment says what the author meant, and the code
+almost does it.
+
+**Triage.** Two clinicians acknowledging one disclosure both passed the check and
+both wrote, so the row named whoever wrote last while the audit log carried two
+entries by two different people. The trail and the record disagreed about who saw
+a crisis disclosure, which is the one question the acknowledge timestamp exists
+to answer.
+
+Why a serial suite cannot see any of this: each defect needs two operations in
+flight at once, and each *does* return 409, or does remove the code, when the
+second operation arrives after the first has finished. The tests here fire both
+without awaiting the first, and each one was run against the previous
+implementation to confirm it fails — `[200, 200]`, `−1` instead of `0`, two
+different room names. A test that has never failed is a test of unknown value.
+
+`scripts/check-optimistic-writes.js` holds the shape: twenty-four assertions
+across plan versions, backup codes, entitlement counters, lifecycle transitions,
+triage actions and the room seed, with twelve self-tests that each revert one
+mechanism and require the gate to fail. A behavioural test alone would not do —
+a future `updateMany` replaced by the more obvious `update({ where: { id } })`
+still passes every serial test in the suite.
+
+## The race in a service that had been tested with `-race` for months
+
+The drop counters in the realtime hub are incremented inside `PublishToUser`,
+which holds a **read** lock — many publishers at once — so `h.droppedCritical++`
+is a data race that loses increments. On the counters built specifically to make
+a lost clinical alert visible.
+
+The comment asserted "counted under the write lock we already hold, so this needs
+no second lock and cannot race with itself". It is a read lock. That sentence is
+why nobody checked, which is the same failure mode as the room-seed comment: the
+prose describes an intention the code does not implement.
+
+CI has run `go test -race` all along. The flag was never the missing part — every
+test in that file published from a single goroutine, so the race was real in
+production and unreachable by the suite. Eight goroutines publishing to a stalled
+socket make the detector say so in one line:
+
+    WARNING: DATA RACE
+    Read at 0x00c0000ea1c8 by goroutine 12:
+      hub.(*Hub).PublishToUser() hub.go:200
+
+`atomic.Uint64` now, and `DropStats` reads them without the lock, because holding
+it would serialise `/health` against every publisher to produce a snapshot nobody
+needs.
+
+## Three copies of a parser, three bugs, and one was hiding a defect
+
+Three gates needed to ask "what does this method do", and each had its own
+brace-matching extractor. Each was wrong in a different way, and fixing one left
+the others wrong:
+
+1. The first `{` after the method name lands inside a default-value object
+   literal — `listQueue(actor, options = {})` — so three correctly instrumented
+   methods were reported as uninstrumented.
+2. Fixed for that, it took the first brace after the parameter list that was
+   followed by a line break. That handles `Promise<{ a; b }>` on one line but not
+   a return type formatted across lines, where the type's own opening brace *is*
+   followed by one. A gate silently missed a real defect because of it.
+3. A CRLF checkout made every method look like it had no body.
+4. Then the closing brace of a multi-line return type — a line of `    }>` —
+   matched a "the body ends here" test.
+
+It is one shared module now, `scripts/lib/method-body.js`, and it says what it
+does not handle. This is the argument for the whole repository's approach in
+miniature: a checker is code, it is wrong in the same ways, and the only defence
+is a self-test that makes it fail. Four of the gates in this pass were
+non-functional when written; every one was caught by its own test rather than by
+review.
+
+## The flake I introduced
+
+Worth recording because I fixed the adjacent bug and caused this one. The
+consultation-room test built its window as `now + 10 minutes`, clamped to 23:00,
+when a run started in the last ten minutes of the day. Clamping the start rather
+than keeping it ahead of `now` meant that between 23:00 and midnight the window
+began in the **past**, so booking answered 400 — about 4% of runs, presenting as
+a failure in a test about consultation rooms with nothing pointing at the clock.
+
+It hit CI at 23:38 Asia/Jakarta and reproduced locally at 23:46.
+
+The constraints genuinely conflict at night — the start must be in the future for
+booking and no more than 15 minutes away for the room to be open, while `endTime`
+carries no date so the end must stay on one calendar day. From 23:45 the next
+day's midnight is the only window that satisfies all three.
+
+It survived the first fix because the test that exists to check this arithmetic
+*re-derived* the same formula rather than calling it, and asserted only the join
+constraint — never that the start was still ahead. A copy of a formula is a copy
+of its bugs, and half the invariants is half the coverage. It calls the real
+function now and checks all four properties across all 1440 minutes of the day.
