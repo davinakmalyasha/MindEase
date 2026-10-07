@@ -106,27 +106,79 @@ export class TwoFactorService {
         return codes;
     }
 
-    /** Returns true and consumes the code when it matches an unused backup. */
+    /**
+     * Returns true and consumes the code when it matches an unused backup.
+     *
+     * ## Why this is a compare-and-swap
+     *
+     * The straightforward version read the array, verified the code against each
+     * hash, then wrote back "the array minus that hash". The verify is argon2, so
+     * it takes long enough for a second request to slip in between the read and
+     * the write - and then both writes are computed from the same stale read, so
+     * **both requests succeed** while only one removal is recorded. A one-time
+     * code that two sessions can use is not a one-time code.
+     *
+     * There is a worse variant of the same window. Two *different* codes consumed
+     * concurrently each write an array computed from the state before either
+     * write, so the second write resurrects the first code: it was accepted for
+     * one login and is then back in the list for the next.
+     *
+     * Both go away if the write is conditional on the value that was read. The
+     * update matches only while the stored string is still the one that was
+     * verified, so of two racers exactly one writes; the other re-reads and tries
+     * again, which is the honest response to "the array changed", not "the code
+     * is wrong".
+     *
+     * `backupCodes` is a JSON string column, so comparing it whole is a valid CAS
+     * on the entire set - there is no partial-match subtlety to get wrong.
+     */
     static async consumeBackupCode(userId: number, code: string): Promise<boolean> {
-        const user = await prisma.user.findUnique({ where: { id: userId }, select: { backupCodes: true } });
-        if (!user?.backupCodes) return false;
-        let hashes: string[];
-        try {
-            hashes = JSON.parse(user.backupCodes);
-        } catch {
-            return false;
-        }
         const candidate = code.trim().toUpperCase();
-        for (const hash of hashes) {
-            if (await argon2.verify(hash, candidate)) {
-                const remaining = hashes.filter((h) => h !== hash);
-                await prisma.user.update({
-                    where: { id: userId },
-                    data: { backupCodes: remaining.length ? JSON.stringify(remaining) : null },
-                });
-                return true;
+
+        // Bounded, because each attempt costs an argon2 verify. Three is enough
+        // for a human racing themselves; sustained contention means something is
+        // wrong and the safe direction is to refuse.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { backupCodes: true },
+            });
+            if (!user?.backupCodes) return false;
+
+            let hashes: string[];
+            try {
+                hashes = JSON.parse(user.backupCodes);
+            } catch {
+                return false;
             }
+
+            let match: string | null = null;
+            for (const hash of hashes) {
+                if (await argon2.verify(hash, candidate)) {
+                    match = hash;
+                    break;
+                }
+            }
+            if (!match) return false;
+
+            // Remove exactly one occurrence. `filter` would drop duplicates of the
+            // same hash, which cannot happen with distinct argon2 salts but would
+            // silently consume two codes if it ever did.
+            const index = hashes.indexOf(match);
+            const remaining = [...hashes.slice(0, index), ...hashes.slice(index + 1)];
+
+            const claimed = await prisma.user.updateMany({
+                where: { id: userId, backupCodes: user.backupCodes },
+                data: { backupCodes: remaining.length ? JSON.stringify(remaining) : null },
+            });
+            if (claimed.count === 1) return true;
+
+            // Lost the race. Someone else consumed a code - possibly this one, in
+            // which case the next pass finds no match and returns false, which is
+            // the correct answer.
         }
+
+        // Refuse rather than admit a code that could not be removed.
         return false;
     }
 

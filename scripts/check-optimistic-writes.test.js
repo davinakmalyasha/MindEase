@@ -12,6 +12,7 @@ const FILES = [
     "server/prisma/schema.prisma",
     "server/src/services/carePlan.service.ts",
     "server/src/schemas/carePlan.schema.ts",
+    "server/src/services/twoFactor.service.ts",
     "client/app/dashboard/safety-plan/page.tsx",
 ];
 
@@ -144,6 +145,27 @@ console.log("\n--- it catches the merge behaviour being dropped ---");
         const r = run({ [f]: regressed });
         if (r.code !== 0 && /only the keys/.test(r.out)) ok("flags a save that writes unmentioned keys");
         else bad("flags a save that writes unmentioned keys", `exit=${r.code}`);
+    }
+}
+
+console.log("\n--- it catches a one-time code that is not spent atomically ---");
+{
+    const key = "server/src/services/twoFactor.service.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    // The regression: the conditional updateMany becomes a plain update by id.
+    // Serial reuse still fails (the code is removed), so only two simultaneous
+    // spenders expose it - which is what the hardening test does.
+    const regressed = src
+        .replace(/const claimed = await prisma\.user\.updateMany\(\{[\s\S]*?\}\);/, "const claimed = { count: 1 };")
+        .replace(
+            /await prisma\.user\.updateMany\(\{[\s\S]*?\}\);/,
+            "await prisma.user.update({ where: { id: userId }, data: { backupCodes: remaining.length ? JSON.stringify(remaining) : null } });"
+        );
+    if (regressed === src) bad("catches a lost backup-code CAS", "could not converge the replacement");
+    else {
+        const r = run({ [key]: regressed });
+        if (r.code !== 0 && /backupCodes:/.test(r.out)) ok("flags a backup-code spend with no CAS");
+        else bad("flags a backup-code spend with no CAS", `exit=${r.code}`);
     }
 }
 

@@ -302,6 +302,64 @@ describe("2FA backup codes", () => {
             .send({ token: secondLogin.body.data.twoFactorToken, code: backupCodes[1] });
         expect(thirdVerify.status).toBe(200);
     });
+
+    it("cannot spend one code twice at the same moment", async () => {
+        // The reuse test above is sequential, and the write always removes the
+        // code, so it cannot see this. The old implementation read the array,
+        // verified against each hash (argon2 - slow enough for the other request
+        // to slip in) and then wrote "the array minus that hash". Two requests
+        // racing the same code both verified, and both wrote an array computed
+        // from the state before either write - so both were admitted while the
+        // code was removed only once.
+        //
+        // It is the shape of bug a serial suite cannot find, which is why it is
+        // reproduced here by firing both verifications without awaiting the first.
+        const user = await createUser("patient");
+
+        const setup = await user.agent
+            .post("/api/account/2fa/setup")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ password: PASSWORD });
+        const secret = setup.body.data.secret as string;
+        const enable = await user.agent
+            .post("/api/account/2fa/enable")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ code: speakeasy.totp({ secret, encoding: "base32" }) });
+        const backupCodes: string[] = enable.body.data.backupCodes;
+
+        // Two logins, so there are two independent 2FA tokens: the race is over
+        // the *code*, not over the ticket.
+        const a = await setupClient();
+        const b = await setupClient();
+        const loginA = await a.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", a.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        const loginB = await b.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", b.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        expect(loginA.body.data.requires2FA).toBe(true);
+        expect(loginB.body.data.requires2FA).toBe(true);
+
+        const code = backupCodes[0];
+        const [first, second] = await Promise.all([
+            a.agent
+                .post("/api/account/2fa/verify")
+                .set("X-CSRF-Token", a.csrf)
+                .send({ token: loginA.body.data.twoFactorToken, code }),
+            b.agent
+                .post("/api/account/2fa/verify")
+                .set("X-CSRF-Token", b.csrf)
+                .send({ token: loginB.body.data.twoFactorToken, code }),
+        ]);
+
+        // Exactly one session, not two. The assertions are on both sides so a
+        // failure says which shape it took: two admissions is the reuse bug,
+        // zero is a broken consume.
+        const statuses = [first.status, second.status].sort();
+        expect(statuses, `got ${first.status} and ${second.status}`).toEqual([200, 401]);
+    });
 });
 
 describe("Journal ownership", () => {

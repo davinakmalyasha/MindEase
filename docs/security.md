@@ -84,6 +84,31 @@ session that never completed the second factor.
 database read — a backup, a rogue replica — cannot be replayed as a live
 session.
 
+### Recovery codes are spent with a compare-and-swap
+
+Backup codes are argon2-hashed at rest, and consuming one is a
+compare-and-swap: the conditional write matches only while `backupCodes` is
+still the exact string that was read, and the whole set is compared, so there is
+no partial-match subtlety.
+
+The straightforward version — read the array, verify, write back "the array
+minus that hash" — is not safe here, because the verify is argon2 and takes long
+enough for a second request to interleave. Both requests then write an array
+computed from the state before either write, and **both are admitted while the
+code is removed once**. A one-time code that two sessions can spend is not a
+one-time code. A second, quieter variant: two *different* codes spent at the same
+moment each write from the pre-write state, so one write resurrects the other
+code — spent for one login, then back in the list.
+
+This is caught by `hardening.test.ts`, which fires two verifications of the same
+code without awaiting the first. Against the previous implementation it returned
+`200` and `200`; it now requires exactly one `200` and one `401`. A serial reuse
+test cannot see it, and there is one of those too — it passed throughout.
+
+`scripts/check-optimistic-writes.js` holds the conditional write in place, along
+with the plan-document version check, because a regression here would still pass
+every serial test.
+
 ## The websocket handshake
 
 The realtime channel carries SOS alerts, risk alerts and private chat, so the

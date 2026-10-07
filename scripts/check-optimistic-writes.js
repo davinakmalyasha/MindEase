@@ -196,5 +196,40 @@ console.log("\n--- the client sends the version it was shown, and handles the re
     }
 }
 
+console.log("\n--- a one-time code is spent with a compare-and-swap ---");
+{
+    // Same class as the plan version, different field: the consume is only
+    // one-time if the write is conditional on the value that was verified.
+    // Without it, two requests racing one code both verify and both write an
+    // array computed before either write, so both are admitted.
+    const svc = read("server/src/services/twoFactor.service.ts");
+    const body = methodBody(svc, "consumeBackupCode");
+    if (!body) {
+        bad("consumeBackupCode() is findable", "not found");
+    } else {
+        if (/prisma\.user\.updateMany\(/.test(body)) {
+            ok("consumeBackupCode() writes through updateMany, which can carry a non-unique where");
+        } else {
+            bad(
+                "consumeBackupCode() writes through updateMany, which can carry a non-unique where",
+                "uses update(), which matches by id alone - a concurrent spend would be lost"
+            );
+        }
+        if (/where:\s*\{[^}]*backupCodes:/.test(body)) {
+            ok("consumeBackupCode() matches on the stored set inside the write");
+        } else {
+            bad(
+                "consumeBackupCode() matches on the stored set inside the write",
+                "no `backupCodes:` in the update's where - the CAS is gone"
+            );
+        }
+        if (/claimed\.count\s*===\s*1/.test(body)) {
+            ok("consumeBackupCode() checks that its write won");
+        } else {
+            bad("consumeBackupCode() checks that its write won", "the result of the conditional write is discarded");
+        }
+    }
+}
+
 console.log(`\ncheck-optimistic-writes: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
