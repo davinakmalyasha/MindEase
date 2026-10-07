@@ -32,7 +32,7 @@ export default defineConfig({
          *
          * `npm run coverage` produces an HTML report under
          * `server/coverage/`. It is not wired into `npm test`, because the
-         * suite is 415 integration tests against a real MySQL and the v8
+         * suite is 488 integration tests against a real MySQL and the v8
          * instrumentation overhead on top of that is not something to pay on
          * every run to produce a number that changes on its own.
          *

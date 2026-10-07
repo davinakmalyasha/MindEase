@@ -220,7 +220,7 @@ jobs:
 
 
   server:
-    # Installs dependencies, migrates, runs 415 tests against MySQL. Generous because a cold `npm ci` plus a full suite is genuinely slow.
+    # Installs dependencies, migrates, runs 488 tests against MySQL. Generous because a cold `npm ci` plus a full suite is genuinely slow.
     permissions:
       contents: read
     timeout-minutes: 25
@@ -339,7 +339,7 @@ jobs:
         # No `--skip-generate`: `migrate deploy` does not accept it in Prisma 6.
         # Passing it printed the command's help text and exited 1, so this step
         # failed without running a single migration - and because the job stops
-        # here, the drift check and all 415 tests below it never ran either. The
+        # here, the drift check and all 488 tests below it never ran either. The
         # test wipe in `tests/setup.ts` means they would have reported against
         # an empty schema.
         run: npx prisma migrate deploy
@@ -410,6 +410,20 @@ jobs:
       # The vitest suite was never run in CI, so the api-session and
       # notifications-store regression tests only ever ran locally.
       - run: npm test
+      # The client half of coverage, which is cheap enough to produce on every
+      # pull request - unlike the server suite, which runs it on main only. No
+      # thresholds; see the `coverage` job for why.
+      - name: Coverage (advisory)
+        continue-on-error: true
+        run: npm run coverage
+      - name: Upload the coverage report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-client
+          path: client/coverage/
+          retention-days: 14
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -446,6 +460,92 @@ jobs:
       # data races, and the suite was previously compiled without the flag.
       - name: Test with race detector
         run: go test -race -cover ./...
+
+  # --------------------------------------------------------------------
+  # Coverage, advisory
+  #
+  # The vitest configs have produced coverage for a while - `npm run coverage`
+  # writes an HTML report - but nothing collected it, so the number existed only
+  # for whoever remembered to run it locally, and the roadmap called that the gap:
+  # there was no way to tell from a build whether an untested branch in a service
+  # that gates a disclosure queue is untested.
+  #
+  # ## Why this does not run on pull requests
+  #
+  # v8 instrumentation on top of the whole server suite is not something to pay
+  # on every push to produce a number that moves on its own. Main and the weekly
+  # run get it; a PR does not. The client half is cheap enough to run on every PR
+  # and lives in the `client` job.
+  #
+  # ## Why it cannot fail
+  #
+  # No thresholds, deliberately. A threshold introduced at the same moment as the
+  # first measurement is a number nobody has read yet, and this codebase would
+  # fail it by a wide margin - which would then be "fixed" by adding exclusions
+  # until it passed. A number that appears and is ignored is worth more than no
+  # number; the gate comes after someone has read the baseline.
+  #
+  # The step is advisory on top of that, so an upload failure or a coverage-tool
+  # regression cannot redden `main` either.
+  coverage:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    timeout-minutes: 35
+    name: Coverage (server, advisory)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: mindease_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Migrate
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
+      - name: Coverage
+        continue-on-error: true
+        run: npm run coverage
+        env:
+          # Same wiring as the `server` job: `tests/setup.ts` reads
+          # TEST_DATABASE_URL and overwrites DATABASE_URL with it, so both are
+          # set to the same value and the migration above cannot disagree with
+          # the run below.
+          TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
+          JWT_SECRET: ci-jwt-secret
+          REFRESH_SECRET: ci-refresh-secret
+          TWO_FACTOR_SECRET: ci-two-factor-secret
+          GEMINI_API_KEY: ""
+          NODE_ENV: test
+          TZ: UTC
+      - name: Upload the coverage report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-server
+          path: server/coverage/
+          # 14 days: long enough to compare against the previous weekly run,
+          # short enough that the reports do not accumulate indefinitely.
+          retention-days: 14
 
   docker:
     # Builds all three images, boots the stack, and uploads Playwright traces on

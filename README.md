@@ -177,7 +177,7 @@ MindEase/
 │  ├─ adr/              four records of decisions and what was rejected
 │  └─ roadmap.md        including what will never be built, and why
 ├─ scripts/             the repository's own gates; see below
-├─ .github/workflows/   ci, cd, security — 17 jobs
+├─ .github/workflows/   ci, cd, security — 18 jobs
 └─ Makefile             `make help`
 ```
 

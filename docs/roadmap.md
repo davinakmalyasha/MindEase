@@ -141,26 +141,40 @@ unenumerated dependency or a typographic operator silently.
 
 ### 5. Coverage reporting
 
-**The gap.** `go test -race -cover ./...` prints a number nobody collects. The
-Node and client suites produce no coverage at all — there is no
-`@vitest/coverage-*` dependency and no coverage step in `ci.yml`. The only
-coverage figure in the repository is the one written into
-[ADR-0001](adr/0001-realtime-transport.md) for the realtime service.
-
-**Why it matters here specifically.** The clinical services are the code with the
-worst failure mode: `carePlan.service.ts` has 70 tests and
-`riskQueue.service.ts` has 25, and those counts came from regressions, not from
-a target. There is no way to tell from the build whether an untested branch in a
+**The gap.** `go test -race -cover ./...` printed a number nobody collected, and
+the Node suites produced none at all — `@vitest/coverage-v8` was a dependency
+referenced by no config or script, so the number could not be produced even
+locally. There was no way to tell from a build whether an untested branch in a
 service that gates a disclosure queue is untested. The `db push` versus
 `migrate deploy` episode described in
 [`testing.md`](testing.md#what-running-the-suite-against-a-migrated-database-changed)
 is the same problem in a different form: the suite passed and the thing it did
 not exercise was invisible.
 
-**The direction.** Coverage in CI on the realtime and server suites, with a
-**non-blocking** report first. A number that appears and is ignored is better
-than no number; a blocking threshold added before anyone has read a baseline just
-gets disabled.
+**What was done.** Both vitest configs now produce coverage (`npm run coverage`
+writes an HTML report), with no thresholds, and CI collects it:
+
+- **client** — a step in the existing `client` job, on every run. The suite is
+  seconds, so the instrumentation is free. Baseline: **1.94% statements, 77%
+  branches**, which is itself the argument against a threshold — the branch
+  figure is high because it only counts loaded modules, while the statement
+  figure counts everything, and neither has been read by anyone yet.
+- **server** — its own advisory job, gated to `main` and the weekly run rather
+  than to pull requests, because v8 instrumentation on top of the whole suite is
+  not something to pay on every push. Both upload their report as a build
+  artifact with a 14-day retention, so a weekly number can be compared with the
+  previous one.
+
+**Why it still cannot fail.** There are no thresholds, and the steps are
+`continue-on-error`, so a coverage-tool regression cannot redden `main` either. A
+threshold introduced at the same moment as the first measurement is a number
+nobody has read yet, and this codebase would fail it by a wide margin — which
+would then be "fixed" by adding exclusions until it passed. A number that appears
+and is ignored is worth more than no number.
+
+**Still open.** Promoting coverage to a gate, once someone has read the baseline.
+The realtime service already prints `-cover` in the `realtime` job; collecting it
+as an artifact would be a smaller version of the same step.
 
 **Also worth adding.** The e2e suite is the fourth gate and it has never run in
 automation ([`testing.md`](testing.md#why-e2e-is-not-required)). Getting it green
