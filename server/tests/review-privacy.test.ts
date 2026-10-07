@@ -17,10 +17,10 @@
  * is the reviewer's identity that must go.
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import supertest from "supertest";
 import { app } from "./helpers";
-import { createUser, createDoctor, PASSWORD } from "./helpers";
+import { createUser, createDoctor } from "./helpers";
 import { prisma } from "../src/lib/prisma";
 
 let patientId: number;
@@ -107,5 +107,3 @@ describe("Public review listing must not disclose patient identity", () => {
         expect(first.body.data[0].displayName).toMatch(/^[A-Z]/);
     });
 });
-
-void PASSWORD;
