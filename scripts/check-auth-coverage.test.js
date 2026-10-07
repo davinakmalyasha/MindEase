@@ -38,8 +38,9 @@ function run(overrides) {
     };
     copy(ROUTES, path.join(dir, "server", "src", "routes"));
     copy(SERVICES, path.join(dir, "server", "src", "services"));
-    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-    fs.copyFileSync(GATE, path.join(dir, "scripts", "check-auth-coverage.js"));
+    // Stages the gate with `scripts/lib/` beside it, so the shared helper
+    // resolves exactly as it does in the repository.
+    require("../scripts/lib/method-body").stageGate(GATE, dir);
     const res = spawnSync(process.execPath, ["scripts/check-auth-coverage.js"], { cwd: dir, encoding: "utf8" });
     fs.rmSync(dir, { recursive: true, force: true });
     return { code: res.status, out: (res.stdout || "") + (res.stderr || "") };

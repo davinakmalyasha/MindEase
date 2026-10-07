@@ -36,48 +36,10 @@ const bad = (n, why) => {
     fail += 1;
 };
 
-/** The body of one static method, skipping the signature's own braces. */
-function methodBody(src, name) {
-    const start = src.search(new RegExp(`static\\s+(async\\s+)?${name}\\s*\\(`));
-    if (start === -1) return null;
-
-    const paren = src.indexOf("(", start);
-    if (paren === -1) return null;
-    let pdepth = 0;
-    let close = -1;
-    for (let i = paren; i < src.length; i += 1) {
-        if (src[i] === "(") pdepth += 1;
-        else if (src[i] === ")") {
-            pdepth -= 1;
-            if (pdepth === 0) {
-                close = i;
-                break;
-            }
-        }
-    }
-    if (close === -1) return null;
-
-    const isBreak = (c) => c === "\n" || c === "\r";
-    let open = -1;
-    for (let i = close; i < src.length; i += 1) {
-        if (src[i] === "{" && isBreak(src[i + 1])) {
-            open = i;
-            break;
-        }
-    }
-    if (open === -1) open = src.indexOf("{", close);
-    if (open === -1) return null;
-
-    let depth = 0;
-    for (let i = open; i < src.length; i += 1) {
-        if (src[i] === "{") depth += 1;
-        else if (src[i] === "}") {
-            depth -= 1;
-            if (depth === 0) return src.slice(open, i + 1);
-        }
-    }
-    return null;
-}
+// Shared, because three copies of this had three different bugs - a brace in a
+// default value, a brace in a multi-line return type, and `\r\n`. See the header of
+// `scripts/lib/method-body.js`.
+const { methodBody } = require("./lib/method-body");
 
 console.log("--- both documents carry a version column ---");
 {
@@ -330,6 +292,40 @@ console.log("\n--- a shared room identity is claimed once, not generated per cal
                 "ensureRoomSeed() reads back the persisted value and returns it",
                 "the caller may return a seed that was overwritten in the database"
             );
+        }
+    }
+}
+
+console.log("\n--- a triage action is claimed, so the trail and the row agree ---");
+{
+    // Acknowledging and resolving both read the alert, checked the timestamp was
+    // null, and then wrote. Two clinicians acting at once both passed the check,
+    // so the row named the last writer while the audit log carried two entries by
+    // different people - and "who saw this disclosure" is the question the
+    // acknowledge timestamp exists to answer.
+    const src = read("server/src/services/riskQueue.service.ts");
+    for (const method of ["acknowledge", "resolve"]) {
+        const body = methodBody(src, method);
+        if (!body) {
+            bad(`${method}() is findable`, "not found");
+            continue;
+        }
+        const guard = method === "acknowledge" ? "acknowledgedAt" : "resolvedAt";
+        if (
+            /prisma\.riskAlert\.updateMany\(/.test(body) &&
+            new RegExp(`where:\\s*\\{[^}]*${guard}:\\s*null`).test(body)
+        ) {
+            ok(`${method}() claims the ${guard} timestamp conditionally`);
+        } else {
+            bad(
+                `${method}() claims the ${guard} timestamp conditionally`,
+                `no \`${guard}: null\` in an updateMany where - two concurrent actions would both be recorded`
+            );
+        }
+        if (/claimed\.count\s*!==\s*1/.test(body)) {
+            ok(`${method}() checks that its claim won`);
+        } else {
+            bad(`${method}() checks that its claim won`, "the claim's result is discarded");
         }
     }
 }

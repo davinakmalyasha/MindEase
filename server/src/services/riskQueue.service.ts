@@ -303,9 +303,25 @@ export class RiskQueueService {
             throw badRequest("This alert has already been acknowledged");
         }
 
-        const updated = await prisma.riskAlert.update({
-            where: { id },
+        // Claimed conditionally on `acknowledgedAt` still being null.
+        //
+        // The check above reads, and the write below used to be unconditional, so
+        // two clinicians acknowledging the same disclosure at the same moment
+        // both passed the check and both wrote. The row then names whichever
+        // wrote last, while the audit log carries *two* `risk.acknowledged`
+        // entries by two different people - so the trail and the record disagree
+        // about who saw a crisis disclosure, which is the one question the
+        // acknowledge timestamp exists to answer.
+        const claimed = await prisma.riskAlert.updateMany({
+            where: { id, acknowledgedAt: null },
             data: { acknowledgedAt: new Date(), acknowledgedById: actor.id },
+        });
+        if (claimed.count !== 1) {
+            throw badRequest("This alert has already been acknowledged");
+        }
+
+        const updated = await prisma.riskAlert.findUniqueOrThrow({
+            where: { id },
             select: { id: true, acknowledgedAt: true, acknowledgedById: true },
         });
 
@@ -361,15 +377,37 @@ export class RiskQueueService {
         // Resolving implies seeing. A clinician allowed to close something they
         // never opened is a gap in the audit trail, not a convenience - the
         // acknowledge timestamp is what tells a reviewer who actually looked.
+        //
+        // Claimed conditionally on `resolvedAt` still being null, for the same
+        // reason as `acknowledge`: two resolvers both passed the check above and
+        // both wrote, producing two audit entries and a row naming the last
+        // writer. A disclosure has one resolver in the record or the record is
+        // wrong.
         const now = new Date();
-        const updated = await prisma.riskAlert.update({
-            where: { id },
+        const claimed = await prisma.riskAlert.updateMany({
+            where: { id, resolvedAt: null },
             data: {
                 resolvedAt: now,
                 resolvedById: actor.id,
                 ...(note ? { resolutionNote: note } : {}),
-                ...(alert.acknowledgedAt ? {} : { acknowledgedAt: now, acknowledgedById: actor.id }),
             },
+        });
+        if (claimed.count !== 1) {
+            throw badRequest("This alert has already been resolved");
+        }
+
+        // "Resolving implies seeing" as a separate conditional write, so it fills
+        // in the acknowledgement only if it is still empty and cannot overwrite a
+        // clinician who acknowledged between the read above and this point.
+        if (!alert.acknowledgedAt) {
+            await prisma.riskAlert.updateMany({
+                where: { id, acknowledgedAt: null },
+                data: { acknowledgedAt: now, acknowledgedById: actor.id },
+            });
+        }
+
+        const updated = await prisma.riskAlert.findUniqueOrThrow({
+            where: { id },
             select: { id: true, resolvedAt: true, resolvedById: true, resolutionNote: true },
         });
 

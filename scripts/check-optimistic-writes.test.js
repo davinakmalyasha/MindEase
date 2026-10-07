@@ -15,6 +15,7 @@ const FILES = [
     "server/src/services/followUp.service.ts",
     "server/src/services/payment.service.ts",
     "server/src/services/doctor.service.ts",
+    "server/src/services/riskQueue.service.ts",
     "server/src/schemas/carePlan.schema.ts",
     "server/src/services/twoFactor.service.ts",
     "client/app/dashboard/safety-plan/page.tsx",
@@ -39,8 +40,9 @@ function run(overrides) {
         const o = overrides?.[f];
         fs.writeFileSync(dest, o !== undefined ? o : fs.readFileSync(path.join(ROOT, f), "utf8"), "utf8");
     }
-    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-    fs.copyFileSync(GATE, path.join(dir, "scripts", "check-optimistic-writes.js"));
+    // Stages the gate with `scripts/lib/` beside it, so the shared helper
+    // resolves exactly as it does in the repository.
+    require("../scripts/lib/method-body").stageGate(GATE, dir);
     const res = spawnSync(process.execPath, ["scripts/check-optimistic-writes.js"], { cwd: dir, encoding: "utf8" });
     fs.rmSync(dir, { recursive: true, force: true });
     return { code: res.status, out: (res.stdout || "") + (res.stderr || "") };
@@ -222,6 +224,24 @@ console.log("\n--- it catches a room seed minted per caller again ---");
         const r = run({ [key]: regressed });
         if (r.code !== 0 && /claims the column/.test(r.out)) ok("flags a seed written without a claim");
         else bad("flags a seed written without a claim", `exit=${r.code}`);
+    }
+}
+
+console.log("\n--- it catches a triage action that assigns rather than claims ---");
+{
+    const key = "server/src/services/riskQueue.service.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    // The regression: resolve writes the timestamp unconditionally again, so two
+    // clinicians closing the same disclosure both produce an audit entry.
+    const regressed = src.replace(
+        /const claimed = await prisma\.riskAlert\.updateMany\(\{\s*where: \{ id, resolvedAt: null \},/,
+        "const claimed = { count: 1 }; void prisma.riskAlert.updateMany({ where: { id },"
+    );
+    if (regressed === src) bad("catches an unclaimed resolve", "could not converge the replacement");
+    else {
+        const r = run({ [key]: regressed });
+        if (r.code !== 0 && /resolve\(\) claims/.test(r.out)) ok("flags a resolve with no claim");
+        else bad("flags a resolve with no claim", `exit=${r.code}`);
     }
 }
 

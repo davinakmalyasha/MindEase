@@ -70,66 +70,10 @@ const READ_PATHS = [
     },
 ];
 
-/**
- * The body of one static method, by bracket matching.
- *
- * The parameter list has to be skipped first, by matching the parentheses.
- * `listQueue(actor, options: { includeResolved?: boolean } = {})` opens a brace
- * inside its own signature, so naively taking the first `{` after the name
- * returns the default-value object literal - three methods looked uninstrumented
- * when all three were instrumented correctly.
- */
-function methodBody(src, name) {
-    const start = src.search(new RegExp(`static\\s+(async\\s+)?${name}\\s*\\(`));
-    if (start === -1) return null;
-
-    const paren = src.indexOf("(", start);
-    if (paren === -1) return null;
-    let pdepth = 0;
-    let close = -1;
-    for (let i = paren; i < src.length; i += 1) {
-        if (src[i] === "(") pdepth += 1;
-        else if (src[i] === ")") {
-            pdepth -= 1;
-            if (pdepth === 0) {
-                close = i;
-                break;
-            }
-        }
-    }
-    if (close === -1) return null;
-
-    // The return type can also contain braces - `Promise<{ items; counts }>` - so
-    // the first `{` past the signature is not necessarily the body either. In
-    // this codebase a body brace is the one followed by a line break, while a
-    // type brace is followed by a member name.
-    //
-    // Both `\n` and `\r` are accepted: the file may be CRLF, and a `\n`-only
-    // test silently stops finding every method in a checked-out Windows tree -
-    // which is the same false "uninstrumented" report as the bug above, from the
-    // other direction.
-    const isLineBreak = (c) => c === "\n" || c === "\r";
-    let open = -1;
-    for (let i = close; i < src.length; i += 1) {
-        if (src[i] === "{" && isLineBreak(src[i + 1])) {
-            open = i;
-            break;
-        }
-    }
-    // Fallback for a single-line method body: `get() { return x; }`
-    if (open === -1) open = src.indexOf("{", close);
-    if (open === -1) return null;
-
-    let depth = 0;
-    for (let i = open; i < src.length; i += 1) {
-        if (src[i] === "{") depth += 1;
-        else if (src[i] === "}") {
-            depth -= 1;
-            if (depth === 0) return src.slice(open, i + 1);
-        }
-    }
-    return null;
-}
+// Shared, because three copies of this had three different bugs - a brace in a
+// default value, a brace in a multi-line return type, and `\r\n`. See the header of
+// `scripts/lib/method-body.js`.
+const { methodBody } = require("./lib/method-body");
 
 console.log("--- every clinical read records an access entry ---");
 for (const p of READ_PATHS) {

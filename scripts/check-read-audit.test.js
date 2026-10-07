@@ -48,8 +48,9 @@ function run(overrides) {
             "utf8"
         );
     }
-    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-    fs.copyFileSync(GATE, path.join(dir, "scripts", "check-read-audit.js"));
+    // Stages the gate with `scripts/lib/` beside it, so the shared helper
+    // resolves exactly as it does in the repository.
+    require("../scripts/lib/method-body").stageGate(GATE, dir);
     const res = spawnSync(process.execPath, ["scripts/check-read-audit.js"], { cwd: dir, encoding: "utf8" });
     fs.rmSync(dir, { recursive: true, force: true });
     return { code: res.status, out: (res.stdout || "") + (res.stderr || "") };

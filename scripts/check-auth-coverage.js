@@ -67,61 +67,10 @@ const PUBLIC_WITH_USER_DATA = {
     ],
 };
 
-/**
- * The body of one static method, by brace matching from its declaration.
- *
- * Scoping matters. An unscoped search for `user: { select: { name: true } }`
- * also matches `createReview`, which returns the review to the patient who
- * wrote it - where the name is correct and necessary - so the first version
- * reported a false positive on code that was doing the right thing. A check
- * that flags correct code gets disabled, and then it protects nothing.
- */
-function methodBody(src, name) {
-    const start = src.search(new RegExp(`static\\s+(async\\s+)?${name}\\s*\\(`));
-    if (start === -1) return null;
-
-    // Skip the parameter list before looking for a brace. A default value like
-    // `= {}` opens one inside the signature, and a return type like
-    // `Promise<{ items; counts }>` opens another after it. Both were latent here:
-    // the one method this check inspects happens to have neither, so it worked by
-    // luck rather than by being correct.
-    const paren = src.indexOf("(", start);
-    if (paren === -1) return null;
-    let pdepth = 0;
-    let close = -1;
-    for (let i = paren; i < src.length; i += 1) {
-        if (src[i] === "(") pdepth += 1;
-        else if (src[i] === ")") {
-            pdepth -= 1;
-            if (pdepth === 0) {
-                close = i;
-                break;
-            }
-        }
-    }
-    if (close === -1) return null;
-
-    const isLineBreak = (c) => c === "\n" || c === "\r";
-    let open = -1;
-    for (let i = close; i < src.length; i += 1) {
-        if (src[i] === "{" && isLineBreak(src[i + 1])) {
-            open = i;
-            break;
-        }
-    }
-    if (open === -1) open = src.indexOf("{", close);
-    if (open === -1) return null;
-
-    let depth = 0;
-    for (let i = open; i < src.length; i += 1) {
-        if (src[i] === "{") depth += 1;
-        else if (src[i] === "}") {
-            depth -= 1;
-            if (depth === 0) return src.slice(open, i + 1);
-        }
-    }
-    return null;
-}
+// Shared, because three copies of this had three different bugs - a brace in a
+// default value, a brace in a multi-line return type, and `\r\n`. See the header of
+// `scripts/lib/method-body.js`.
+const { methodBody } = require("./lib/method-body");
 
 let problems = 0;
 let checked = 0;

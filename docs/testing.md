@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 497 tests, 40 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 498 tests, 40 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
@@ -368,7 +368,7 @@ once green.
 | `rate-limit-store-isolation.test.ts` | 2 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter |
 | `realtime-contract.test.ts` | 9 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |
 | `reminders.test.ts` | 3 | Reminder window eligibility, one send per appointment, two runners racing sends once |
-| `risk-queue.test.ts` | 25 | `priorityFor` ordering, queue scoping and counts, acknowledge/resolve transitions and their audit entries, `assertCanTriage` |
+| `risk-queue.test.ts` | 26 | `priorityFor` ordering, queue scoping and counts, acknowledge/resolve transitions and their audit entries, `assertCanTriage` |
 | `review-privacy.test.ts` | 3 | The public review listing returns a pseudonym, not the reviewer's name, id or avatar; a clinician's public reply still threads |
 | `role-guards.test.ts` | 14 | Unauthenticated callers refused; wrong role refused; the guards are actually mounted |
 | `security.test.ts` | 10 | **IDOR matrix.** Cross-patient reads, cross-doctor writes, briefing visibility |

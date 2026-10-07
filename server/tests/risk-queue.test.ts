@@ -152,6 +152,40 @@ describe("GET /api/wellness/risk-alerts", () => {
         expect(res.body.data.map((a: { id: number }) => a.id)).not.toContain(alert.id);
     });
 
+    it("records one acknowledger when two clinicians click at the same moment", async () => {
+        // `acknowledge` read the alert, checked `acknowledgedAt` was null, then
+        // wrote unconditionally. Two clinicians acknowledging the same disclosure
+        // together both passed the check and both wrote, so the row named
+        // whichever wrote last while the audit log carried two entries by
+        // different people - a trail and a record that disagree about who saw a
+        // crisis disclosure.
+        const patient = await createUser("patient");
+        const a = await createDoctor();
+        const b = await createDoctor();
+        // Both must have a live clinical relationship, or this is testing the
+        // authorisation check instead of the race.
+        await confirmAppointment(patient.id, a.id);
+        await confirmAppointment(patient.id, b.id);
+        const alert = await raiseAlert({ userId: patient.id, assignedDoctorUserId: a.id });
+
+        const [first, second] = await Promise.all([
+            a.agent.post(`/api/wellness/risk-alerts/${alert.id}/acknowledge`).set("X-CSRF-Token", a.csrf),
+            b.agent.post(`/api/wellness/risk-alerts/${alert.id}/acknowledge`).set("X-CSRF-Token", b.csrf),
+        ]);
+
+        const statuses = [first.status, second.status].sort();
+        expect(statuses, `got ${first.status} and ${second.status}`).toEqual([200, 400]);
+
+        // Exactly one audit entry, and it names the clinician the row names.
+        const entries = await prisma.auditLog.findMany({
+            where: { action: "risk.acknowledged", targetId: alert.id },
+        });
+        expect(entries, "two acknowledgements were recorded for one acknowledgement").toHaveLength(1);
+
+        const stored = await prisma.riskAlert.findUniqueOrThrow({ where: { id: alert.id } });
+        expect(stored.acknowledgedById).toBe(entries[0].actorId);
+    });
+
     it("keeps an alert visible after it is acknowledged", async () => {
         // The previous default filtered on acknowledgedAt: null, so clicking
         // acknowledge made the alert disappear from the list. Acknowledging is
