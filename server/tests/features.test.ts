@@ -66,6 +66,47 @@ const confirmAppointment = async (appId: number, doctor: any) => {
  * which the API correctly rejects as `start >= end`. The end is clamped to the
  * last minute of the same day.
  */
+/**
+ * The booking window for a given wall-clock minute, as minutes since midnight.
+ *
+ * Extracted rather than inlined so the arithmetic test below can call it with
+ * 1440 different values of "now". It used to *re-derive* the same formula, which
+ * is how the test missed the bug it exists to prevent: a copy of a formula stays
+ * behind when the formula changes, and then agrees with nothing.
+ *
+ * ## The two constraints, which pull in opposite directions at night
+ *
+ * The suite needs an appointment that can be booked *and* joined:
+ *
+ *   - booking refuses a start that is in the past;
+ *   - the room opens 15 minutes before the start, so the start must be no more
+ *     than 15 minutes away for `join` to answer 200.
+ *
+ * So the start has to sit in `[now - 1, now + 15]`, and `endTime` carries no
+ * date, so the end has to stay on the same calendar day.
+ *
+ * Late in the evening that has no solution: from 23:00 there is no same-day
+ * window whose start is still ahead. The first version clamped the start to
+ * 23:00 and clamped only the end, so between 23:00 and midnight it produced an
+ * appointment starting in the *past* — 400 at booking, roughly 4% of runs, on a
+ * test about consultation rooms.
+ *
+ * From 23:45 the next day's midnight is the answer: it is in the future, and its
+ * room already opened at 23:45 today, so the join still works.
+ */
+const windowFor = (nowMinutes: number) => {
+    const DAY_END = 23 * 60 + 59;
+    const ROOM_OPENS_EARLY = 15;
+
+    if (nowMinutes >= DAY_END - ROOM_OPENS_EARLY + 1) {
+        return { startMinutes: 0, endMinutes: 30, nextDay: true };
+    }
+
+    const startMinutes = Math.min(nowMinutes + 10, DAY_END - 1);
+    const endMinutes = Math.min(startMinutes + 60, DAY_END);
+    return { startMinutes, endMinutes, nextDay: false };
+};
+
 const imminentWindow = () => {
     const zone = DEFAULT_TIMEZONE;
     // Read "now" as wall-clock parts in `zone`, so the arithmetic below is done
@@ -90,26 +131,13 @@ const imminentWindow = () => {
     // Minutes since midnight in the server's zone.
     const nowMinutes = hour * 60 + minute;
 
-    // Ten minutes from now, but never past the end of the day.
-    //
-    // This used to be `nowMinutes + 10` with only the *end* clamped. When the
-    // wall-clock minute was 50 or later, `startMinutes` crossed midnight, and
-    // `hhmm` rendered hour 24 as `"24:03"` - which the `hhmm` schema rejects, so
-    // the booking below returned 400 and the assertion on 201 failed.
-    //
-    // Nothing about two-factor or sessions or the database was involved. The test
-    // failed whenever a run started in the last ten minutes of the day - 10
-    // minutes out of 1440, so roughly 0.7% of runs - and passed otherwise, which
-    // is the shape of a flake nobody builds a theory for. It surfaced here because
-    // a full-suite run happened to start at 23:53 Asia/Jakarta.
-    //
-    // A room opens 15 minutes before the start, so "now" is already inside the
-    // window; the fix is to keep the whole appointment on one calendar day, which
-    // is what a patient booking it would also be doing.
-    const startMinutes = Math.min(nowMinutes + 10, 23 * 60);
-    const endMinutes = Math.min(startMinutes + 60, 23 * 60 + 59);
+    const { startMinutes, endMinutes, nextDay } = windowFor(nowMinutes);
 
-    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    // The date rolls forward with the window. Built from the wall-clock parts as
+    // a UTC date, so only the Y/M/D is read and the timezone of the temporary
+    // `Date` cannot shift the day by one.
+    const base = new Date(Date.UTC(year, month - 1, day + (nextDay ? 1 : 0)));
+    const date = base.toISOString().slice(0, 10);
     const hhmm = (m: number) =>
         `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
@@ -119,25 +147,36 @@ const imminentWindow = () => {
 /**
  * The room-window helper, checked across a whole day.
  *
- * `imminentWindow` picked its start as `now + 10 minutes` and clamped only the
- * *end*. Ten minutes before midnight that produced `startTime: "24:03"`, which
- * the `hhmm` schema rejects, so the booking returned 400 and the test that
- * depended on it failed. Ten minutes out of 1440 - a 0.7% flake, passing
- * otherwise, which is exactly the shape of a bug nobody theorises about.
+ * ## Two flakes this has had, and why the second one survived the first fix
  *
- * Re-deriving the arithmetic here rather than testing a single live call is the
- * point: the live call depends on what time it is when the suite runs, which is
- * exactly why it went unnoticed. This runs 1440 times and always agrees.
+ * The first: the start was `now + 10 minutes` with only the *end* clamped, so a
+ * run starting in the last ten minutes of the day produced `startTime: "24:03"`,
+ * which the `hhmm` schema rejects. Ten minutes out of 1440, about 0.7% of runs.
+ *
+ * The fix for that clamped the start to 23:00 and the end to 23:59, which
+ * introduced a second: between 23:00 and midnight the clamped start is in the
+ * *past*, so booking returned 400 for about 4% of runs. It looked like an
+ * unrelated failure in a test about consultation rooms, and it hit CI at 23:38
+ * Asia/Jakarta.
+ *
+ * That one survived because this test re-derived the arithmetic instead of
+ * calling it, and only asserted the *join* constraint - that the room is already
+ * open. It never asserted the *booking* constraint, that the start is still
+ * ahead. A copy of a formula is a copy of its bugs, and half the invariants is
+ * half the coverage.
+ *
+ * So: it calls `windowFor` now, and it checks both directions. The constraints
+ * genuinely conflict at night, which is the whole difficulty - the start must be
+ * in the future (booking) and no more than 15 minutes away (the room is open),
+ * while the end must stay on the same calendar day.
  */
 describe("imminentWindow arithmetic", () => {
     const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const ROOM_OPENS_EARLY = 15;
 
     it("produces a schema-valid, ordered window at every minute of the day", () => {
-        // The same arithmetic `imminentWindow` performs, with `now` injected
-        // instead of read from the clock.
         for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
-            const startMinutes = Math.min(nowMinutes + 10, 23 * 60);
-            const endMinutes = Math.min(startMinutes + 60, 23 * 60 + 59);
+            const { startMinutes, endMinutes } = windowFor(nowMinutes);
             const hhmm = (m: number) =>
                 `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
@@ -149,8 +188,40 @@ describe("imminentWindow arithmetic", () => {
             expect(endMinutes, `end before start at minute ${nowMinutes}`).toBeGreaterThanOrEqual(
                 startMinutes
             );
-            // Still inside the 15-minute pre-appointment window the room uses.
-            expect(nowMinutes).toBeGreaterThanOrEqual(startMinutes - 15);
+        }
+    });
+
+    it("is bookable at every minute: the start is never in the past", () => {
+        // The constraint the first version of this test did not check, and the
+        // one that failed for a sixtieth of the day.
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { startMinutes, nextDay } = windowFor(nowMinutes);
+            // A next-day window starts 1440 minutes after midnight of today.
+            const startRelativeToNow = nextDay ? 1440 + startMinutes : startMinutes;
+            expect(
+                startRelativeToNow,
+                `start is ${startMinutes} with now=${nowMinutes}`
+            ).toBeGreaterThanOrEqual(nowMinutes);
+        }
+    });
+
+    it("is joinable at every minute: the room is already open", () => {
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { startMinutes, nextDay } = windowFor(nowMinutes);
+            const startRelativeToNow = nextDay ? 1440 + startMinutes : startMinutes;
+            expect(
+                nowMinutes,
+                `room not open yet with now=${nowMinutes}, start=${startMinutes}`
+            ).toBeGreaterThanOrEqual(startRelativeToNow - ROOM_OPENS_EARLY);
+        }
+    });
+
+    it("keeps the window on one calendar day", () => {
+        // `endTime` carries no date, so an end that overflowed midnight would be
+        // read back as an end *before* the start.
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { endMinutes } = windowFor(nowMinutes);
+            expect(endMinutes, `end ${endMinutes} past midnight`).toBeLessThanOrEqual(23 * 60 + 59);
         }
     });
 });
