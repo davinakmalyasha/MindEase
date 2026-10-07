@@ -620,6 +620,29 @@ export class AppointmentService {
                     where: { userId: updated.userId, status: "completed" },
                 });
                 if (completedCount === 1) {
+                    // ## Why the count check cannot credit twice
+                    //
+                    // A read followed by a write is the shape that has been wrong
+                    // six times elsewhere in this pass, so it is worth writing
+                    // down why this one is not. It is not that the check is
+                    // atomic - it is not - but that the ordering rules the race
+                    // out.
+                    //
+                    // Each completion runs claim(status) then count(). For two
+                    // completions A and B to *both* see a count of 1, each would
+                    // have to count before the other had claimed, while each claim
+                    // necessarily precedes its own count:
+                    //
+                    //     A_claim < A_count < B_claim < B_count < A_claim
+                    //
+                    // which is a cycle and cannot be scheduled. So at most one
+                    // caller ever reaches this block, and the transaction below is
+                    // atomic for the failure mode that is real - the process dying
+                    // between the two writes.
+                    //
+                    // If this is ever reordered - counting before claiming, or
+                    // moving the credit outside the transaction - that argument no
+                    // longer holds and this becomes the seventh instance.
                     await prisma.$transaction([
                         prisma.referral.update({ where: { id: referral.id }, data: { status: "credited" } }),
                         prisma.user.update({ where: { id: referral.referrerId }, data: { sessionCredits: { increment: 1 } } }),
