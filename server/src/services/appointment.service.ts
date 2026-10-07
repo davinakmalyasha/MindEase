@@ -507,10 +507,28 @@ export class AppointmentService {
             throw unauthorized("role");
         }
 
-        const updated = await prisma.appointment.update({
-            where: { id },
+        // The transition is a claim, not an assignment.
+        //
+        // This read `appointment.status`, decided the move was allowed, and then
+        // wrote the new status by id. Two concurrent requests - a double-tap on
+        // Cancel, or the doctor finishing while the patient cancels - both read
+        // `confirmed`, both passed the terminal-state check, and both wrote
+        // `cancelled`. Everything after this point then ran twice: the slot was
+        // released twice, the waitlist was notified twice, and the session credit
+        // or package session was **refunded twice**. A patient could cancel once
+        // and gain a session.
+        //
+        // Conditional on the status that was read, so exactly one request can
+        // move a given appointment out of a given state. The loser gets a 409 and
+        // does none of the follow-up work, because there is none left to do.
+        const claimed = await prisma.appointment.updateMany({
+            where: { id, status: appointment.status },
             data: { status },
         });
+        if (claimed.count !== 1) {
+            throw conflict("This appointment was changed by someone else — reload to see its current state");
+        }
+        const updated = await prisma.appointment.findUniqueOrThrow({ where: { id } });
 
         // A confirmed live appointment needs a stable room identity before either
         // party joins, so the seed is created here. It is provider-agnostic: the

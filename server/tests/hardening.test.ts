@@ -316,6 +316,58 @@ describe("Therapy package reservation integrity", () => {
         });
         expect(reserved).toBe(1);
     });
+
+    it("cannot refund one cancellation twice", async () => {
+        // `updateStatus` read the appointment, decided the transition was legal,
+        // and then wrote the new status by id. Two cancels at the same moment
+        // both read `pending`, both passed the terminal-state check, and both
+        // wrote `cancelled` - so the refund below ran twice and a patient could
+        // cancel once and come away with a free session. The slot release and the
+        // waitlist notification ran twice as well.
+        //
+        // A double-tap on Cancel is the whole reproduction; no unusual client is
+        // needed.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+
+        const create = await doctor.agent
+            .post("/api/doctors/packages")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ name: "Single plan", sessionCount: 1, totalPrice: 100000 });
+        const purchaseId = (await grantPaidPackage(patient.id, create.body.data.id)).id;
+
+        const booked = await book(patient.agent, patient.csrf, {
+            doctorId: doctor.doctorId,
+            appointmentDate: futureDate(3),
+            packagePurchaseId: purchaseId,
+            idempotencyKey: `cancel-race-${Date.now()}`,
+        });
+        expect(booked.status).toBe(201);
+        const appointmentId = booked.body.data.id;
+
+        // Spent by the booking.
+        const afterBooking = await prisma.packagePurchase.findUnique({ where: { id: purchaseId } });
+        expect(afterBooking?.sessionsLeft).toBe(0);
+
+        const [first, second] = await Promise.all([
+            patient.agent
+                .put(`/api/appointments/${appointmentId}/status`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({ status: "cancelled" }),
+            patient.agent
+                .put(`/api/appointments/${appointmentId}/status`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({ status: "cancelled" }),
+        ]);
+
+        // Exactly one transition, so exactly one refund. The loser is told the
+        // appointment moved rather than being told it succeeded.
+        const statuses = [first.status, second.status].sort();
+        expect(statuses, `got ${first.status} and ${second.status}`).toEqual([200, 409]);
+
+        const afterCancel = await prisma.packagePurchase.findUnique({ where: { id: purchaseId } });
+        expect(afterCancel?.sessionsLeft, "one cancellation refunded twice").toBe(1);
+    });
 });
 
 describe("2FA backup codes", () => {

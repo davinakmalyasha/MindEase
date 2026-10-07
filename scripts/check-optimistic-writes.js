@@ -276,5 +276,32 @@ console.log("\n--- a counter is never decremented unconditionally ---");
     else fail += offenders;
 }
 
+console.log("\n--- a lifecycle transition is claimed, not assigned ---");
+{
+    // `updateStatus` read the appointment, validated the move, then wrote the new
+    // status by id. Two concurrent cancels both passed the validation and both
+    // wrote - so the slot was released twice, the waitlist was notified twice,
+    // and the package session was refunded twice. One cancellation, two refunds.
+    const src = read("server/src/services/appointment.service.ts");
+    const body = methodBody(src, "updateStatus");
+    if (!body) {
+        bad("updateStatus() is findable", "not found");
+    } else {
+        if (/prisma\.appointment\.updateMany\(\{[\s\S]*?where:\s*\{[^}]*status:/.test(body)) {
+            ok("updateStatus() claims the transition conditionally");
+        } else {
+            bad(
+                "updateStatus() claims the transition conditionally",
+                "no `status:` in an updateMany where - two concurrent transitions would both run their side effects"
+            );
+        }
+        if (/claimed\.count\s*!==\s*1/.test(body)) {
+            ok("updateStatus() checks that its claim won");
+        } else {
+            bad("updateStatus() checks that its claim won", "the claim's result is discarded");
+        }
+    }
+}
+
 console.log(`\ncheck-optimistic-writes: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

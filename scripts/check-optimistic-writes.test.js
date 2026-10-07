@@ -190,5 +190,22 @@ console.log("\n--- it catches an unconditional counter decrement ---");
     }
 }
 
+console.log("\n--- it catches an unclaimed lifecycle transition ---");
+{
+    const key = "server/src/services/appointment.service.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    // The regression: the conditional claim becomes an unconditional assignment.
+    const regressed = src.replace(
+        /const claimed = await prisma\.appointment\.updateMany\(\{\s*where: \{ id, status: appointment\.status \},\s*data: \{ status \},\s*\}\);\s*if \(claimed\.count !== 1\) \{\s*throw conflict\([^)]*\);\s*\}\s*const updated = await prisma\.appointment\.findUniqueOrThrow\(\{ where: \{ id \} \}\);/,
+        "const updated = await prisma.appointment.update({ where: { id }, data: { status } });"
+    );
+    if (regressed === src) bad("catches an unclaimed transition", "could not converge the replacement");
+    else {
+        const r = run({ [key]: regressed });
+        if (r.code !== 0 && /claims the transition/.test(r.out)) ok("flags a transition that assigns rather than claims");
+        else bad("flags a transition that assigns rather than claims", `exit=${r.code}`);
+    }
+}
+
 console.log(`\ncheck-optimistic-writes self-test: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
