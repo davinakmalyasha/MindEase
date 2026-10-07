@@ -21,7 +21,7 @@
 import { describe, it, expect } from "vitest";
 import { prisma } from "../src/lib/prisma";
 import { AuditService } from "../src/services/audit.service";
-import { createUser, createDoctor } from "./helpers";
+import { createUser, createDoctor, createAdmin } from "./helpers";
 
 /** Puts a confirmed appointment in place so the clinical relationship exists. */
 const confirmAppointment = async (patientId: number, doctorUserId: number) =>
@@ -172,6 +172,30 @@ describe("clinical read audit", () => {
         const thread = reads.find((r) => r.targetType === "Message");
         expect(thread).toBeDefined();
         expect(thread!.actorId).toBe(doctor.id);
+    });
+
+    it("records a bulk admin export as an event", async () => {
+        // Placed here rather than in an admin suite because it is the same
+        // question: who has seen patient data. An export is one event over a
+        // population, so it is recorded once - with the dataset and the row
+        // count - rather than once per patient on it, which would be write
+        // amplification and would produce a trail nobody can read.
+        const admin = await createAdmin();
+        await createUser("patient");
+
+        const res = await admin.agent.get("/api/admin/export/users");
+        expect(res.status).toBe(200);
+        expect(res.headers["content-type"]).toContain("text/csv");
+
+        const entry = await prisma.auditLog.findFirst({
+            where: { action: "admin.export" },
+            orderBy: { id: "desc" },
+        });
+        expect(entry).not.toBeNull();
+        expect(entry!.actorId).toBe(admin.id);
+        const meta = JSON.parse(entry!.meta!);
+        expect(meta.kind).toBe("users");
+        expect(meta.rows).toBeGreaterThan(0);
     });
 
     it("does not let a failing audit write deny the read", async () => {

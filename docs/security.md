@@ -551,12 +551,20 @@ patients would answer neither "who saw patient X" nor "what did clinician Y open
 
 **Reads that are still not logged.** Patient self-service throughout
 (`GET /api/journal`, `GET /api/mood`, `GET /api/assessments`) is excluded by
-design. `JournalEntry` and `Assessment` appear in `CLINICAL_RESOURCES` for when a
-clinician-facing path is added, but no clinician can currently read another
-patient's journal or screening results through the API, so there is nothing to log
-today. Admin bulk exports (`GET /api/admin/export/:kind`) are **not** covered and
-should be — an administrator reading a CSV of the whole patient list is the
-largest single access event in the product.
+design — a person opening their own file is not an access event, and a trail full
+of those is a trail nobody reads. `JournalEntry` and `Assessment` appear in
+`CLINICAL_RESOURCES` for when a clinician-facing path is added, but no clinician
+can currently read another patient's journal or screening results through the API,
+so there is nothing to log today.
+
+**Bulk exports are recorded as events, not per subject.** `GET
+/api/admin/export/:kind` writes one `admin.export` entry naming the actor, the
+dataset and the row count — because attributing a ten-thousand-row export to each
+patient on it would be write amplification and would produce a trail nobody can
+read. That answers "who took a copy of the user list". It deliberately does **not**
+answer "was patient X in that copy": once a file has left the building, an access
+log cannot answer that, and claiming otherwise would be worse than saying so. The
+row count is recorded so the size of the copy is at least knowable.
 
 **Uploads are served from the credential origin.** Mitigated by CSP, nosniff and
 `Content-Disposition` as described above, but the mitigation is a header, not an

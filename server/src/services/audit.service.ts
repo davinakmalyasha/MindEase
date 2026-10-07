@@ -129,6 +129,41 @@ export class AuditService {
     }
 
     /**
+     * A bulk export by an administrator.
+     *
+     * ## Why this is one entry and not one per patient
+     *
+     * `logRead` records a subject, because "who has seen *this person*" is the
+     * question an access log exists to answer. A bulk export breaks that shape:
+     * attributing an export of ten thousand appointments to each patient on it
+     * would write ten thousand audit rows to record a single click, which is a
+     * write-amplification problem and produces a trail nobody can read.
+     *
+     * So the export is recorded as an *event* - which administrator, which
+     * dataset, how many rows, when. That answers "who took a copy of the user
+     * list", which is the question that matters for an export, and it is honest
+     * that it does not answer "was patient X in the copy" — that cannot be
+     * answered by an access log at all once the file has left the building. The
+     * row count is recorded so the size of the copy is at least knowable.
+     *
+     * `kind` is the caller's own dataset name, not validated here: the route
+     * decides which dataset a string maps to, and a log entry that disagreed with
+     * what was actually sent would be worse than one that records the raw value.
+     */
+    static async logBulkExport(entry: {
+        actorId: number;
+        kind: string;
+        rows: number;
+    }): Promise<void> {
+        await this.log({
+            action: "admin.export",
+            actorId: entry.actorId,
+            targetType: "Export",
+            meta: { kind: entry.kind, rows: entry.rows },
+        });
+    }
+
+    /**
      * Every recorded read of one patient's record.
      *
      * This is the question the absence of read logging made unanswerable. Backs

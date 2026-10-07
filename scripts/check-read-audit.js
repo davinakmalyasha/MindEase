@@ -198,6 +198,29 @@ console.log("\n--- a patient's own record is not logged as an access ---");
     }
 }
 
+console.log("\n--- a bulk export is recorded as an event ---");
+{
+    // An administrator exporting the user table is the largest single access
+    // event in the product. It is recorded once, naming the actor, the dataset
+    // and the row count - not once per subject, because attributing a
+    // ten-thousand-row export to each patient on it would be write amplification
+    // and would produce a trail nobody can read.
+    const admin = read("server/src/controllers/admin.controller.ts");
+    const body = methodBody(admin, "exportCsv");
+    if (!body) {
+        bad("exportCsv() records the export", "not found");
+    } else {
+        const calls = (body.match(/AuditService\.logBulkExport\(/g) || []).length;
+        // One per dataset branch: users, revenue, bookings.
+        if (calls >= 3) ok(`exportCsv() records all ${calls} dataset branches`);
+        else bad("exportCsv() records every dataset branch", `only ${calls} logBulkExport call(s) for 3 branches`);
+    }
+
+    const svc = read("server/src/services/audit.service.ts");
+    if (/static async logBulkExport\(/.test(svc)) ok("AuditService.logBulkExport exists");
+    else bad("AuditService.logBulkExport exists", "not found");
+}
+
 console.log("\n--- an audit failure cannot deny the read ---");
 {
     const svc = read("server/src/services/audit.service.ts");

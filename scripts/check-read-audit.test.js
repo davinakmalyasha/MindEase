@@ -22,6 +22,7 @@ const FILES = [
     "server/src/services/preSession.service.ts",
     "server/src/services/message.service.ts",
     "server/src/services/carePlan.service.ts",
+    "server/src/controllers/admin.controller.ts",
 ];
 
 let pass = 0;
@@ -113,6 +114,25 @@ console.log("\n--- it catches an audit write that can reject the read ---");
     if (r.code !== 0 && /swallows its own failure/.test(r.out))
         ok("flags an audit failure that would deny the read");
     else bad("flags an audit failure that would deny the read", `exit=${r.code}`);
+}
+
+console.log("\n--- it catches an unlogged bulk export ---");
+{
+    const key = "server/src/controllers/admin.controller.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    // Drop the bookings branch's log, leaving the other two - so the failure is
+    // "one branch is uncovered", not "the controller is unrecognisable".
+    const stripped = src.replace(
+        /\/\/ The bookings export carries[\s\S]*?await AuditService\.logBulkExport\(\{[\s\S]*?\}\);\n/,
+        ""
+    );
+    if (stripped === src) bad("catches an unlogged export branch", "could not remove the call");
+    else {
+        const r = run({ [key]: stripped });
+        if (r.code !== 0 && /exportCsv\(\) records/.test(r.out))
+            ok("flags an export branch that returns patient data unrecorded");
+        else bad("flags an export branch that returns patient data unrecorded", `exit=${r.code}`);
+    }
 }
 
 console.log(`\ncheck-read-audit self-test: ${pass} passed, ${fail} failed`);

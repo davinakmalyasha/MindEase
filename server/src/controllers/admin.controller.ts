@@ -510,6 +510,15 @@ export class AdminController {
                 });
                 const rows: unknown[][] = [["id", "name", "email", "role", "provider", "banned", "createdAt"]];
                 for (const u of users) rows.push([u.id, u.name, u.email, u.role, u.provider, u.isBanned, u.createdAt.toISOString()]);
+                // Recorded before the response is sent, so a download that
+                // happened is a download that was logged. An export of the user
+                // table is the largest single access event in the product and
+                // nothing recorded it.
+                await AuditService.logBulkExport({
+                    actorId: req.user!.id,
+                    kind: "users",
+                    rows: rows.length - 1,
+                });
                 res.setHeader("Content-Type", "text/csv; charset=utf-8");
                 res.setHeader("Content-Disposition", 'attachment; filename="mindease-users.csv"');
                 return res.send(toCsv(rows));
@@ -537,6 +546,11 @@ export class AdminController {
                     agg.revenue = agg.bookings * d.price;
                     rows.push([d.id, d.user.name || "Doctor", agg.bookings, agg.revenue, d.price]);
                 }
+                await AuditService.logBulkExport({
+                    actorId: req.user!.id,
+                    kind: "revenue",
+                    rows: rows.length - 1,
+                });
                 res.setHeader("Content-Type", "text/csv; charset=utf-8");
                 res.setHeader("Content-Disposition", 'attachment; filename="mindease-revenue.csv"');
                 return res.send(toCsv(rows));
@@ -568,6 +582,15 @@ export class AdminController {
             }
             res.setHeader("Content-Type", "text/csv; charset=utf-8");
             res.setHeader("Content-Disposition", 'attachment; filename="mindease-bookings.csv"');
+            // The bookings export carries patient names and email addresses
+            // alongside appointment detail. Logged the same way as the others,
+            // including on the fall-through branch - an unlisted `kind` that
+            // still returns patient data is exactly the case worth recording.
+            await AuditService.logBulkExport({
+                actorId: req.user!.id,
+                kind: "bookings",
+                rows: rows.length - 1,
+            });
             return res.send(toCsv(rows));
         } catch (error: any) {
             res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});

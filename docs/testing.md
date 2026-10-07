@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 487 tests, 39 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 488 tests, 39 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
@@ -350,7 +350,7 @@ once green.
 | `auth.test.ts` | 11 | Register, weak-password rejection, no self-promotion to admin, duplicate email, wrong password, lockout after 5 failures, refresh rotation, CSRF enforcement, banned users, email OTP verification, admin route gating |
 | `care-plan.test.ts` | 70 | Ownership matrix, role gates, goals, steps, safety plan CRUD, clinician read side, review, validation |
 | `care-plan-regressions.test.ts` | 9 | A partial safety-plan save must not erase the rest; calendar date handling; the clinician read that was missing |
-| `clinical-read-audit.test.ts` | 7 | Every clinical read leaves a trace: reader and patient recorded separately, one entry per disclosure rather than one per request, no entry for a patient reading their own record, and a broken audit table still does not deny the read |
+| `clinical-read-audit.test.ts` | 8 | Every clinical read leaves a trace: reader and patient recorded separately, one entry per disclosure rather than one per request, no entry for a patient reading their own record, a bulk export recorded as one event with its row count, and a broken audit table still does not deny the read |
 | `crisis-triage.test.ts` | 17 | `detectFreeTextRisk` pattern behaviour, the third-party mention that informs an alert without suppressing it, `lastIndex` safety, patient-only gating, the message path end to end, markup stripping |
 | `doctor-directory.test.ts` | 8 | Public directory filtering, pagination, `/specialties` derived from data |
 | `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
