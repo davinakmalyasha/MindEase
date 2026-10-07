@@ -797,3 +797,51 @@ It survived the first fix because the test that exists to check this arithmetic
 constraint — never that the start was still ahead. A copy of a formula is a copy
 of its bugs, and half the invariants is half the coverage. It calls the real
 function now and checks all four properties across all 1440 minutes of the day.
+
+## The rest of the pattern, searched for and dispositioned
+
+Six instances found by reading is an argument that there are more, so I wrote a
+scanner: for every `findUnique`/`findFirst` followed within a short window by an
+`update({ where: { id ... } })` on the same model, report it. Twenty-nine sites.
+
+Most are not defects, and the reason each is not a defect is the useful part:
+
+- **Set-to-explicit-value.** `setStepDone(actor, stepId, done)` takes the
+  desired state rather than toggling it, so two concurrent calls are idempotent
+  when they agree and last-write-wins when they do not — which is what "set this
+  to done" means. A *toggle* computed from a read would be a lost update; this is
+  not one.
+- **Single-owner content.** Journals, mood entries, a profile, a review reply.
+  Last-write-wins between two edits by the same person to their own words is the
+  semantics every text field has, not a bug.
+- **Idempotent admin actions.** Hiding a review, marking a report resolved,
+  banning a user. The second application changes nothing.
+- **A single-field OTP.** Password reset and email verification store one hash,
+  not a list. Concurrent consumption can let the same code set the password
+  twice, and the second write wins — but the caller already holds the code, so it
+  grants nothing that using the code alone would not. This is only interesting
+  because it is *dissimilar* to the backup-code case: there, consumption removed
+  one element from a list and two writers could resurrect it. One field cannot
+  resurrect anything.
+- **A known create race.** Two simultaneous first-time Google sign-ins for the
+  same address both `findUnique` nothing and both `create`; one loses on the
+  unique email index and returns a 500 where it should return a session. Real,
+  and cosmetic — the retry succeeds. Not worth a schema change.
+
+And one that looked like a seventh instance and is not. The referral reward reads
+`completedCount === 1` and then credits in a transaction. Each completion runs
+claim-then-count, so for two completions to both see a count of 1, each would have
+to count before the other had claimed, while each claim precedes its own count:
+`A_claim < A_count < B_claim < B_count < A_claim`. A cycle cannot be scheduled, so
+at most one caller reaches the credit.
+
+I wrote the conditional-claim version of that before working the schedule out, and
+then removed it. It would have been a speculative change to working code for an
+unreachable race, and it would have made the failure mode that *is* real worse —
+two separate writes instead of one transaction, so a crash between them leaves the
+referral marked credited with no credit granted. The comment that replaced it
+names the ordering it depends on, so a future edit that counts before claiming
+finds the argument it is invalidating.
+
+That is the difference between the scanner and the reading: it reports syntax, and
+six of the twenty-nine were genuine.
