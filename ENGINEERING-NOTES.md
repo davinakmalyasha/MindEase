@@ -307,7 +307,55 @@ rows mid-test.
    truthiness against values that are empty strings, so it reported all five real
    entries as stale.
 4. Move the client off `useEffect` + `fetch` + `useState` onto the `useQuery`
-   pattern the rest of the app uses. Ten sites, four of them large pages.
+   pattern the rest of the app uses. Fifteen sites, four of them large pages.
+
+   **The migration is not the interesting part, and I nearly led with it.** I
+   built a scanner for the ad-hoc pattern and was about to describe the count as
+   a defect. It is not: `useQuery` is a house style, and `useEffect` is not a bug.
+   So I measured the *consequences* instead — stale writes, missing retry paths,
+   cursors that advance on failure — and that produced two real bugs and one
+   finding about my own tooling. The rest of the sites are genuinely just
+   inconsistent, and `useQuery` would fix them by being nicer, not by being
+   correct.
+
+   What it did find:
+
+   **A clinician could read the wrong patient's clinical summary.** Next.js keeps
+   `/dashboard/briefing/[appointmentId]` mounted across a navigation from
+   appointment A to appointment B, and `params` resolves asynchronously, so both
+   requests can be in flight. Nothing stopped A's response from landing last and
+   overwriting B — and the briefing *is* the mood history and pre-session
+   reflections, which is exactly the sort of summary that must never appear
+   beside the wrong name. `useQuery` would have prevented this incidentally, by
+   keying the cache on the id. The fix I wrote is explicit: a monotonic sequence
+   number, checked after every `await`, and bumped again on unmount so a
+   response that settles after teardown declines to write.
+
+   **The pre-session page had the same race, with a worse consequence.** The
+   writes sit either side of a generating `POST` that can take seconds, so a
+   patient who navigated away mid-generation would have had their new form
+   replaced by the previous patient's saved answers — the reflections a clinician
+   reads before a therapy session, transposed across two people.
+
+   **One failed "load more" made a page of doctors unreachable.** `/doctors`
+   did `await loadPage(page + 1); setPage((p) => p + 1)` with no check, and
+   `loadPage` caught its own errors to keep the loaded pages. So a single failed
+   request advanced the cursor past results that never arrived, and the next
+   click asked for page 3. Permanent, silent, unretryable — the button simply
+   did not do anything useful. `loadPage` now returns `Promise<boolean>` so the
+   failure is visible in the signature rather than in a comment.
+
+   And the same file reported a failed AI match as an empty list, which rendered
+   "No specialists matched your description" — a confident claim about a
+   practice's roster, manufactured by a connection failure.
+
+   `scripts/check-stale-writes.js` now fails the build when a `[param]` page has
+   no staleness guard, when a fetch chain writes without re-checking it, when a
+   cursor advances unconditionally, or when a failure is rendered as an empty
+   result. Its self-test strips each mechanism back out of the real files and
+   asserts the gate notices. Three of the four checks failed against the fixed
+   code before I fixed the checker rather than the code — one of them because my
+   regex was counting `params.then()` as a fetch handler.
 5. ~~Write the accessibility pass.~~ **Partly done, and my description of it was
    wrong twice.** I wrote "icon-only buttons without labels, form errors that are
    never announced, and 224 uses of a grey that fails contrast at 2.54:1."

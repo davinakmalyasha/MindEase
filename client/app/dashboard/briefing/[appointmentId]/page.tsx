@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle, ClipboardCheck, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -41,8 +41,16 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
     // then vanished, leaving the false claim on screen as the durable state.
     const [loadFailed, setLoadFailed] = useState(false);
 
+    // Monotonic request counter; see the effect below.
+    const requestSeq = useRef(0);
+
+    // Abandoned work on unmount increments the counter, so any in-flight response
+    // finds itself stale and declines to write.
     useEffect(() => {
         params.then(({ appointmentId }) => setAppointmentId(appointmentId));
+        return () => {
+            requestSeq.current += 1;
+        };
     }, [params]);
 
     const applyData = (data: any) => {
@@ -58,13 +66,19 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
 
     const generate = useCallback(async (force = false) => {
         if (!appointmentId) return;
+        const seq = ++requestSeq.current;
         setIsGenerating(true);
         try {
             const res = force
                 ? await api.post("/ai/briefing", { appointmentId: Number(appointmentId) })
                 : await api.get(`/ai/briefing/${appointmentId}`);
+            // A generation can take seconds. If the user navigated to another
+            // appointment in the meantime, writing now would replace this
+            // clinician's briefing with the other patient's.
+            if (seq !== requestSeq.current) return;
             applyData(res.data?.data);
         } catch (error) {
+            if (seq !== requestSeq.current) return;
             console.error("[briefing] generate failed", error);
             toast(getErrorMessage(error, "Failed to generate briefing"), "error");
             // A generation that failed leaves the panel showing whatever it
@@ -79,13 +93,26 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
 
     useEffect(() => {
         if (!appointmentId) return;
+
+        // Two requests can be in flight for the same component: this GET and a
+        // `generate` the 404 path below kicks off, or a regenerate the user
+        // pressed. `params` resolves asynchronously, so on a client-side
+        // navigation the component stays mounted while `appointmentId` changes,
+        // and the first response can land last and overwrite the second
+        // appointment's briefing with the previous patient's - on the screen of
+        // a clinician about to read it. A sequence number makes the newest
+        // request the only one allowed to write.
+        const seq = ++requestSeq.current;
+
         // Try cached first, then generate
         api.get(`/ai/briefing/${appointmentId}`)
             .then((res) => {
+                if (seq !== requestSeq.current) return;
                 applyData(res.data?.data);
                 setIsLoading(false);
             })
             .catch((err: unknown) => {
+                if (seq !== requestSeq.current) return;
                 // Not every failure means "there is no briefing yet".
                 //
                 // This used to be `.catch(() => generate(true))`, so any error -
@@ -109,14 +136,17 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
 
     const reload = useCallback(() => {
         if (!appointmentId) return;
+        const seq = ++requestSeq.current;
         setIsLoading(true);
         setLoadFailed(false);
         api.get(`/ai/briefing/${appointmentId}`)
             .then((res) => {
+                if (seq !== requestSeq.current) return;
                 applyData(res.data?.data);
                 setIsLoading(false);
             })
             .catch((err: unknown) => {
+                if (seq !== requestSeq.current) return;
                 console.error("[briefing] reload failed", err);
                 setIsLoading(false);
                 setLoadFailed(true);
@@ -129,12 +159,17 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
     // the header disappearing is a diagnosable event and not a mystery.
     useEffect(() => {
         if (!appointmentId) return;
+        const seq = ++requestSeq.current;
         api.get("/appointments/my")
             .then((res) => {
+                if (seq !== requestSeq.current) return;
                 const found = (res.data?.data || []).find((a: any) => String(a.id) === appointmentId);
                 setAppointment(found || null);
             })
-            .catch((err: unknown) => console.error("[briefing] appointment context failed", err));
+            .catch((err: unknown) => {
+                if (seq !== requestSeq.current) return;
+                console.error("[briefing] appointment context failed", err);
+            });
     }, [appointmentId]);
 
     return (

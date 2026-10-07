@@ -205,8 +205,13 @@ check-load-states: ## Fail when a failed request renders as an empty state, or a
 	node scripts/check-load-states.test.js
 	node scripts/check-load-states.js
 
+.PHONY: check-stale-writes
+check-stale-writes: ## Fail when a response can overwrite a newer one, or a failed page advances a cursor. Required in CI.
+	node scripts/check-stale-writes.test.js
+	node scripts/check-stale-writes.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-stale-writes check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

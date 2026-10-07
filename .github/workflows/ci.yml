@@ -144,6 +144,16 @@ jobs:
           node scripts/check-load-states.test.js
           node scripts/check-load-states.js
 
+      # A response that lands after a newer one. Next.js keeps the component
+      # mounted across /[appointmentId]/A and /[appointmentId]/B and `params`
+      # resolves asynchronously, so two requests can be in flight and write in
+      # either order - which on the briefing page means showing one patient's
+      # clinical summary to a clinician reading another's.
+      - name: Stale-write self-test, then gate
+        run: |
+          node scripts/check-stale-writes.test.js
+          node scripts/check-stale-writes.js
+
   # --------------------------------------------------------------------
   # Compose file validation
   #

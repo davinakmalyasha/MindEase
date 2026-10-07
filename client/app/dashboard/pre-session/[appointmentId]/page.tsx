@@ -41,7 +41,7 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
     // Only a 404 is evidence that nothing exists.
     const [loadFailed, setLoadFailed] = useState(false);
 
-    const loadData = useCallback(async () => {
+    const loadData = useCallback(async (isCurrent: () => boolean = () => true) => {
         if (!appointmentId) return;
         setIsLoading(true);
         setLoadFailed(false);
@@ -55,27 +55,46 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                 if (status !== 404) throw err;
             }
 
+            // Every write is gated on `isCurrent()`. The check sits after each await
+            // rather than once at the end, because the awaits are not adjacent:
+            // a generation POST can outlive the navigation that abandoned it.
             if (existing?.questions?.length) {
+                if (!isCurrent()) return;
                 setQuestions(existing.questions);
                 const saved = existing.answers || [];
                 setSavedAnswers(saved);
                 setAnswers(Object.fromEntries(saved.map((a: Answer) => [a.question, a.answer])));
             } else {
                 const res = await api.post("/ai/pre-session", { appointmentId: Number(appointmentId) });
+                if (!isCurrent()) return;
                 setQuestions(res.data?.data?.questions || []);
                 setAnswers({});
             }
         } catch (error) {
+            // A rejection from an abandoned request is not news.
+            if (!isCurrent()) return;
             console.error("[pre-session] load failed", error);
             toast(getErrorMessage(error, "Failed to load questions"), "error");
             setLoadFailed(true);
         } finally {
-            setIsLoading(false);
+            if (isCurrent()) setIsLoading(false);
         }
     }, [appointmentId, toast]);
 
     useEffect(() => {
-        loadData();
+        // Guards against a slow response from an abandoned appointment.
+        //
+        // `params` resolves asynchronously, so on a client-side navigation
+        // between two appointments this component stays mounted while
+        // `appointmentId` changes. Without the flag, the *first* request can
+        // settle after the second and overwrite the new appointment's questions
+        // with the previous patient's answers - the wrong patient's reflections,
+        // on the screen of a clinician who is about to read them.
+        let current = true;
+        loadData(() => current);
+        return () => {
+            current = false;
+        };
     }, [loadData]);
 
     const allAnswered = questions.length > 0 && questions.every((q) => answers[q]?.trim());
@@ -134,7 +153,7 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                     </p>
                     <button
                         type="button"
-                        onClick={loadData}
+                        onClick={() => loadData()}
                         className="mt-6 px-6 py-3 bg-rose-600 text-white rounded-2xl font-bold hover:bg-rose-700 transition-all"
                     >
                         Try Again
@@ -147,7 +166,7 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                     <p className="text-gray-500 max-w-sm mx-auto">
                         Questions are generated once your appointment is confirmed. Refresh if you just confirmed it.
                     </p>
-                    <button onClick={loadData} className="mt-6 px-6 py-3 bg-violet-600 text-white rounded-2xl font-bold hover:bg-violet-700 transition-all">
+                    <button onClick={() => loadData()} className="mt-6 px-6 py-3 bg-violet-600 text-white rounded-2xl font-bold hover:bg-violet-700 transition-all">
                         Try Again
                     </button>
                 </div>
