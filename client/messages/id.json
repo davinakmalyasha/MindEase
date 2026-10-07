@@ -15,7 +15,11 @@
     "noPermission": "Anda tidak memiliki akses ke halaman ini.",
     "unknown": "Tidak diketahui",
     "logoutSuccess": "Berhasil keluar",
-    "security": "Keamanan"
+    "security": "Keamanan",
+    "tryAgain": "Coba lagi",
+    "somethingWentWrong": "Terjadi kesalahan",
+    "couldNotLoad": "Data ini tidak dapat dimuat",
+    "noResults": "Belum ada apa-apa di sini"
   },
   "nav": {
     "home": "Beranda",

@@ -134,6 +134,16 @@ jobs:
           node scripts/check-a11y.test.js
           node scripts/check-a11y.js
 
+      # Failed request vs. empty result. A rejected fetch that leaves state at
+      # its initial value renders an "empty" state, and the user is told there
+      # is nothing there when in fact nothing could be asked. Six panels did
+      # this; one of them was an editing form whose save writes every field, so
+      # a failed load plus one changed field overwrote the rest with "".
+      - name: Load-state self-test, then gate
+        run: |
+          node scripts/check-load-states.test.js
+          node scripts/check-load-states.js
+
   # --------------------------------------------------------------------
   # Compose file validation
   #

@@ -202,6 +202,11 @@ first:
   every refetch, so a window focus erased it; and a failed load rendered an empty
   editable form, where saving sent `""` for all six fields and the service treats
   an empty string as *clear*.
+- **A profile could be overwritten with nothing.** The same failure mode as the
+  safety plan, on the profile form: a rejected load left every field at `""` and
+  rendered the form anyway, so correcting one field and saving blanked all the
+  others. Details under "What I would do next", which is where I also correct the
+  inflated count I attached to this class of bug.
 
 ## How this was verified
 
@@ -218,11 +223,64 @@ rows mid-test.
 
 ## What I would do next
 
-1. Fix the twenty-odd surfaces that render an empty state when they should render
-   an error. Two of them are fixed in this pass; the rest are the same defect.
-2. Give `TrajectoryChart` a legend and a text alternative. The severity bands are
-   the entire clinical meaning of that chart, they are colour-only, and the axis
-   labels render at 4.7px on a phone. `MoodChart` now has both; this one does not.
+1. ~~Fix the twenty-odd surfaces that render an empty state when they should
+   render an error.~~ **Done, and my count was wrong in a way that mattered.**
+
+   I wrote "twenty-odd" before looking. What was actually there was ten
+   components with a `.catch()` and no error state, and several of those are
+   correct: an optimistic update that rolls back by refetching is supposed to
+   swallow the original error, and a deliberate `.catch(() => null)` probe for
+   "does this exist yet" is a different thing entirely. Measuring first would
+   have spared me the exaggeration.
+
+   The real defects were worse than a missing message.
+
+   **The profile form could destroy the profile.** `/dashboard/profile` submits
+   a `PUT` that writes *every* field. Its fields initialise to `""`, a failed
+   load left them there, and the form rendered regardless. So the request fails,
+   the user sees a blank profile, they fix their phone number, they save, and
+   the server receives `""` for their name, avatar, referral code and
+   weekly-report setting. A toast had flashed "Failed to load profile" and
+   vanished — true, and not acted upon. The fix is to refuse to render an
+   editable form that has not loaded, which is the only safe behaviour for a
+   submit that overwrites everything.
+
+   **A doctor's public profile hung forever.** `/doctors/[id]` handled only
+   404. For anything else — a 500, a dropped connection — `doctor` stayed
+   `null`, `isLoading` went `false`, and the guard `if (isLoading || !doctor)`
+   kept rendering an animated skeleton. Indefinitely. Not an error, not an empty
+   state, not a spinner that ever finishes. A skeleton with nothing behind it is
+   the worst of the three states, because it promises a resolution that never
+   arrives.
+
+   **Two 404s were treated as permission to regenerate.** The briefing page
+   fetched the cached text and fell through to `generate(true)` on *any*
+   rejection. The pre-session page probed for existing questions with
+   `.catch(() => null)` and, on `null`, generated fresh ones. In both cases the
+   code that was asked whether a record existed never received an answer and
+   supplied one. A dropped connection therefore cost an LLM call, and for a
+   patient who had already answered their pre-session questions it discarded
+   that work. Now only a 404 is evidence of absence; everything else is
+   "unknown", and unknown gets a retry rather than a regeneration.
+
+   Six panels fixed. `scripts/check-load-states.js` now fails the build if a
+   component swallows a fetch error into a falsy value, if a form can be edited
+   before it has loaded, or if absence is claimed with no 404 behind it. Its
+   self-test rebuilds the pre-fix dashboard from git and asserts the gate
+   rejects it — including the case where the anti-pattern appears only inside a
+   comment, which is what happened the first time I pointed it at files that now
+   *explain* the fix in prose.
+
+2. ~~Give `TrajectoryChart` a legend and a text alternative.~~ **Done.** The
+   severity bands are the entire clinical meaning of that chart and were
+   tint-only, so a reader who cannot separate `#fecaca` from `#fdba74` learned
+   nothing about where "severe" begins. The bands are now enumerated as a
+   labelled list with their numeric ranges, the visual is `aria-hidden` so a
+   screen reader does not walk every rect, and an `sr-only` sentence states
+   first score, latest score and both severities — the line's slope is the
+   reading a clinician takes from this chart, and slope is unavailable to
+   anyone who cannot see the line. One axis label also moved from `#9ca3af` to
+   `#6b7280`, which is the 285th contrast fix and drops the ratchet to 285.
 3. ~~Add the missing `@@index` on `Review.userId`.~~ **This was wrong, and I wrote
    it as though it were right.** `Review.userId` is not unindexed. InnoDB creates
    an index for every foreign key, and this one is called `Review_userId_fkey`:
@@ -282,11 +340,13 @@ rows mid-test.
    a real file, checks the gate fails, and restores the file. A rule that has never
    been observed failing is a rule of unknown value.
 
-   On contrast: 286 uses of `text-gray-50..400` across 59 files, and `gray-400` on
+On contrast: 286 uses of `text-gray-50..400` across 59 files, and `gray-400` on
    white is 2.54:1 against an AA requirement of 4.5:1. Fixing that in one commit
    would be 59 files of visual change nobody could review, so the gate holds a
-   **budget that may only shrink** — currently 283, since `gray-500` is 4.83:1 and
-   swapping one shade is the least change that actually fixes anything. A gate
+   **budget that may only shrink** — currently 285, after the `TrajectoryChart`
+   axis label moved from `#9ca3af` to `#6b7280`, which is the smallest change
+   that actually fixes anything: `gray-500` on white is 4.83:1, so the palette
+   already had a passing shade and I had used the failing one anyway. A gate
    demanding zero would have been disabled on its first day.
 
 ---

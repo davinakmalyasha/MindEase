@@ -85,6 +85,11 @@ export default function TrajectoryChart({
                 role="img"
                 aria-label={`${label}: ${points.length} sittings, latest score ${points[points.length - 1]?.score ?? "none"}`}
             >
+                {/* The bands and grid are `aria-hidden`: they are decoration
+                    behind a chart that is already described by the label above
+                    and enumerated in the legend below. Without this a screen
+                    reader walks every rect and tick and reads the colours out as
+                    if they were data. */}
                 {/* Severity bands, drawn first so the line sits on top. Each
                     band's top is the previous band's ceiling, which is why the
                     bands are walked in order rather than indexed. */}
@@ -99,6 +104,7 @@ export default function TrajectoryChart({
                             width={innerW}
                             height={Math.max(0, y(lower) - y(upper))}
                             fill={BAND_TINT[band.severity] ?? "#f3f4f6"}
+                            aria-hidden="true"
                         />
                     );
                 })}
@@ -107,7 +113,7 @@ export default function TrajectoryChart({
                     read a screening score and few enough to stay legible on a
                     phone. */}
                 {[0, Math.round(instrument.max / 2), instrument.max].map((tick) => (
-                    <g key={tick}>
+                    <g key={tick} aria-hidden="true">
                         <line
                             x1={PAD.left}
                             x2={W - PAD.right}
@@ -121,7 +127,7 @@ export default function TrajectoryChart({
                             y={y(tick) + 4}
                             textAnchor="end"
                             fontSize={10}
-                            fill="#9ca3af"
+                            fill="#6b7280"
                         >
                             {tick}
                         </text>
@@ -136,12 +142,13 @@ export default function TrajectoryChart({
                         strokeWidth={2}
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        aria-hidden="true"
                     />
                 )}
 
                 {points.map((p, i) => (
                     <g key={p.id}>
-                        <circle cx={x(i)} cy={y(p.score)} r={4} fill="#4f46e5">
+                        <circle cx={x(i)} cy={y(p.score)} r={4} fill="#4f46e5" aria-hidden="true">
                             <title>{`${new Date(p.createdAt).toLocaleDateString()}: ${p.score} (${p.severity})`}</title>
                         </circle>
                         {/* Only the endpoints are labelled. A number under every
@@ -154,6 +161,7 @@ export default function TrajectoryChart({
                                 textAnchor="middle"
                                 fontSize={10}
                                 fill="#6b7280"
+                                aria-hidden="true"
                             >
                                 {new Date(p.createdAt).toLocaleDateString(undefined, {
                                     month: "short",
@@ -164,6 +172,48 @@ export default function TrajectoryChart({
                     </g>
                 ))}
             </svg>
-        </figure>
-    );
-}
+
+                {/* The legend, which is also the text alternative.
+                 *
+                 * The bands are the only place the severity thresholds appear in
+                 * this component, and they are conveyed by tint alone. A reader
+                 * who cannot distinguish `#fecaca` from `#fdba74` learns nothing
+                 * about where "severe" begins, so the ranges are spelled out here
+                 * as text and each swatch is labelled rather than left to be
+                 * matched by eye. `sr-only` on the summary because the legend
+                 * below is visible and duplicating it aloud is noise. */}
+                <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+                    {instrument.bands.map((band, i) => {
+                        const lower = i === 0 ? 0 : instrument.bands[i - 1].upTo;
+                        return (
+                            <li key={band.severity} className="flex items-center gap-1.5">
+                                <span
+                                    aria-hidden="true"
+                                    className="h-2.5 w-2.5 shrink-0 rounded-sm border border-gray-300"
+                                    style={{ background: BAND_TINT[band.severity] ?? "#f3f4f6" }}
+                                />
+                                <span>
+                                    {band.severity}
+                                    <span className="text-gray-400">
+                                        {" "}
+                                        ({lower}&ndash;{band.upTo})
+                                    </span>
+                                </span>
+                            </li>
+                        );
+                    })}
+                </ul>
+
+                {/* Direction of travel, stated rather than inferred. The line's
+                    * slope* is the reading a clinician takes from this chart, and
+                    * it is unavailable to anyone who cannot see the line. */}
+                <p className="sr-only">
+                    {points.length < 2
+                        ? "A single sitting, so no trend is shown."
+                        : `First score ${points[0].score} (${points[0].severity}), latest score ${
+                              points[points.length - 1].score
+                          } (${points[points.length - 1].severity}).`}
+                </p>
+            </figure>
+        );
+    }

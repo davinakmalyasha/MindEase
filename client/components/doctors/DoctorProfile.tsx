@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
 import { Doctor } from "@/lib/types/doctor";
@@ -175,11 +175,26 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
     const [packageForm, setPackageForm] = useState({ name: "", description: "", sessionCount: "4", totalPrice: "" });
     const [packageBusy, setPackageBusy] = useState(false);
 
-    useEffect(() => {
+    // Same distinction as the briefing panel: an empty array means the doctor
+    // has no packages, and only an empty array may be described that way. This
+    // used to be `.catch(() => {})`, which left `packages` at `[]` and rendered
+    // "No packages yet" - telling a doctor that their pricing is empty when the
+    // request had merely failed.
+    const [packagesFailed, setPackagesFailed] = useState(false);
+
+    const loadPackages = useCallback(() => {
+        setPackagesFailed(false);
         api.get(`/doctors/${doctor.id}/packages`)
             .then((res) => setPackages(res.data?.data || []))
-            .catch(() => {});
+            .catch((err: unknown) => {
+                console.error("[doctor] packages failed", err);
+                setPackagesFailed(true);
+            });
     }, [doctor.id]);
+
+    useEffect(() => {
+        loadPackages();
+    }, [loadPackages]);
 
     const createPackage = async () => {
         setPackageBusy(true);
@@ -551,7 +566,22 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                                 </button>
                             </div>
                         )}
-                        {packages.length === 0 ? (
+                        {packagesFailed ? (
+                            <div role="alert" className="bg-rose-50 border border-rose-200 rounded-3xl py-10 px-6 text-center">
+                                <Package className="w-8 h-8 text-rose-300 mx-auto mb-3" />
+                                <p className="text-rose-800 font-semibold mb-1">Could not load your packages</p>
+                                <p className="text-rose-700 text-sm mb-4">
+                                    Your existing packages may still be there &mdash; this is a connection problem.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={loadPackages}
+                                    className="px-5 py-2 bg-rose-600 text-white rounded-2xl font-bold text-sm hover:bg-rose-700 transition-all"
+                                >
+                                    Retry
+                                </button>
+                            </div>
+                        ) : packages.length === 0 ? (
                             <div className="bg-gray-50 rounded-3xl py-10 text-center">
                                 <Package className="w-8 h-8 text-gray-300 mx-auto mb-3" />
                                 <p className="text-gray-500 font-medium">No packages yet.</p>

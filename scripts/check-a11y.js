@@ -43,7 +43,7 @@ const CLIENT = path.join(__dirname, "..", "client");
  * `gray-500` is 4.83:1 and passes, which is why the fix in register and
  * forgot-password is a one-shade change rather than a redesign.
  */
-const CONTRAST_BUDGET = 286;
+const CONTRAST_BUDGET = 285;
 
 /** Tailwind's default greys. */
 const GREY = {

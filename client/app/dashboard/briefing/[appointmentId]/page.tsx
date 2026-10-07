@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle, ClipboardCheck } from "lucide-react";
+import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle, ClipboardCheck, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import MoodChart from "@/components/mood/MoodChart";
@@ -33,12 +33,21 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
     const [isGenerating, setIsGenerating] = useState(false);
     const [appointment, setAppointment] = useState<any>(null);
 
+    // `briefing === null` has two very different causes, and the page used to
+    // render them identically: "there is no briefing for this appointment" and
+    // "we could not reach the server to find out". Both produced the sentence
+    // "No briefing available yet", which is a claim about the world and was
+    // simply false in the second case. A toast said something had gone wrong and
+    // then vanished, leaving the false claim on screen as the durable state.
+    const [loadFailed, setLoadFailed] = useState(false);
+
     useEffect(() => {
         params.then(({ appointmentId }) => setAppointmentId(appointmentId));
     }, [params]);
 
     const applyData = (data: any) => {
         setBriefing(data?.briefing || null);
+        setLoadFailed(false);
         // Read from the server rather than sniffing the text: the API stores the
         // origin alongside the briefing, so this is still correct when reading a
         // briefing generated days ago.
@@ -56,7 +65,12 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                 : await api.get(`/ai/briefing/${appointmentId}`);
             applyData(res.data?.data);
         } catch (error) {
+            console.error("[briefing] generate failed", error);
             toast(getErrorMessage(error, "Failed to generate briefing"), "error");
+            // A generation that failed leaves the panel showing whatever it
+            // showed before, which if that was `null` is the "No briefing
+            // available yet" claim again. Same false statement, one layer down.
+            setLoadFailed(true);
         } finally {
             setIsGenerating(false);
             setIsLoading(false);
@@ -71,10 +85,48 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                 applyData(res.data?.data);
                 setIsLoading(false);
             })
-            .catch(() => generate(true));
+            .catch((err: unknown) => {
+                // Not every failure means "there is no briefing yet".
+                //
+                // This used to be `.catch(() => generate(true))`, so any error -
+                // a dropped connection, a 502, a 401 - was treated as proof that
+                // no briefing existed, and answered by paying for an LLM call to
+                // create one. A network blip therefore cost money and produced a
+                // briefing for a patient who already had one.
+                //
+                // Only a 404 is evidence of absence. Everything else is
+                // "unknown", and gets a retry rather than a regeneration.
+                const status = (err as { response?: { status?: number } })?.response?.status;
+                console.error("[briefing] load failed", err);
+                setIsLoading(false);
+                if (status === 404) {
+                    generate(true);
+                } else {
+                    setLoadFailed(true);
+                }
+            });
     }, [appointmentId, generate]);
 
-    // Fetch appointment context (patient info + mood history comes with briefing via answers)
+    const reload = useCallback(() => {
+        if (!appointmentId) return;
+        setIsLoading(true);
+        setLoadFailed(false);
+        api.get(`/ai/briefing/${appointmentId}`)
+            .then((res) => {
+                applyData(res.data?.data);
+                setIsLoading(false);
+            })
+            .catch((err: unknown) => {
+                console.error("[briefing] reload failed", err);
+                setIsLoading(false);
+                setLoadFailed(true);
+            });
+    }, [appointmentId]);
+
+    // Supplementary context: the patient name and appointment time in the header.
+    // The briefing itself does not depend on it, so a failure here degrades the
+    // header rather than the page - but it is logged rather than swallowed, so
+    // the header disappearing is a diagnosable event and not a mystery.
     useEffect(() => {
         if (!appointmentId) return;
         api.get("/appointments/my")
@@ -82,7 +134,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                 const found = (res.data?.data || []).find((a: any) => String(a.id) === appointmentId);
                 setAppointment(found || null);
             })
-            .catch(() => {});
+            .catch((err: unknown) => console.error("[briefing] appointment context failed", err));
     }, [appointmentId]);
 
     return (
@@ -146,6 +198,31 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     >
                                         {briefing}
                                     </motion.p>
+                                </div>
+                            ) : loadFailed ? (
+                                // Unknown, not empty. The panel says so rather
+                                // than asserting there is nothing here.
+                                <div className="flex flex-col items-center py-12 text-center">
+                                    <AlertCircle className="w-10 h-10 text-rose-400 mb-4" />
+                                    <p className="text-gray-700 font-semibold mb-1">
+                                        Could not load this briefing
+                                    </p>
+                                    <p className="text-gray-500 text-sm mb-4">
+                                        It may already exist &mdash; this is a connection problem, not an
+                                        absence.
+                                    </p>
+                                    <button
+                                        onClick={reload}
+                                        disabled={isGenerating}
+                                        className="px-6 py-3 bg-rose-600 text-white rounded-2xl font-bold hover:bg-rose-700 transition-all flex items-center gap-2"
+                                    >
+                                        {isGenerating ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                            <RefreshCw className="w-4 h-4" />
+                                        )}
+                                        Retry
+                                    </button>
                                 </div>
                             ) : (
                                 <div className="flex flex-col items-center py-12 text-center">

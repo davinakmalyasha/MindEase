@@ -15,7 +15,11 @@
     "noPermission": "You do not have access to this page.",
     "unknown": "Unknown",
     "logoutSuccess": "Logged out successfully",
-    "security": "Security"
+    "security": "Security",
+    "tryAgain": "Try again",
+    "somethingWentWrong": "Something went wrong",
+    "couldNotLoad": "This could not be loaded",
+    "noResults": "Nothing here yet"
   },
   "nav": {
     "home": "Home",

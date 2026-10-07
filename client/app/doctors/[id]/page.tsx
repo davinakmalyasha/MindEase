@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
@@ -37,30 +37,65 @@ export default function DoctorDetailPage({ params }: { params: Promise<{ id: str
     const [reviews, setReviews] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [notFoundState, setNotFoundState] = useState(false);
+    const [loadFailed, setLoadFailed] = useState(false);
 
-    useEffect(() => {
-        let active = true;
-        params.then(({ id }) => {
-            api.get(`/doctors/${id}`)
-                .then((res) => {
-                    if (!active) return;
+    const load = useCallback(() => {
+        setIsLoading(true);
+        setLoadFailed(false);
+        params
+            .then(({ id }) =>
+                api.get(`/doctors/${id}`).then((res) => {
                     const data = res.data?.data;
-                    if (!data) return setNotFoundState(true);
+                    if (!data) return { missing: true };
                     setDoctor(mapDoctor(data));
                     setReviews((data.reviews || []).map(mapReview));
+                    return { missing: false };
                 })
-                .catch((err) => {
-                    if (!active) return;
-                    if (err?.response?.status === 404) setNotFoundState(true);
-                })
-                .finally(() => active && setIsLoading(false));
-        });
-        return () => {
-            active = false;
-        };
+            )
+            .then((result) => {
+                if (result?.missing) setNotFoundState(true);
+            })
+            .catch((err: unknown) => {
+                console.error("[doctor] profile failed", err);
+                const status = (err as { response?: { status?: number } })?.response?.status;
+                if (status === 404) setNotFoundState(true);
+                else setLoadFailed(true);
+            })
+            .finally(() => setIsLoading(false));
     }, [params]);
 
+    useEffect(() => {
+        load();
+    }, [load]);
+
     if (notFoundState) notFound();
+
+    // Only reached once the request has settled and failed. Without this the
+    // guard below stays true forever: `isLoading` is false, `doctor` is null,
+    // so `isLoading || !doctor` renders an animated skeleton that never resolves.
+    // A 500 on a doctor's public profile looked like a page that had not loaded.
+    if (loadFailed) {
+        return (
+            <main className="min-h-screen bg-white">
+                <Navbar />
+                <div className="pt-32 px-4 md:px-8 max-w-7xl mx-auto">
+                    <div role="alert" className="max-w-md mx-auto text-center border border-rose-200 bg-rose-50 rounded-3xl px-8 py-12">
+                        <p className="text-lg font-extrabold text-rose-800 mb-2">Could not load this profile</p>
+                        <p className="text-sm text-rose-700 mb-6">
+                            The specialist may still be available &mdash; this is a connection problem.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={load}
+                            className="px-6 py-3 bg-rose-600 text-white rounded-2xl font-bold text-sm hover:bg-rose-700 transition-all"
+                        >
+                            Try again
+                        </button>
+                    </div>
+                </div>
+            </main>
+        );
+    }
 
     if (isLoading || !doctor) {
         return (

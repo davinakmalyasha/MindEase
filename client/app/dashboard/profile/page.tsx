@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import api, { getErrorMessage } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -38,6 +38,7 @@ export default function ProfilePage() {
 
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [profileFailed, setProfileFailed] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -73,10 +74,11 @@ export default function ProfilePage() {
     const [newPassword, setNewPassword] = useState("");
     const [securityLoading, setSecurityLoading] = useState(false);
 
-    useEffect(() => {
-        const fetchProfile = async () => {
-            try {
-                const res = await api.get("/users/profile");
+    const fetchProfile = useCallback(async () => {
+        setIsLoading(true);
+        setProfileFailed(false);
+        try {
+            const res = await api.get("/users/profile");
                 const data = res.data?.data || res.data;
                 const doctorProfile = data.doctorProfile;
 
@@ -110,14 +112,25 @@ export default function ProfilePage() {
                     setLanguages(doctorProfile?.languages || "");
                     setEducation(doctorProfile?.education || "");
                 }
-            } catch (err) {
-                toast(getErrorMessage(err, "Failed to load profile"), "error");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchProfile();
+} catch (err) {
+            console.error("[profile] load failed", err);
+            toast(getErrorMessage(err, "Failed to load profile"), "error");
+            // This page is an editing form over values that came from the server.
+            // A load failure used to leave every field holding its `""` default
+            // and render the form anyway, which is a data-loss trap: the user
+            // sees their profile as blank, changes one field, saves, and the
+            // submit sends the empty strings for all the others. Every field on
+            // this page is overwritten by the save, so a form that has not loaded
+            // must not be editable.
+            setProfileFailed(true);
+        } finally {
+            setIsLoading(false);
+        }
     }, [toast]);
+
+    useEffect(() => {
+        fetchProfile();
+    }, [fetchProfile]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
@@ -292,6 +305,27 @@ export default function ProfilePage() {
         return (
             <DashboardLayout>
                 <div className="h-64 bg-white border border-gray-100 rounded-[2.5rem] animate-pulse" />
+            </DashboardLayout>
+        );
+    }
+
+    if (profileFailed) {
+        return (
+            <DashboardLayout>
+                <div role="alert" className="max-w-lg mx-auto bg-white border border-rose-200 rounded-[2.5rem] p-10 text-center">
+                    <p className="text-lg font-extrabold text-rose-800 mb-2">Could not load your profile</p>
+                    <p className="text-sm text-rose-700 mb-6">
+                        Nothing has been changed. Your profile is untouched &mdash; the form stays closed so it
+                        cannot overwrite what it failed to read.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={fetchProfile}
+                        className="px-6 py-3 bg-rose-600 text-white rounded-2xl font-bold text-sm hover:bg-rose-700 transition-all"
+                    >
+                        Try again
+                    </button>
+                </div>
             </DashboardLayout>
         );
     }

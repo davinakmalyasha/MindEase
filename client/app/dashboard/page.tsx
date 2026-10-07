@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     Calendar,
@@ -20,6 +20,7 @@ import { motion } from "framer-motion";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Avatar from "@/components/ui/Avatar";
 import SOSButton from "@/components/ui/SOSButton";
+import { ErrorState, LoadingState } from "@/components/ui/DataState";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslations } from "next-intl";
@@ -27,14 +28,44 @@ import { useTranslations } from "next-intl";
 export default function Dashboard() {
     const router = useRouter();
     const t = useTranslations("dashboard");
+const tc = useTranslations("common");
     const { user } = useAuth();
     const [stats, setStats] = useState<any>(null);
 
-    useEffect(() => {
-        if (user?.role === "doctor") {
-            api.get("/doctors/stats").then((res) => setStats(res.data.data)).catch(() => {});
-        }
+    // Three states, not two.
+    //
+    // `stats === null` means "not arrived yet". It used to also mean "the
+    // request failed", because the failure was swallowed with `.catch(() => {})`
+    // and the guard below was `stats && (...)`. So a doctor's practice
+    // statistics that failed to load produced exactly the page a first-time
+    // visitor sees - no spinner to end, no message, and no way to tell that the
+    // numbers are missing rather than zero.
+    //
+    // `load` is a function rather than an effect body so the retry button has
+    // something real to call.
+    const [statsFailed, setStatsFailed] = useState(false);
+    const [loadingStats, setLoadingStats] = useState(false);
+
+    const load = useCallback(() => {
+        if (user?.role !== "doctor") return;
+        setLoadingStats(true);
+        api.get("/doctors/stats")
+            .then((res) => {
+                setStats(res.data.data);
+                setStatsFailed(false);
+            })
+            .catch((err: unknown) => {
+                // The reason goes to the console, not the page: an axios error
+                // body can contain a stack trace and a request id.
+                console.error("[dashboard] stats failed", err);
+                setStatsFailed(true);
+            })
+            .finally(() => setLoadingStats(false));
     }, [user?.role]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
 
     if (!user) return <DashboardLayout><div className="h-40 bg-gray-50 rounded-3xl animate-pulse" /></DashboardLayout>;
 
@@ -88,7 +119,17 @@ export default function Dashboard() {
                 </motion.div>
             </div>
 
-            {user.role === "doctor" && stats && (
+            {user.role === "doctor" &&
+                (statsFailed ? (
+                    // Present and retryable, rather than absent.
+                    <ErrorState
+                        className="mb-12"
+                        detail={tc("couldNotLoad")}
+                        onRetry={load}
+                    />
+                ) : loadingStats && !stats ? (
+                    <LoadingState className="mb-12" />
+                ) : stats ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                     {[
                         { label: t("totalPatients"), value: stats.totalPatients, icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
@@ -113,7 +154,7 @@ export default function Dashboard() {
                         </motion.div>
                     ))}
                 </div>
-            )}
+                ) : null)}
 
             <h2 className="text-2xl font-extrabold text-gray-900 mb-6 font-outfit">{t("quickActions")}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
