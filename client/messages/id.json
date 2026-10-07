@@ -311,7 +311,13 @@
       "footerNote": "Rencana ini milik Anda. Tidak ada bagian yang ditulis untuk Anda, dan tidak ada yang dikirim ke model AI. Psikolog Anda dapat membacanya agar Anda dapat bahas bersama, dan peninjauan tercatat ketika hal itu terjadi.",
       "loadFailedTitle": "Rencana keamanan Anda tidak dapat dimuat",
       "loadFailedBody": "Rencana keamanan Anda tidak dimuat, jadi tidak ada yang diubah. Ini biasanya masalah koneksi sementara — coba lagi. Jika terus terjadi, hubungi terapis Anda secara langsung.",
-      "retry": "Coba lagi"
+      "retry": "Coba lagi",
+      "conflictTitle": "Orang lain mengubah rencana ini",
+      "conflictBody": "Tulisan Anda belum tersimpan, karena rencana ini diubah di tempat lain setelah Anda membukanya. Menyimpan sekarang akan menimpa perubahan mereka.",
+      "conflictReload": "Muat versi terbaru",
+      "conflictKeep": "Simpan punya saya dulu",
+      "conflictReloaded": "Versi terbaru telah dimuat.",
+      "conflictUnsaveable": "Selama pesan ini tampil, tulisan di layar ini belum tersimpan. Salin dulu yang ingin Anda pertahankan sebelum memuat versi terbaru."
     },
     "carePlan": {
       "title": "Rencana perawatan saya",

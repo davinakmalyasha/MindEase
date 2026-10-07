@@ -177,6 +177,19 @@ jobs:
           node scripts/check-read-audit.test.js
           node scripts/check-read-audit.js
 
+      # Two people editing the same plan. The plan is patient-owned *and* a
+      # clinician may contribute, so this is the normal case; with no version
+      # column the second save silently overwrote the first and answered 200.
+      #
+      # The behaviour is tested, but a test cannot hold the mechanism: a
+      # check-then-write still returns 409 in a serial suite, and only two truly
+      # simultaneous writers expose the difference. So the conditional `where` is
+      # checked as syntax.
+      - name: Optimistic-writes self-test, then gate
+        run: |
+          node scripts/check-optimistic-writes.test.js
+          node scripts/check-optimistic-writes.js
+
   # --------------------------------------------------------------------
   # Compose file validation
   #

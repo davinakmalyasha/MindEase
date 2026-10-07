@@ -220,8 +220,13 @@ check-read-audit: ## Fail when a clinical record can be read without recording w
 	node scripts/check-read-audit.test.js
 	node scripts/check-read-audit.js
 
+.PHONY: check-optimistic-writes
+check-optimistic-writes: ## Fail when a plan write stops being conditional on the version the reader was shown. Required in CI.
+	node scripts/check-optimistic-writes.test.js
+	node scripts/check-optimistic-writes.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-stale-writes check-auth-coverage check-read-audit check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-stale-writes check-auth-coverage check-read-audit check-optimistic-writes check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

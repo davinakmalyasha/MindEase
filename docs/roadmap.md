@@ -167,30 +167,53 @@ automation ([`testing.md`](testing.md#why-e2e-is-not-required)). Getting it gree
 and promoting it to required is worth more than any coverage number, because it
 is the only thing that exercises the three processes together.
 
-### 6. Editor concurrency on the care plan and safety plan
+### 6. ~~Editor concurrency on the care plan and safety plan~~ — done
 
-**The gap.** `CarePlan` and `SafetyPlan` are single-row-per-owner documents with
+**The gap.** `CarePlan` and `SafetyPlan` were single-row-per-owner documents with
 no version column, no `updatedAt` precondition and no last-write-wins detection.
-Two people editing the same plan concurrently — which is the normal case, since
-the plan is *patient-owned* and a clinician may contribute to it — means the
-second save silently overwrites the first.
+Two people editing the same plan concurrently — the normal case, since the plan is
+*patient-owned* and a clinician may contribute to it — meant the second save
+silently overwrote the first, and answered `200`.
 
-`care-plan-regressions.test.ts` already fixed the adjacent case: a partial save
-must not erase the rest of the document. That was a data-loss bug. The
-*concurrent* case is the same class and is still open.
+**What was done.** Both models carry `version Int @default(0)`, and the content
+write is a conditional `UPDATE`:
 
-**Why it is a real risk rather than a theoretical one.** The whole ownership
-design invites it. A plan the patient owns and a clinician may contribute to is
-concurrent by construction, and the schema deliberately has no `version` column
-to detect the collision.
+    updateMany({ where: { id, version: <the version shown> },
+                 data: { ..., version: { increment: 1 } } })
 
-**The direction.** A `version Int @default(0)` on both models, checked in the
-`update` and returning 409 on mismatch, is about twenty lines and turns a silent
-loss into a visible conflict. That is the whole fix; the client then needs to
-decide whether to re-read and merge or to tell the user their change was not
-saved. Which is a product decision, and the honest sequencing is the server half
-first — a 409 the client ignores is still better than a silent overwrite, because
-the write did not happen.
+Of two simultaneous saves exactly one matches a row, so the loser gets a 409
+instead of a lost document. The condition is *inside* the write rather than
+checked before it; a read-then-check-then-write lets both writers pass the check,
+which is the race this closes. Prisma's `update` takes a unique `where` and cannot
+express "and the version still matches", hence `updateMany`.
+
+`version` is **required** on `UpdateCarePlanSchema`. Optional would mean an
+un-updated client keeps writing and keeps overwriting — the guard would apply or
+not depending on the shape of the request rather than on what happened to the
+data, which is the same mistake as the 2FA enrolment guard keyed off a nullable
+`password`. The safety plan's save takes it optionally because a first save
+creates the row and there is nothing to be stale about.
+
+**The client half, which was the open question.** A 409 the client ignores is a
+half-fix, so `/dashboard/safety-plan` now sends the version its draft was based
+on, and on 409 shows a persistent conflict panel offering two honest choices:
+load the newer version, or keep the draft. It does **not** attempt a merge —
+merging prose from two people automatically would be inventing text for a
+document about someone's reasons to live. While the panel is up, Save is
+disabled, because the text on screen cannot be saved and pretending otherwise
+would invite the same failing save repeatedly.
+
+Two details that are easy to get wrong and are pinned by tests:
+
+- the version must advance after a successful save, or the *second* save
+  conflicts with its own previous write;
+- goals, steps and `lastReviewedAt` deliberately do **not** move the plan
+  version, so a patient with an open editor does not get a spurious 409 for a
+  document they never conflicted over.
+
+`scripts/check-optimistic-writes.js` holds the mechanism, because the tests
+cannot: a check-then-write still returns 409 in a serial suite, and only two
+truly simultaneous writers expose the difference.
 
 ### 7. Smaller correctness items
 

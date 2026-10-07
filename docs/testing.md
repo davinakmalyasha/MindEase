@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 478 tests, 38 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 487 tests, 39 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
@@ -338,7 +338,7 @@ four health checks, seed — *is* gated, because that part has a known-good
 expectation and a red there is always a real defect. It is promoted to required
 once green.
 
-## The 38 server test files
+## The 39 server test files
 
 | File | Tests | What it covers |
 |---|---|---|
@@ -362,6 +362,7 @@ once green.
 | `mood-decline.test.ts` | 6 | The mood-decline rule as a matched pair — six entries decline, three entries have nothing to compare against — and the escalation it now performs: an elevated `RiskAlert` addressed to the treating clinician, at most once a week |
 | `payments.test.ts` | 18 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
 | `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
+| `plan-concurrency.test.ts` | 9 | Two editors on one plan: a stale save is refused and does not write, a current save is accepted, and exactly one of two *simultaneous* saves wins — the case a check-then-write passes serially and fails under a real race. Also that goals and `lastReviewedAt` deliberately do not move the plan version, and that the partial-save merge survived replacing the upsert |
 | `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |
 | `rate-limit-store-isolation.test.ts` | 2 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter |
 | `realtime-contract.test.ts` | 9 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |

@@ -36,6 +36,16 @@ export interface SafetyPlan {
     professionalContact: string | null;
     locationToBeSafe: string | null;
     lastReviewedAt: string | null;
+    /**
+     * Bumped by the server on every save.
+     *
+     * This page is patient-owned but a clinician can also contribute, so two
+     * people editing at once is the normal case. The save sends the version the
+     * draft was based on; if the server has moved on it answers 409 and *does
+     * not write*, and the page says so instead of reporting a save that never
+     * happened.
+     */
+    version: number;
 }
 
 type Draft = {
@@ -97,6 +107,24 @@ export default function SafetyPlanPage() {
     // server having no plan", which is a real state distinct from unseeded.
     const [seededId, setSeededId] = useState<number | null | undefined>(undefined);
 
+    /**
+     * The version the current draft is based on.
+     *
+     * Distinct from `seededId`, and it has to move at two different times:
+     *
+     *   - when the draft is seeded from a server payload, and
+     *   - after a successful save, from the version the save returned.
+     *
+     * The second one is the one that is easy to miss. Seeding only happens on the
+     * first load, so without updating this after a save, the *second* save would
+     * send the version the first save had already replaced - and get a 409
+     * against its own previous write.
+     */
+    const [version, setVersion] = useState<number | undefined>(undefined);
+
+    /** Set when the server refused a save because someone else got there first. */
+    const [conflict, setConflict] = useState(false);
+
     const { data, isLoading, isError, refetch } = useQuery({
         queryKey: safetyPlanKeys.mine,
         queryFn: async () => {
@@ -112,18 +140,43 @@ export default function SafetyPlanPage() {
     if (data !== undefined && seededId === undefined) {
         setSeededId(serverId);
         setDraft(toDraft(data));
+        setVersion(data?.version);
     }
+
+    /** Re-seed from the server, discarding this draft. Used to resolve a conflict. */
+    const discardAndReload = async () => {
+        const fresh = await refetch();
+        setDraft(toDraft(fresh.data ?? null));
+        setVersion(fresh.data?.version);
+        setConflict(false);
+        toast(t("conflictReloaded"), "success");
+    };
 
     const save = useMutation({
         mutationFn: async (d: Draft) => {
-            const res = await api.put("/safety-plan", d);
-            return res.data?.data;
+            // `version` accompanies the fields rather than replacing them: the
+            // server writes only the keys present and refuses the whole request
+            // if the version is not the one it holds.
+            const res = await api.put("/safety-plan", { ...d, version });
+            return res.data?.data as SafetyPlan | undefined;
         },
-        onSuccess: () => {
+        onSuccess: (saved) => {
+            setConflict(false);
+            // Take the new version, so the next save is based on this write
+            // rather than on the one it replaced.
+            if (saved?.version !== undefined) setVersion(saved.version);
             qc.invalidateQueries({ queryKey: safetyPlanKeys.mine });
             toast(t("saved"), "success");
         },
-        onError: (error: unknown) => toast(getErrorMessage(error, t("saveFailed")), "error"),
+        onError: (error: unknown) => {
+            // A conflict is not a failure to report and move on from - it means
+            // the write did not happen and the draft on screen is based on a
+            // version that no longer exists. Saying "could not save" and
+            // leaving an editable form would invite the same failing save again.
+            const status = (error as { response?: { status?: number } })?.response?.status;
+            if (status === 409) setConflict(true);
+            else toast(getErrorMessage(error, t("saveFailed")), "error");
+        },
     });
 
     const set = (key: keyof Draft) => (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) =>
@@ -258,10 +311,52 @@ export default function SafetyPlanPage() {
                 </div>
             </div>
 
+            {conflict && (
+                /*
+                 * The save did not happen.
+                 *
+                 * This is deliberately not a toast. A toast for "someone else
+                 * changed this" would leave an editable form on screen whose
+                 * contents are based on a version that no longer exists - so the
+                 * patient would edit, press save, and be refused again, several
+                 * times, with nothing on the page explaining why.
+                 *
+                 * The choice offered is honest about what we cannot do: there is
+                 * no merge, because merging prose from two people automatically
+                 * would be inventing text for a document about someone's reasons
+                 * to live. So they either keep what they wrote and copy it
+                 * somewhere, or they take the newer version.
+                 */
+                <div role="alert" className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+                    <h2 className="text-sm font-black text-amber-900">{t("conflictTitle")}</h2>
+                    <p className="mt-2 text-sm text-amber-900">{t("conflictBody")}</p>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                        <button
+                            type="button"
+                            onClick={discardAndReload}
+                            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700"
+                        >
+                            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                            {t("conflictReload")}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setConflict(false)}
+                            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-100"
+                        >
+                            {t("conflictKeep")}
+                        </button>
+                    </div>
+                    {/* Stated plainly rather than implied: while this is showing,
+                        the text on screen is not saved and cannot be. */}
+                    <p className="mt-3 text-xs text-amber-800">{t("conflictUnsaveable")}</p>
+                </div>
+            )}
+
             <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button
                     type="button"
-                    disabled={save.isPending}
+                    disabled={save.isPending || conflict}
                     onClick={() => save.mutate(draft)}
                     className="inline-flex items-center gap-2 rounded-2xl bg-gray-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-gray-700 disabled:opacity-50"
                 >

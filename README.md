@@ -99,8 +99,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **126** | API routes · **28** Prisma models · **16** migrations |
-| **478** | server tests across 38 files, against a real MySQL and real Argon2 |
+| **126** | API routes · **28** Prisma models · **17** migrations |
+| **487** | server tests across 39 files, against a real MySQL and real Argon2 |
 | **49** | client unit tests · **31** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
@@ -155,7 +155,7 @@ MindEase/
 ├─ server/              Express 5 + Prisma + MySQL. The API.
 │  ├─ prisma/
 │  │  ├─ schema.prisma  28 models, no enums — every status is a String
-│  │  └─ migrations/    16 hand-written MySQL migrations, all backticked
+│  │  └─ migrations/    17 hand-written MySQL migrations, all backticked
 │  ├─ src/
 │  │  ├─ routes/        126 router registrations across 17 files
 │  │  ├─ services/      the domain; the only layer that touches Prisma
@@ -164,7 +164,7 @@ MindEase/
 │  │  ├─ schemas/       zod, and the generated OpenAPI document
 │  │  ├─ jobs/          three cron jobs, all single-runner gated
 │  │  └─ lib/           tokens, cache, storage, payments, logging
-│  └─ tests/            478 integration tests against a real database
+│  └─ tests/            487 integration tests against a real database
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -243,13 +243,13 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 478 server tests against a freshly migrated database
+make test       # 487 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
 
 The server suite is integration-only: a real MySQL, real Argon2, real cookies.
-SQLite is not an option — the provider is a literal `mysql` and all 16 migrations
+SQLite is not an option — the provider is a literal `mysql` and all 17 migrations
 are raw MySQL DDL.
 
 Coverage is available (`make -C server coverage`, `make -C client coverage`) but
@@ -480,7 +480,7 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 478 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 487 tests against a MySQL service container
 - `client` — lint, 46 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys when requested

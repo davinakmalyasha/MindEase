@@ -311,7 +311,13 @@
       "footerNote": "This plan is yours. Nothing here is written for you, and nothing here is sent to an AI model. Your psychologist can read it so you can go through it together, and a review is recorded when that happens.",
       "loadFailedTitle": "We could not load your safety plan",
       "loadFailedBody": "Your safety plan was not loaded, so nothing has been changed. This is usually a temporary connection problem — try again. If it keeps happening, contact your therapist directly.",
-      "retry": "Try again"
+      "retry": "Try again",
+      "conflictTitle": "Someone else changed this plan",
+      "conflictBody": "Your text has not been saved, because this plan was edited somewhere else after you opened it. Saving now would overwrite their change.",
+      "conflictReload": "Load the newer version",
+      "conflictKeep": "Keep mine for now",
+      "conflictReloaded": "Loaded the newer version.",
+      "conflictUnsaveable": "While this is showing, the text on this screen is not saved. Copy anything you want to keep before loading the newer version."
     },
     "carePlan": {
       "title": "My care plan",
