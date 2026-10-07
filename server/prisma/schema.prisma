@@ -470,6 +470,21 @@ model CarePlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Optimistic concurrency. The plan is patient-owned *and* a clinician can
+  // contribute goals to it, so two simultaneous editors is the normal case, not
+  // an edge case - and with no version column the second save silently
+  // overwrote the first.
+  //
+  // The UPDATE that writes the plan carries `where: { id, version }` from the
+  // version the caller was shown, and increments this. Conditional, so it is
+  // atomic: of two concurrent saves exactly one matches a row and the other gets
+  // zero rows, which becomes a 409 rather than a lost document.
+  //
+  // NOT NULL DEFAULT 0, deliberately. A nullable version would make the control
+  // apply or not depending on the absence of data - the same defect as the 2FA
+  // enrolment guard that keyed off a nullable `password`.
+  version Int @default(0)
+
   @@index([userId, status])
   @@index([doctorUserId])
 }
@@ -551,6 +566,16 @@ model SafetyPlan {
   lastReviewedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Optimistic concurrency, and this document matters more than any other in the
+  // product: it holds what a person notices in themselves before a crisis, what
+  // has actually helped, and their reasons to live. A concurrent save that
+  // silently overwrote the first would be data loss on the page someone opens
+  // at their worst moment.
+  //
+  // NOT NULL DEFAULT 0 for the same reason as `CarePlan.version` - a nullable
+  // version makes the guard apply or not depending on the absence of data.
+  version Int @default(0)
 
   @@index([lastReviewedAt])
 }

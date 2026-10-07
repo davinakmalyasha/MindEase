@@ -10,7 +10,7 @@
  */
 import { prisma } from "../lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { assertFound, badRequest, forbidden } from "../utils/appError";
+import { assertFound, badRequest, conflict, forbidden } from "../utils/appError";
 import { AuditService } from "./audit.service";
 import { sanitize } from "../utils/sanitize";
 
@@ -117,10 +117,27 @@ export class CarePlanService {
     static async updatePlan(
         actorId: number,
         planId: number,
-        patch: { title?: string; summary?: string | null; status?: PlanStatus; reviewAt?: string | null }
+        patch: {
+            title?: string;
+            summary?: string | null;
+            status?: PlanStatus;
+            reviewAt?: string | null;
+            /**
+             * The version the caller was shown. Required.
+             *
+             * Optional would mean a client that had not been updated still
+             * writes, which is the silent overwrite this exists to stop - the
+             * guard would apply or not depending on the shape of the request
+             * rather than on what happened to the data.
+             */
+            version: number;
+        }
     ) {
         const plan = assertFound(
-            await prisma.carePlan.findUnique({ where: { id: planId }, select: { id: true, userId: true } }),
+            await prisma.carePlan.findUnique({
+                where: { id: planId },
+                select: { id: true, userId: true, version: true },
+            }),
             "Care plan not found"
         );
         // Patient-owned: only the owner edits it. A clinician contributes goals
@@ -131,8 +148,12 @@ export class CarePlanService {
             throw badRequest("Invalid plan status");
         }
 
-        const updated = await prisma.carePlan.update({
-            where: { id: planId },
+        // Conditional on the version the caller saw. Two concurrent saves cannot
+        // both match: the UPDATE takes `version: { increment: 1 }` and matches
+        // only the row still at the version that was read, so the loser's
+        // `updateMany` returns zero rows and it is told to re-read.
+        const written = await prisma.carePlan.updateMany({
+            where: { id: planId, version: patch.version },
             data: {
                 ...(patch.title !== undefined ? { title: patch.title.slice(0, 160) } : {}),
                 ...(patch.summary !== undefined ? { summary: sanitize(patch.summary) } : {}),
@@ -149,7 +170,21 @@ export class CarePlanService {
                 ...(patch.reviewAt !== undefined
                     ? { reviewAt: patch.reviewAt ? new Date(patch.reviewAt) : null }
                     : {}),
+                version: { increment: 1 },
             },
+        });
+
+        if (written.count !== 1) {
+            // The write did not happen. Reporting it as a conflict rather than
+            // silently succeeding is the entire point: the alternative was a lost
+            // edit with a success message on it.
+            throw conflict(
+                "This care plan was changed by someone else while you were editing. Reload to see their version."
+            );
+        }
+
+        const updated = await prisma.carePlan.findUniqueOrThrow({
+            where: { id: planId },
             include: withPlanInclude,
         });
 
@@ -356,8 +391,34 @@ export class SafetyPlanService {
      * sent as an empty string is cleared, which is what "I have no contact here"
      * should mean.
      */
-    static async save(actor: { id: number; role: string }, patientId: number, input: SafetyPlanInput) {
+    static async save(
+        actor: { id: number; role: string },
+        patientId: number,
+        input: SafetyPlanInput & { version?: number }
+    ) {
         await assertMayRead(actor, patientId);
+
+        // Read first, both to compare and because the upsert below needs to know
+        // whether a row exists. `upsert` cannot express the conditional UPDATE
+        // that makes the write atomic, so the version check and the write are
+        // two statements and the check is repeated *inside* the update's `where`.
+        //
+        // Repeating it is the part that matters. Checking here and then updating
+        // by `userId` alone would reintroduce the race this is here to close -
+        // two writers can both pass a check performed before either writes.
+        const existing = await prisma.safetyPlan.findUnique({
+            where: { userId: patientId },
+            select: { id: true, version: true },
+        });
+
+        // Creating is not a conflict. Only an *update against a stale version*
+        // is, and there is nothing to be stale about on first save.
+        const expected = input.version;
+        if (existing && expected !== undefined && existing.version !== expected) {
+            throw conflict(
+                "This safety plan was changed by someone else while you were editing. Reload to see their version."
+            );
+        }
 
         const clean = (v: string | null | undefined, max?: number) => {
             if (v === undefined) return undefined;
@@ -382,19 +443,52 @@ export class SafetyPlanService {
         const locationToBeSafe = clean(input.locationToBeSafe, 255);
         if (locationToBeSafe !== undefined) data.locationToBeSafe = locationToBeSafe;
 
-        const plan = await prisma.safetyPlan.upsert({
-            where: { userId: patientId },
-            create: {
-                userId: patientId,
-                warningSigns: (warningSigns as string | null) ?? null,
-                copingStrategies: (copingStrategies as string | null) ?? null,
-                reasonsToLive: (reasonsToLive as string | null) ?? null,
-                contacts: (contacts as string | null) ?? null,
-                professionalContact: (professionalContact as string | null) ?? null,
-                locationToBeSafe: (locationToBeSafe as string | null) ?? null,
-            },
-            update: data,
-        });
+        let plan: {
+            id: number;
+            userId: number;
+            warningSigns: string | null;
+            copingStrategies: string | null;
+            reasonsToLive: string | null;
+            contacts: string | null;
+            professionalContact: string | null;
+            locationToBeSafe: string | null;
+            lastReviewedAt: Date | null;
+            version: number;
+            createdAt: Date;
+            updatedAt: Date;
+        };
+        if (existing) {
+            // Conditional on the version that was just read, so the write is
+            // atomic against a concurrent save. `updateMany` rather than
+            // `update` because Prisma's `update` takes a unique `where` and
+            // cannot express "and the version still matches".
+            //
+            // `expected ?? existing.version` - a caller that sent no version
+            // still gets a conditional write against the version we just read,
+            // so it loses the race rather than winning it by omission.
+            const result = await prisma.safetyPlan.updateMany({
+                where: { id: existing.id, version: expected ?? existing.version },
+                data: { ...data, version: { increment: 1 } },
+            });
+            if (result.count !== 1) {
+                throw conflict(
+                    "This safety plan was changed by someone else while you were editing. Reload to see their version."
+                );
+            }
+            plan = await prisma.safetyPlan.findUniqueOrThrow({ where: { id: existing.id } });
+        } else {
+            plan = await prisma.safetyPlan.create({
+                data: {
+                    userId: patientId,
+                    warningSigns: (warningSigns as string | null) ?? null,
+                    copingStrategies: (copingStrategies as string | null) ?? null,
+                    reasonsToLive: (reasonsToLive as string | null) ?? null,
+                    contacts: (contacts as string | null) ?? null,
+                    professionalContact: (professionalContact as string | null) ?? null,
+                    locationToBeSafe: (locationToBeSafe as string | null) ?? null,
+                },
+            });
+        }
 
         await AuditService.log({
             action: "safetyplan.saved",
@@ -446,6 +540,8 @@ export interface SafetyPlanInput {
     contacts?: string | null;
     professionalContact?: string | null;
     locationToBeSafe?: string | null;
+    /** The version the caller was shown; a mismatch is a 409. See `save`. */
+    version?: number;
 }
 
 /** Owner, or a clinician with an active relationship. */

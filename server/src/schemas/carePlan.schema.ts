@@ -49,6 +49,11 @@ export const UpdateCarePlanSchema = z.object({
             summary: section(4000),
             status: z.enum(["active", "completed", "paused"]).optional(),
             reviewAt: dateOrNull,
+            // Required, unlike the safety plan's. `updatePlan` only ever updates an
+            // existing row, so there is no "first save" case to exempt - and an
+            // optional version here would let an un-updated client keep writing
+            // and keep overwriting.
+            version: z.coerce.number().int().min(0),
         })
         .strict(),
     params: idObject,
@@ -104,6 +109,12 @@ export const SaveSafetyPlanSchema = z.object({
             contacts: section(2000),
             professionalContact: z.string().max(255).nullable().optional(),
             locationToBeSafe: z.string().max(255).nullable().optional(),
+            // Optimistic concurrency. Optional so a first save (creating the row)
+            // needs no version, but required in spirit for every subsequent save:
+            // the service compares it against the stored version and returns 409
+            // on a mismatch, so two people editing the same safety plan cannot
+            // silently overwrite one another.
+            version: z.coerce.number().int().min(0).optional(),
         })
         .strict(),
 });

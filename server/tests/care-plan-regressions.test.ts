@@ -2,6 +2,15 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { prisma } from "../src/app";
 import { createUser, createDoctor } from "./helpers";
+/** The version the client would have been shown. See `versionOf` in care-plan.test.ts. */
+const versionOf = async (planId: number) => {
+    const row = await prisma.carePlan.findUniqueOrThrow({
+        where: { id: planId },
+        select: { version: true },
+    });
+    return row.version;
+};
+
 
 /**
  * Regressions for three data-integrity bugs in the care plan and safety plan,
@@ -114,7 +123,7 @@ describe("care plan: calendar dates", () => {
         const res = await patient.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", patient.csrf)
-            .send({ reviewAt: "2026-13-45" });
+            .send({ version: await versionOf(plan.id), reviewAt: "2026-13-45" });
 
         expect(res.status).toBe(400);
     });
@@ -129,7 +138,7 @@ describe("care plan: calendar dates", () => {
         const res = await patient.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", patient.csrf)
-            .send({ reviewAt: "2026-02-31" });
+            .send({ version: await versionOf(plan.id), reviewAt: "2026-02-31" });
 
         expect(res.status).toBe(400);
         const stored = await prisma.carePlan.findUnique({ where: { id: plan.id } });
@@ -143,7 +152,7 @@ describe("care plan: calendar dates", () => {
         const res = await patient.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", patient.csrf)
-            .send({ reviewAt: "2026-02-28" });
+            .send({ version: await versionOf(plan.id), reviewAt: "2026-02-28" });
 
         expect(res.status).toBe(200);
         const stored = await prisma.carePlan.findUnique({ where: { id: plan.id } });

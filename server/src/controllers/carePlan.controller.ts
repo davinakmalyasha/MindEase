@@ -29,12 +29,16 @@ export class CarePlanController {
 
     static update = handle(
         async (req) => {
-            const { title, summary, status, reviewAt } = req.body ?? {};
+            // `version` is required by the schema, so it is present here and is
+            // the value the client was shown when it loaded the plan. Omitting it
+            // is a 400 rather than a silent last-write-wins.
+            const { title, summary, status, reviewAt, version } = req.body ?? {};
             return CarePlanService.updatePlan(req.user!.id, parseInt(req.params.id as string), {
                 title,
                 summary,
                 status,
                 reviewAt,
+                version,
             });
         },
         "Failed to update the care plan."

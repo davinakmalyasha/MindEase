@@ -2,6 +2,21 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { prisma } from "../src/app";
 import { app, createUser, createDoctor, createAdmin } from "./helpers";
+/**
+ * The version the client would have been shown.
+ *
+ * Read from the database rather than hard-coded, so a test that updates a plan
+ * twice does not have to track the version itself - which is exactly the state
+ * this column exists to make explicit.
+ */
+const versionOf = async (planId: number) => {
+    const row = await prisma.carePlan.findUniqueOrThrow({
+        where: { id: planId },
+        select: { version: true },
+    });
+    return row.version;
+};
+
 
 /**
  * Care plans and safety plans.
@@ -119,7 +134,7 @@ describe("care plan ownership", () => {
         const res = await patient.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", patient.csrf)
-            .send({ title: "Feeling better by spring", summary: "Sleeping through the night again." });
+            .send({ version: await versionOf(plan.id), title: "Feeling better by spring", summary: "Sleeping through the night again." });
 
         expect(res.status).toBe(200);
         const stored = await prisma.carePlan.findUnique({ where: { id: plan.id } });
@@ -206,7 +221,7 @@ describe("care plan ownership", () => {
         const res = await doctor.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", doctor.csrf)
-            .send({ summary: "Patient is doing well, prognosis good." });
+            .send({ version: await versionOf(plan.id), summary: "Patient is doing well, prognosis good." });
 
         expect(res.status).toBe(403);
         const stored = await prisma.carePlan.findUnique({ where: { id: plan.id } });
@@ -235,7 +250,7 @@ describe("care plan ownership", () => {
         const res = await other.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", other.csrf)
-            .send({ title: "Rewritten" });
+            .send({ version: await versionOf(plan.id), title: "Rewritten" });
 
         expect(res.status).toBe(403);
         const stored = await prisma.carePlan.findUnique({ where: { id: plan.id } });
@@ -1115,7 +1130,7 @@ describe("care plan and safety plan validation", () => {
         const res = await patient.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", patient.csrf)
-            .send({ summary: "w".repeat(4001) });
+            .send({ version: await versionOf(plan.id), summary: "w".repeat(4001) });
 
         expect(res.status).toBe(400);
         const stored = await prisma.carePlan.findUnique({ where: { id: plan.id } });
@@ -1181,7 +1196,7 @@ describe("care plan and safety plan validation", () => {
         const res = await patient.agent
             .put(`/api/care-plan/${plan.id}`)
             .set("X-CSRF-Token", patient.csrf)
-            .send({ title: "t".repeat(161) });
+            .send({ version: await versionOf(plan.id), title: "t".repeat(161) });
 
         expect(res.status).toBe(400);
     });
