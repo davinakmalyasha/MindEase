@@ -6,6 +6,7 @@ package hub
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 )
 
 // ErrTooManyConnections is returned by Register when a connection would exceed
@@ -62,8 +63,16 @@ type Hub struct {
 	//
 	// Split by class because the two are not equally serious and an operator
 	// should be able to tell them apart at a glance.
-	droppedCritical uint64 // risk alerts, messages, crisis events
-	droppedCosmetic uint64 // typing indicators and similar
+	//
+	// Atomic, not plain `uint64`. They are incremented inside `PublishToUser`,
+	// which holds only a *read* lock - many publishers run concurrently - so an
+	// ordinary `++` here is a data race and loses increments. The comment used to
+	// claim "the write lock we already hold", which is exactly the kind of
+	// sentence that stops a reader checking; `go test -race` reports two
+	// concurrent publishers racing on these fields, and the server-realtime suite
+	// now has a test that makes it do so.
+	droppedCritical atomic.Uint64 // risk alerts, messages, crisis events
+	droppedCosmetic atomic.Uint64 // typing indicators and similar
 }
 
 // New creates an empty hub with the given limits. Non-positive limits fall
@@ -194,12 +203,14 @@ func (h *Hub) PublishToUser(userID int64, event Event) {
 		case c.Send <- event:
 		default:
 			// Slow consumer - drop the event to avoid blocking the hub.
-			// Counted under the write lock we already hold, so this needs no
-			// second lock and cannot race with itself.
+			//
+			// Atomic because this runs under a read lock: several publishers
+			// hold it at once, and a plain increment would be a race between
+			// them. See the field declarations.
 			if critical {
-				h.droppedCritical++
+				h.droppedCritical.Add(1)
 			} else {
-				h.droppedCosmetic++
+				h.droppedCosmetic.Add(1)
 			}
 		}
 	}
@@ -214,11 +225,13 @@ type DropStats struct {
 }
 
 func (h *Hub) DropStats() DropStats {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	// No lock: the counters are atomic and read independently, so a caller sees
+	// each value exactly as it was. A consistent snapshot of both is not
+	// something this endpoint needs, and taking the read lock would serialise
+	// /health against every publisher for no gain.
 	return DropStats{
-		Critical: h.droppedCritical,
-		Cosmetic: h.droppedCosmetic,
+		Critical: h.droppedCritical.Load(),
+		Cosmetic: h.droppedCosmetic.Load(),
 	}
 }
 

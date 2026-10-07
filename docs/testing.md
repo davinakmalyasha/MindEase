@@ -10,7 +10,7 @@ what it costs.
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
 | **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 498 tests, 40 files |
-| **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
+| **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
 Counts are from `npx vitest list --run`, `go test -list` and the Vitest client
@@ -267,14 +267,24 @@ go vet ./...
 go test -race -cover ./...
 ```
 
-26 tests across main_test.go, hub/auth_test.go, hub/client_test.go,
-hub/hub_test.go and
-`hub/hub_test.go`.
+32 tests across `main_test.go`, `hub/auth_test.go`, `hub/client_test.go`,
+`hub/drops_test.go` and `hub/hub_test.go`.
 
-`-race` is the point, not a habit. `hub_test.go`'s concurrency cases exist to
-catch data races in `Hub.Register`, which takes caps and registers inside a
-single `Lock`. The suite was previously compiled without the flag, so those
-tests ran and could not detect the thing they were written for.
+`-race` is the point, not a habit, and it has now caught two things:
+
+- `hub_test.go`'s concurrency cases exist to catch data races in `Hub.Register`,
+  which takes caps and registers inside a single `Lock`. The suite was previously
+  compiled without the flag, so those tests ran and could not detect the thing
+  they were written for.
+- `drops_test.go` gained a case where eight goroutines publish to a stalled
+  socket at once. The drop counters were incremented inside a **read** lock, so
+  concurrent publishers raced on the same `uint64` and lost increments — on the
+  counters that exist to make a lost clinical alert visible. The comment there
+  asserted "the write lock we already hold", which is what stopped anyone
+  checking. They are `atomic.Uint64` now.
+
+Every other test in that file published from one goroutine, so the race was real
+in production and unreachable by the suite for as long as it existed.
 
 `auth_test.go` covers the JWT purpose gate — the property that stops a 7-day
 refresh token or a not-yet-2FA'd session opening a socket on a channel carrying
@@ -287,7 +297,7 @@ The local Go toolchain and the cached build cache can disagree (`compile: versio
 
 ```bash
 cd client
-npm test          # Vitest + jsdom, 46 tests in 6 files
+npm test          # Vitest + jsdom, 49 tests in 7 files
 npm run lint
 npm run build
 ```

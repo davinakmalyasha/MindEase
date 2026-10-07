@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -81,6 +82,59 @@ func TestDropStatsCountedPerConnection(t *testing.T) {
 	}
 	if got := h.DropStats().Critical; got != 1 {
 		t.Fatalf("expected exactly 1 critical drop (the stalled socket), got %d", got)
+	}
+}
+
+// TestDropCountersUnderConcurrentPublishers exists because every other test in
+// this file publishes from one goroutine, and the counter increment is not
+// protected for more than one.
+//
+// `PublishToUser` holds `h.mu.RLock()` - a *read* lock, which many publishers may
+// hold at once - and increments `h.droppedCritical` inside it. The comment there
+// claimed "the write lock we already hold", which is the kind of sentence that
+// stops a reader checking. Two publishers that both hit the slow-consumer path
+// are two unsynchronised writes to the same `uint64`: a data race, and lost
+// increments, on the counters that exist specifically to make a lost clinical
+// alert visible.
+//
+// The test is meaningful only under `-race`, which CI runs. Without the detector
+// it is still worth having: lost increments make the total come out short.
+func TestDropCountersUnderConcurrentPublishers(t *testing.T) {
+	h := New(DefaultLimits())
+	// Unbuffered and never drained, so every publish takes the drop path - the
+	// slow-consumer case by construction rather than by timing.
+	stalled := &Client{ID: 1, Send: make(chan Event)}
+	if err := h.Register(1, stalled); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	const publishers = 8
+	const each = 100
+
+	var wg sync.WaitGroup
+	for i := 0; i < publishers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < each; j++ {
+				// A mix, so both counters are exercised concurrently.
+				if j%2 == 0 {
+					h.PublishToUser(1, Event{Type: "risk:alert"})
+				} else {
+					h.PublishToUser(1, Event{Type: "typing:start"})
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	drops := h.DropStats()
+	want := uint64(publishers * each / 2)
+	if drops.Critical != want {
+		t.Errorf("critical drops: want %d, got %d (increments were lost)", want, drops.Critical)
+	}
+	if drops.Cosmetic != want {
+		t.Errorf("cosmetic drops: want %d, got %d (increments were lost)", want, drops.Cosmetic)
 	}
 }
 
