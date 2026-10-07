@@ -231,5 +231,50 @@ console.log("\n--- a one-time code is spent with a compare-and-swap ---");
     }
 }
 
+console.log("\n--- a counter is never decremented unconditionally ---");
+{
+    // The general form of two bugs found by reading rather than by running: a
+    // package session and a referral credit are both read ("has some left?") and
+    // then decremented by id. Two concurrent spends both read the same value and
+    // both decrement, so one unit of entitlement covers two bookings and the
+    // counter goes negative - which nothing in the schema prevents.
+    //
+    // The booking path got this right from the start; the follow-up path drifted
+    // from it. So this is checked everywhere rather than at one call site.
+    const files = [
+        "server/src/services/appointment.service.ts",
+        "server/src/services/followUp.service.ts",
+        "server/src/services/payment.service.ts",
+        "server/src/services/doctor.service.ts",
+    ];
+
+    let offenders = 0;
+    let checked = 0;
+    for (const file of files) {
+        const src = read(file);
+        for (const m of src.matchAll(/(\w+):\s*\{\s*decrement:\s*1\s*\}/g)) {
+            checked += 1;
+            const field = m[1];
+            // The call this decrement belongs to, and the guard it carries.
+            const before = src.slice(Math.max(0, m.index - 700), m.index);
+
+            const viaUpdateMany = /updateMany\(\s*\{[\s\S]*$/.test(before);
+            const guarded = new RegExp(`${field}\\s*:\\s*\\{\\s*(gt|gte)\\b`).test(before);
+
+            if (!viaUpdateMany || !guarded) {
+                offenders += 1;
+                const line = src.slice(0, m.index).split("\n").length;
+                console.log(
+                    `FAIL ${file}:${line} decrements \`${field}\` without a guard` +
+                        (viaUpdateMany ? "" : " (uses update(), which matches by id alone)")
+                );
+            }
+        }
+    }
+
+    if (offenders === 0) ok(`all ${checked} counter decrements are conditional`);
+    else fail += offenders;
+}
+
 console.log(`\ncheck-optimistic-writes: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

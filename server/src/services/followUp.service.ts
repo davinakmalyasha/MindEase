@@ -176,13 +176,31 @@ export class FollowUpService {
      * Follow-up bookings previously bypassed package/credit reservation
      * entirely, so the ledger drifted: sessions were consumed without being
      * decremented, and the credits a referral had granted were never spent.
+     *
+     * ## Why the decrement is conditional
+     *
+     * Reserving was a read followed by a write by id alone: find a purchase with
+     * `sessionsLeft > 0`, then decrement it. Two follow-ups accepted at the same
+     * moment both read the same purchase and both decremented, so one remaining
+     * session covered two bookings - and `sessionsLeft` went negative, which is
+     * worse than a leak because nothing in the schema prevents it and no report
+     * reads it back.
+     *
+     * The booking path in `appointment.service.ts` already reserved correctly,
+     * with `sessionsLeft: { gte: 1 }` in the write's `where`. This one had
+     * drifted from it: same intent, same table, one of them atomic.
+     *
+     * Every branch below now claims with a conditional write and checks that it
+     * won. A purchase that loses the race is skipped rather than throwing,
+     * because a patient may legitimately hold two packages and the first one
+     * being spent is not an error - so candidates are tried in order.
      */
     private static async findConsumableReservation(
         tx: Prisma.TransactionClient,
         patientId: number,
         doctorId: number
     ): Promise<{ packagePurchaseId?: number; creditApplied?: boolean }> {
-        const purchase = await tx.packagePurchase.findFirst({
+        const candidates = await tx.packagePurchase.findMany({
             where: {
                 userId: patientId,
                 sessionsLeft: { gt: 0 },
@@ -190,28 +208,37 @@ export class FollowUpService {
                 // A package covers its own doctor's sessions.
                 package: { doctorId },
             },
+            // Oldest first, so the package closest to expiry is the one spent.
             orderBy: { createdAt: "asc" },
             select: { id: true },
         });
-        if (purchase) {
-            await tx.packagePurchase.update({
-                where: { id: purchase.id },
-                data: { sessionsLeft: { decrement: 1 }, status: "active" },
+
+        for (const candidate of candidates) {
+            const claimed = await tx.packagePurchase.updateMany({
+                where: { id: candidate.id, sessionsLeft: { gt: 0 } },
+                data: { sessionsLeft: { decrement: 1 } },
             });
-            return { packagePurchaseId: purchase.id };
+            if (claimed.count !== 1) continue;
+
+            // Exhausted packages flip to completed, matching the booking path -
+            // so "active with nothing left" is not a state a reader has to know
+            // about.
+            await tx.packagePurchase.updateMany({
+                where: { id: candidate.id, sessionsLeft: 0 },
+                data: { status: "completed" },
+            });
+
+            return { packagePurchaseId: candidate.id };
         }
 
-        const user = await tx.user.findUnique({
-            where: { id: patientId },
-            select: { sessionCredits: true },
+        // Credits last, and conditionally for the same reason: `sessionCredits`
+        // is an Integer column, so two unconditional decrements from 1 leave it
+        // at -1.
+        const claimed = await tx.user.updateMany({
+            where: { id: patientId, sessionCredits: { gt: 0 } },
+            data: { sessionCredits: { decrement: 1 } },
         });
-        if (user && user.sessionCredits > 0) {
-            await tx.user.update({
-                where: { id: patientId },
-                data: { sessionCredits: { decrement: 1 } },
-            });
-            return { creditApplied: true };
-        }
+        if (claimed.count === 1) return { creditApplied: true };
 
         return {};
     }

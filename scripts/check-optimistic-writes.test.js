@@ -11,6 +11,10 @@ const GATE = path.join(ROOT, "scripts", "check-optimistic-writes.js");
 const FILES = [
     "server/prisma/schema.prisma",
     "server/src/services/carePlan.service.ts",
+    "server/src/services/appointment.service.ts",
+    "server/src/services/followUp.service.ts",
+    "server/src/services/payment.service.ts",
+    "server/src/services/doctor.service.ts",
     "server/src/schemas/carePlan.schema.ts",
     "server/src/services/twoFactor.service.ts",
     "client/app/dashboard/safety-plan/page.tsx",
@@ -166,6 +170,23 @@ console.log("\n--- it catches a one-time code that is not spent atomically ---")
         const r = run({ [key]: regressed });
         if (r.code !== 0 && /backupCodes:/.test(r.out)) ok("flags a backup-code spend with no CAS");
         else bad("flags a backup-code spend with no CAS", `exit=${r.code}`);
+    }
+}
+
+console.log("\n--- it catches an unconditional counter decrement ---");
+{
+    const key = "server/src/services/followUp.service.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    // The regression exactly as it was in the tree: decrement by id, no guard.
+    const regressed = src.replace(
+        /const claimed = await tx\.packagePurchase\.updateMany\(\{\s*where: \{ id: candidate\.id, sessionsLeft: \{ gt: 0 \} \},\s*data: \{ sessionsLeft: \{ decrement: 1 \} \},\s*\}\);/,
+        "const claimed = await tx.packagePurchase.update({ where: { id: candidate.id }, data: { sessionsLeft: { decrement: 1 } } });"
+    );
+    if (regressed === src) bad("catches an unguarded decrement", "could not converge the replacement");
+    else {
+        const r = run({ [key]: regressed });
+        if (r.code !== 0 && /without a guard/.test(r.out)) ok("flags a session counter decremented without a guard");
+        else bad("flags a session counter decremented without a guard", `exit=${r.code}`);
     }
 }
 

@@ -233,6 +233,89 @@ describe("Therapy package reservation integrity", () => {
         });
         expect(third.status).toBe(201);
     });
+
+    it("cannot spend one remaining session on two follow-ups at once", async () => {
+        // The follow-up path reserved by reading "a purchase with sessions left"
+        // and then decrementing by id, where the booking path above already used
+        // a conditional decrement. Two follow-ups accepted simultaneously both
+        // read the same purchase, both decremented, and one remaining session
+        // covered two bookings - leaving `sessionsLeft` at -1.
+        //
+        // The claim on each *follow-up* is already atomic, so this needs two
+        // different follow-ups: the reuse has to be over the shared package, not
+        // over one row.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+
+        const create = await doctor.agent
+            .post("/api/doctors/packages")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ name: "Single plan", sessionCount: 1, totalPrice: 100000 });
+        const purchaseId = (await grantPaidPackage(patient.id, create.body.data.id)).id;
+
+        // Two completed sessions, so the doctor may propose a follow-up off each.
+        const priorAppointments = await Promise.all(
+            [3, 4].map((daysAgo) =>
+                prisma.appointment.create({
+                    data: {
+                        userId: patient.id,
+                        doctorId: doctor.doctorId,
+                        appointmentDate: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000),
+                        startTime: "09:00",
+                        endTime: "10:00",
+                        status: "completed",
+                        consultationType: "video",
+                    },
+                })
+            )
+        );
+
+        const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+        const followUps = await Promise.all(
+            priorAppointments.map((a, i) =>
+                prisma.followUp.create({
+                    data: {
+                        appointmentId: a.id,
+                        doctorId: doctor.doctorId,
+                        suggestedDate: future,
+                        // Distinct, non-overlapping times, so the conflict check
+                        // is not what decides the outcome.
+                        startTime: i === 0 ? "09:00" : "11:00",
+                        endTime: i === 0 ? "10:00" : "12:00",
+                        consultationType: "video",
+                        status: "pending",
+                    },
+                })
+            )
+        );
+
+        const [first, second] = await Promise.all([
+            patient.agent
+                .post(`/api/follow-ups/${followUps[0].id}/accept`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({}),
+            patient.agent
+                .post(`/api/follow-ups/${followUps[1].id}/accept`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({}),
+        ]);
+
+        // Both follow-ups are legitimately accepted - they are separate rows and
+        // separate sessions. What must not happen is the *package* being spent
+        // twice.
+        expect([first.status, second.status]).toEqual([200, 200]);
+
+        const purchase = await prisma.packagePurchase.findUnique({ where: { id: purchaseId } });
+        expect(purchase?.sessionsLeft, "one remaining session covered two bookings").toBe(0);
+        expect(purchase?.status).toBe("completed");
+
+        // And exactly one appointment carries the reservation, so the ledger says
+        // the same thing the counter does.
+        const reserved = await prisma.appointment.count({
+            where: { packagePurchaseId: purchaseId },
+        });
+        expect(reserved).toBe(1);
+    });
 });
 
 describe("2FA backup codes", () => {
