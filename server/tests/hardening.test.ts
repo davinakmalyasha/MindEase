@@ -317,6 +317,90 @@ describe("Therapy package reservation integrity", () => {
         expect(reserved).toBe(1);
     });
 
+    it("cannot decline a follow-up that was accepted concurrently", async () => {
+        // The sequential case was already safe: `respond` rejects a second
+        // response before it branches, so a test that accepts and *then* declines
+        // passes against the broken code too. Only an interleaving exposes it.
+        //
+        // And the natural interleaving does not: decline does one read and one
+        // write, while accept validates and opens a transaction, so decline's
+        // write normally lands first and accept's claim then fails cleanly. Firing
+        // both with Promise.all and asserting the invariant passes on the broken
+        // code - I checked - which makes it a test that proves nothing.
+        //
+        // The window is real, though: any latency on the decline write - a loaded
+        // connection pool, a slow disk, a retry - lets accept's claim commit
+        // first. So the window is injected rather than waited for. This is a real
+        // interleaving, reached on purpose instead of by luck.
+        const original = prisma.followUp.update.bind(prisma.followUp);
+        // @ts-expect-error - delaying one write to widen a window that exists
+        prisma.followUp.update = async (args: unknown) => {
+            await new Promise((r) => setTimeout(r, 250));
+            return original(args as never);
+        };
+
+        try {
+            const patient = await createUser("patient");
+            const doctor = await createDoctor();
+
+            const prior = await prisma.appointment.create({
+                data: {
+                    userId: patient.id,
+                    doctorId: doctor.doctorId,
+                    appointmentDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+                    startTime: "09:00",
+                    endTime: "10:00",
+                    status: "completed",
+                    consultationType: "video",
+                },
+            });
+            const followUp = await prisma.followUp.create({
+                data: {
+                    appointmentId: prior.id,
+                    doctorId: doctor.doctorId,
+                    suggestedDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+                    startTime: "09:00",
+                    endTime: "10:00",
+                    consultationType: "video",
+                    status: "pending",
+                },
+            });
+
+            // Decline starts first, so its read sees `pending` and its write is
+            // held. Accept starts while that write is in flight and claims the row
+            // in the meantime.
+            const declining = patient.agent
+                .post(`/api/follow-ups/${followUp.id}/decline`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({});
+            await new Promise((r) => setTimeout(r, 80));
+            const accepting = patient.agent
+                .post(`/api/follow-ups/${followUp.id}/accept`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({});
+
+            await Promise.all([declining, accepting]);
+
+            const after = await prisma.followUp.findUniqueOrThrow({ where: { id: followUp.id } });
+            const created = await prisma.appointment.count({
+                where: { userId: patient.id, status: "pending" },
+            });
+
+            // Whichever branch won, the two records must agree. `declined` with an
+            // appointment beside it is the defect: the patient is booked into a
+            // session the follow-up says they refused.
+            if (after.status === "accepted") {
+                expect(created, "accepted but no appointment").toBe(1);
+            } else {
+                expect(after.status).toBe("declined");
+                expect(created, "declined, but an appointment was created anyway").toBe(0);
+            }
+        } finally {
+            // @ts-expect-error - restoring
+            prisma.followUp.update = original;
+        }
+    });
+
     it("cannot refund one cancellation twice", async () => {
         // `updateStatus` read the appointment, decided the transition was legal,
         // and then wrote the new status by id. Two cancels at the same moment

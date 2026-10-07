@@ -330,5 +330,33 @@ console.log("\n--- a triage action is claimed, so the trail and the row agree --
     }
 }
 
+console.log("\n--- a follow-up response is claimed, so accept and decline cannot cross ---");
+{
+    // `respond` rejects a *sequential* second response before it branches, so the
+    // decline branch's unconditional write was only reachable concurrently: a
+    // decline that read `pending` before accept's claim committed would write
+    // `declined` over `accepted`, leaving the appointment accept created beside a
+    // follow-up saying it was refused.
+    //
+    // The accept branch already claimed. This checks that both do.
+    const src = read("server/src/services/followUp.service.ts");
+    const body = methodBody(src, "respond");
+    if (!body) {
+        bad("respond() is findable", "not found");
+    } else if (/prisma\.followUp\.updateMany\(\{[\s\S]*?status:\s*"pending"/.test(body)) {
+        ok("respond() claims the follow-up conditionally on its pending status");
+    } else {
+        bad(
+            "respond() claims the follow-up conditionally on its pending status",
+            "a branch writes the status by id - accept and decline can overwrite each other"
+        );
+    }
+    if (/claimed\.count\s*!==\s*1/.test(body)) {
+        ok("respond() checks that its claim won");
+    } else {
+        bad("respond() checks that its claim won", "a claim's result is discarded");
+    }
+}
+
 console.log(`\ncheck-optimistic-writes: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -79,10 +79,22 @@ export class FollowUpService {
         if (followUp.status !== "pending") throw conflict("This follow-up was already responded to");
 
         if (!accept) {
-            const updated = await prisma.followUp.update({
-                where: { id: followUpId },
+            // Claimed, not assigned.
+            //
+            // This wrote `status: "declined"` by id. The check above already
+            // rejects a *sequential* second response, so this is only reachable
+            // concurrently: accept claims the row and creates an appointment
+            // inside a transaction, and a decline that read `pending` before that
+            // claim committed then writes `declined` over it. The result is an
+            // appointment beside a follow-up saying it was refused, and a doctor
+            // already notified that it was accepted.
+            const claimed = await prisma.followUp.updateMany({
+                where: { id: followUpId, status: "pending" },
                 data: { status: "declined" },
             });
+            if (claimed.count !== 1) throw conflict("This follow-up was already responded to");
+
+            const updated = await prisma.followUp.findUniqueOrThrow({ where: { id: followUpId } });
             return { followUp: updated, appointment: null };
         }
 

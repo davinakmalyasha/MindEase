@@ -245,5 +245,21 @@ console.log("\n--- it catches a triage action that assigns rather than claims --
     }
 }
 
+console.log("\n--- it catches a follow-up response that is assigned rather than claimed ---");
+{
+    const key = "server/src/services/followUp.service.ts";
+    const src = fs.readFileSync(path.join(ROOT, key), "utf8");
+    const regressed = src.replace(
+        /const claimed = await prisma\.followUp\.updateMany\(\{\s*where: \{ id: followUpId, status: "pending" \},\s*data: \{ status: "declined" \},\s*\}\);/,
+        'const claimed = { count: 1 }; await prisma.followUp.update({ where: { id: followUpId }, data: { status: "declined" } });'
+    );
+    if (regressed === src) bad("catches an unclaimed decline", "could not converge the replacement");
+    else {
+        const r = run({ [key]: regressed });
+        if (r.code !== 0 && /claims the follow-up/.test(r.out)) ok("flags a decline that assigns rather than claims");
+        else bad("flags a decline that assigns rather than claims", `exit=${r.code}`);
+    }
+}
+
 console.log(`\ncheck-optimistic-writes self-test: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
