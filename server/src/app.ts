@@ -12,6 +12,10 @@ import crypto from "crypto";
 import { logger } from "./utils/logger";
 import { env } from "./config/env";
 import { prisma } from "./lib/prisma";
+// Type-only import of the generated namespace. `Prisma.dmmf` is the client's own
+// view of the datamodel, which is what this build was compiled against - not a
+// hand-maintained list that can drift from it.
+import { Prisma } from "@prisma/client";
 import { publicMessageFor } from "./utils/appError";
 import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
@@ -220,8 +224,56 @@ export const createApp = () => {
     });
     app.get("/api/health/db", async (req, res) => {
         try {
-            await prisma.$queryRaw`SELECT 1`;
-            res.json({ status: "ok", db: "connected" });
+            // Reachability *and* shape.
+            //
+            // This was `SELECT 1`, which proves MySQL is reachable and nothing
+            // about whether the schema matches what this process was built
+            // against. The failure it could not see is the one that actually
+            // happens on a deploy: the migration step did not run, so the API
+            // boots healthy and then fails on the first query that touches a new
+            // column - with a 500 rather than a health check, and only under real
+            // traffic.
+            //
+            // The model list comes from the generated client, so it is what this
+            // build expects rather than a second hand-maintained list to fall
+            // behind. `Prisma.dmmf` is the same source the test wipe uses, for the
+            // same reason.
+            const expected = Prisma.dmmf.datamodel.models.map((m) => m.name);
+            const rows = await prisma.$queryRaw<Array<{ TABLE_NAME: string }>>`
+                SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+            `;
+            // Compared case-insensitively, because MySQL's `lower_case_table_names`
+            // differs by platform: it is 1 on Windows, where the tables this
+            // migration set creates are stored as `appointment`, and 0 on Linux,
+            // where they are `Appointment`. A case-sensitive comparison therefore
+            // reports that every table is missing on a developer's machine and
+            // nothing is wrong on the Linux deployment - the loudest possible
+            // failure in exactly the place a false alarm is most disruptive.
+            //
+            // Case is not the property being checked. Existence is.
+            const present = new Set(rows.map((r) => r.TABLE_NAME.toLowerCase()));
+            const missing = expected.filter((name) => !present.has(name.toLowerCase()));
+
+            if (missing.length > 0) {
+                // The names go to the log and not to the response. This endpoint
+                // is unauthenticated, and a list of the tables a deployment is
+                // missing is a map of the database handed to whoever asks. An
+                // operator debugging a deploy has the log; an anonymous caller
+                // gets the status and nothing else.
+                logger.error(
+                    { missing, expected: expected.length },
+                    "DB health check: schema is behind the client"
+                );
+                return res.status(503).json({
+                    status: "error",
+                    db: "reachable",
+                    schema: "drift",
+                    missingCount: missing.length,
+                });
+            }
+
+            res.json({ status: "ok", db: "connected", schema: "ok", tables: expected.length });
         } catch (error: any) {
             logger.error({ err: error.message }, "DB health check failed");
             res.status(503).json({ status: "error", db: "unreachable" });

@@ -408,8 +408,24 @@ product. Moving to a durable queue is the obvious fix and it is written up in
 | Endpoint | Checks | Meaning |
 |---|---|---|
 | `GET /api/health` | uptime, timestamp | The process is up. Cheap; no dependency probe. |
-| `GET /api/health/db` | `SELECT 1` | MySQL is reachable and answering. **This is the one that matters.** |
+| `GET /api/health/db` | every model in the generated client exists as a table | MySQL is reachable **and** the schema matches this build. **This is the one that matters.** |
 | `GET /health` (realtime) | a 2-second Redis `Ping` | 503 when Redis is unreachable. It used to answer `ok` unconditionally, which made a total realtime outage look healthy to compose, Railway and any uptime monitor while every browser sat in a reconnect loop. |
+
+`/api/health/db` used to run `SELECT 1`, which proves MySQL answers and says
+nothing about whether the migrations ran. The failure it could not see is the one
+that actually happens on a deploy: the migration step is skipped, the API boots,
+the probe goes green, and the first request touching a new column returns a 500 —
+found by a user rather than by the endpoint that exists to be asked.
+
+It compares `INFORMATION_SCHEMA.TABLES` against `Prisma.dmmf`, so it is checking
+what *this build* expects rather than a second hand-maintained list, and the
+comparison is case-insensitive because MySQL's `lower_case_table_names` differs
+by platform — a case-sensitive check reports that every table is missing on a
+developer's Windows machine and nothing wrong on the Linux deployment.
+
+The response names the count, not the tables. This endpoint is unauthenticated,
+and a list of what a deployment is missing is a map of the database; the names go
+to the log, where the operator debugging a deploy can read them.
 
 Health checks are excluded from pino access logging — otherwise they would
 dominate the log volume.

@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 488 tests, 39 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 490 tests, 40 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 31 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
 
@@ -338,7 +338,7 @@ four health checks, seed — *is* gated, because that part has a known-good
 expectation and a red there is always a real defect. It is promoted to required
 once green.
 
-## The 39 server test files
+## The 40 server test files
 
 | File | Tests | What it covers |
 |---|---|---|
@@ -356,6 +356,7 @@ once green.
 | `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
 | `features.test.ts` | 50 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms, weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
 | `hardening.test.ts` | 11 | Booking integrity, referral credits, package reservation integrity, 2FA backup codes, journal ownership, waitlist maintenance |
+| `health-schema.test.ts` | 2 | `/api/health/db` reports the table count when the schema matches, and 503 with a drift status — but no table names — when a table is missing. Drops the real table rather than mocking the check, then re-applies the migration's own DDL so the file leaves the schema as it found it |
 | `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |
 | `openapi.test.ts` | 7 | **Meta-test.** Spec matches registered routes; multipart uploads; webhook security model |
 | `payment-config.test.ts` | 11 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |

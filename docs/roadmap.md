@@ -264,8 +264,14 @@ Worth listing because they are cheap and real, not because they are interesting.
   others remain instrumented.
 - **Screening re-denial prompts.** Nothing currently reminds a patient that a
   trajectory is stale. Low risk, ordinary product work.
-- **`GET /api/health/db` under-reports.** It runs `SELECT 1`, so it proves
-  MySQL is reachable and nothing about whether the schema matches.
+- **`GET /api/health/db` under-reported.** ~~It runs `SELECT 1`, so it proves
+  MySQL is reachable and nothing about whether the schema matches.~~ **Done.** It
+  now compares `INFORMATION_SCHEMA.TABLES` against the generated client's model
+  list, so it catches the deploy failure that actually happens — the migration
+  step is skipped, the probe goes green, and the first request touching a new
+  column 500s. The comparison is case-insensitive because `lower_case_table_names`
+  differs between Windows and Linux, and the missing names go to the log rather
+  than to an unauthenticated response.
 
 ## Deliberately not planned
 
