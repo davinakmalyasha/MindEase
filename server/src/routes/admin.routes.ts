@@ -18,6 +18,13 @@ router.get("/doctors/applications", AdminController.getDoctorApplications);
 router.patch("/doctors/:id/verification", validate(UpdateVerificationSchema), AdminController.updateDoctorVerification);
 router.post("/broadcast", validate(BroadcastSchema), AdminController.broadcast);
 router.get("/audit-logs", AdminController.getAuditLogs);
+
+// Who read this patient's record, and when. Separate from `/audit-logs` because
+// that endpoint is a time-ordered page of everything, and the question an
+// access log is for is "who has seen *this person*". Answering it from a
+// reverse-chronological feed means scrolling, which is why the read side of this
+// trail went unasked for so long.
+router.get("/audit-logs/patient/:id", validate(idParam), AdminController.getPatientAccessLog);
 router.get("/review-reports", AdminController.getReviewReports);
 router.post("/reviews/:id/hide", validate(idParam), AdminController.hideReview);
 router.post("/review-reports/:id/status", validate(ReviewReportStatusSchema), AdminController.resolveReviewReport);

@@ -90,7 +90,20 @@ export class CarePlanService {
         // plan at all was to know the patient's id and no endpoint to ask with.
         if (actor && actor.id !== patientId) {
             await assertMayContribute(actor, patientId);
+
+            // A clinician opening somebody else's plan. Recorded here rather
+            // than at the controller, because this service method is also
+            // reachable from the patient's own `GET /care-plan` - and an access
+            // log that fires for a patient reading their own document is noise
+            // that trains people to ignore the log.
+            await AuditService.logRead({
+                actorId: actor.id,
+                subjectType: "CarePlan",
+                subjectId: patientId,
+                via: "GET /api/care-plan/patient/:id",
+            });
         }
+
         return prisma.carePlan.findMany({
             where: { userId: patientId },
             orderBy: { createdAt: "desc" },
@@ -303,6 +316,22 @@ export class SafetyPlanService {
      */
     static async get(actor: { id: number; role: string }, patientId: number) {
         await assertMayRead(actor, patientId);
+
+        // The safety plan is the most sensitive document in the product: the
+        // things a person notices in themselves before a crisis, what has
+        // actually helped, and their reasons to live. A clinician opening
+        // someone else's is recorded; the patient opening their own is not,
+        // because an access log that fires on self-service is a log people stop
+        // reading.
+        if (actor.id !== patientId) {
+            await AuditService.logRead({
+                actorId: actor.id,
+                subjectType: "SafetyPlan",
+                subjectId: patientId,
+                via: "GET /api/safety-plan/patient/:id",
+            });
+        }
+
         return prisma.safetyPlan.findUnique({ where: { userId: patientId } });
     }
 

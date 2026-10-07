@@ -215,8 +215,13 @@ check-auth-coverage: ## Fail when a route has no guard, or a public one returns 
 	node scripts/check-auth-coverage.test.js
 	node scripts/check-auth-coverage.js
 
+.PHONY: check-read-audit
+check-read-audit: ## Fail when a clinical record can be read without recording who read it. Required in CI.
+	node scripts/check-read-audit.test.js
+	node scripts/check-read-audit.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-stale-writes check-auth-coverage check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-stale-writes check-auth-coverage check-read-audit check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

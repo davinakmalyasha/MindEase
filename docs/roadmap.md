@@ -205,10 +205,26 @@ Worth listing because they are cheap and real, not because they are interesting.
   as low value relative to the regression risk, and that judgement still holds.
   It would be revisited if either grew much further, or if a defect in one proved
   hard to localise.
-- **No read audit trail for clinical records.** `AuditLog` records writes and
+- **No read audit trail for clinical records.** ~~`AuditLog` records writes and
   admin actions; a clinician *opening* a disclosure, a journal or a briefing is
-  not recorded. For a platform holding this data, access logging is a real
-  expectation and its absence is a genuine gap, not a stylistic one.
+  not recorded.~~ **Done.** `AuditService.logRead` records the reader and the
+  patient as separate fields — they are not derivable from each other, and an
+  access trail that cannot answer "who has seen *this person*" is not an access
+  trail. It covers the disclosure queue, the briefing, the message thread, and
+  both plan documents, and deliberately does **not** record a patient opening
+  their own record, because a log that fires on self-service is a log people stop
+  reading.
+
+  The rule that matters is that a failed audit write must not deny the read. If
+  logging a read could reject, a database hiccup would become a clinician unable
+  to open a crisis disclosure — so the failure mode of an access log is "a gap in
+  the record", logged at `error` with the actor and subject, never "a patient does
+  not get help". That trade is real and `clinical-read-audit.test.ts` asserts both
+  halves of it.
+
+  `scripts/check-read-audit.js` holds it in place, because a test cannot: the
+  audit tests still pass if a `logRead` call is deleted from one method while the
+  others remain instrumented.
 - **Screening re-denial prompts.** Nothing currently reminds a patient that a
   trajectory is stale. Low risk, ordinary product work.
 - **`GET /api/health/db` under-reports.** It runs `SELECT 1`, so it proves

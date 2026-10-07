@@ -163,6 +163,20 @@ jobs:
           node scripts/check-auth-coverage.test.js
           node scripts/check-auth-coverage.js
 
+      # A clinical record read that leaves no trace. AuditService recorded
+      # writes and admin actions, so the question an access log exists to answer
+      # - who looked at this patient's data, and when - had no answer at all,
+      # and the absence was invisible precisely because the write side was
+      # always covered.
+      #
+      # A test cannot hold this: the audit tests still pass if a logRead call is
+      # deleted from a method that still has one, because every remaining path
+      # is still instrumented. So this reads the source.
+      - name: Read-audit self-test, then gate
+        run: |
+          node scripts/check-read-audit.test.js
+          node scripts/check-read-audit.js
+
   # --------------------------------------------------------------------
   # Compose file validation
   #

@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { AIService, type AiSource } from "./ai.service";
 import { WellnessService } from "./wellness.service";
 import { badRequest, forbidden, notFound } from "../utils/appError";
+import { AuditService } from "./audit.service";
 
 
 
@@ -154,51 +155,76 @@ export class PreSessionService {
             throw forbidden("no briefing is available for this appointment");
         }
 
-        const data = await prisma.preSessionData.findUnique({ where: { appointmentId } });
+const data = await prisma.preSessionData.findUnique({ where: { appointmentId } });
+
+        // Both paths build a payload and then fall through to one audit and one
+        // return. The audit used to sit on the generation path only, which meant
+        // the *cached* briefing - the one a clinician actually re-reads before
+        // every session - was never recorded at all.
+        let result: Record<string, unknown>;
+
         if (data?.briefingText) {
             const moodHistory = await WellnessService.getMoodHistory(appointment.userId, 14);
             const assessments = await WellnessService.getLatestAssessments(appointment.userId);
-        return {
-            briefing: data.briefingText,
-            cached: true,
-            // Read back from storage rather than re-derived, so a briefing
-            // generated last week still reports that it was a platform summary
-            // rather than a model synthesis.
-            ai: { source: data.briefingSource as AiSource },
-            moodHistory: moodHistory.map((m) => ({ mood: m.mood, createdAt: m.createdAt, notes: m.notes })),
-            answers: parseJson<{ question: string; answer: string }[]>(data.answersJson ?? null, []),
-            assessments,
-        };
-    }
+            result = {
+                briefing: data.briefingText,
+                cached: true,
+                // Read back from storage rather than re-derived, so a briefing
+                // generated last week still reports that it was a platform summary
+                // rather than a model synthesis.
+                ai: { source: data.briefingSource as AiSource },
+                moodHistory: moodHistory.map((m) => ({ mood: m.mood, createdAt: m.createdAt, notes: m.notes })),
+                answers: parseJson<{ question: string; answer: string }[]>(data.answersJson ?? null, []),
+                assessments,
+            };
+        } else {
+            const answers = parseJson<{ question: string; answer: string }[]>(data?.answersJson ?? null, []);
+            const moodHistory = await WellnessService.getMoodHistory(appointment.userId, 14);
+            const assessments = await WellnessService.getLatestAssessments(appointment.userId);
 
-        const answers = parseJson<{ question: string; answer: string }[]>(data?.answersJson ?? null, []);
-        const moodHistory = await WellnessService.getMoodHistory(appointment.userId, 14);
-        const assessments = await WellnessService.getLatestAssessments(appointment.userId);
+            const briefing = await AIService.generateDoctorBriefing(
+                appointment.user?.name || "Patient",
+                appointment.doctor.specialty,
+                moodHistory,
+                answers,
+                assessments
+            );
 
-        const briefing = await AIService.generateDoctorBriefing(
-            appointment.user?.name || "Patient",
-            appointment.doctor.specialty,
-            moodHistory,
-            answers,
-            assessments
-        );
+            // The origin is persisted with the text, not just returned, because this
+            // row is re-read later and a flag that lived only on this response would
+            // be gone by the time a clinician opened the cached briefing.
+            await prisma.preSessionData.upsert({
+                where: { appointmentId },
+                update: { briefingText: briefing.data, briefingSource: briefing.source },
+                create: { appointmentId, briefingText: briefing.data, briefingSource: briefing.source },
+            });
 
-        // The origin is persisted with the text, not just returned, because this
-        // row is re-read later and a flag that lived only on this response would
-        // be gone by the time a clinician opened the cached briefing.
-        await prisma.preSessionData.upsert({
-            where: { appointmentId },
-            update: { briefingText: briefing.data, briefingSource: briefing.source },
-            create: { appointmentId, briefingText: briefing.data, briefingSource: briefing.source },
+            result = {
+                briefing: briefing.data,
+                cached: false,
+                ai: { source: briefing.source, degradedReason: briefing.degradedReason },
+                moodHistory: moodHistory.map((m) => ({ mood: m.mood, createdAt: m.createdAt, notes: m.notes })),
+                answers,
+                assessments,
+            };
+        }
+
+        // A briefing is the single richest clinical read in the application: the
+        // patient's mood history with free-text notes, their screening scores and
+        // severity, and their answers to the pre-session questions - one payload,
+        // one clinician, one person. Nothing recorded that it had been opened.
+        //
+        // Logged after the ownership and status gates, so it records reads that
+        // actually happened. A refused attempt is a different fact.
+        await AuditService.logRead({
+            actorId: userId,
+            subjectType: "Briefing",
+            subjectId: appointment.userId,
+            targetId: appointmentId,
+            via: result.cached ? "GET /api/ai/briefing/:appointmentId" : "POST /api/ai/briefing",
+            meta: { cached: result.cached === true },
         });
 
-        return {
-            briefing: briefing.data,
-            cached: false,
-            ai: { source: briefing.source, degradedReason: briefing.degradedReason },
-            moodHistory: moodHistory.map((m) => ({ mood: m.mood, createdAt: m.createdAt, notes: m.notes })),
-            answers,
-            assessments,
-        };
+        return result;
     }
 }

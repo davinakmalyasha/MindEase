@@ -360,6 +360,45 @@ export class AdminController {
         }
     }
 
+    /**
+     * Everything that has been recorded about reads of one patient's records.
+     *
+     * `meta` is parsed rather than returned raw so the actor's role and the
+     * resource are typed on the client instead of being re-derived from a JSON
+     * string at the point of display.
+     */
+    static async getPatientAccessLog(req: Request, res: Response) {
+        try {
+            const patientId = parseInt(req.params.id as string);
+            const entries = await AuditService.readsForSubject(patientId, 200);
+            res.json({
+                status: "success",
+                data: entries.map((e) => {
+                    let meta: Record<string, unknown> = {};
+                    try {
+                        meta = e.meta ? JSON.parse(e.meta) : {};
+                    } catch {
+                        // A malformed `meta` must not hide the access record
+                        // itself - the read happened whatever the note says.
+                        meta = { unparseable: true };
+                    }
+                    return {
+                        id: e.id,
+                        actorId: e.actorId,
+                        actorName: e.actor?.name ?? null,
+                        actorRole: e.actor?.role ?? null,
+                        resource: e.targetType,
+                        targetId: e.targetId,
+                        via: meta.via ?? null,
+                        createdAt: e.createdAt,
+                    };
+                }),
+            });
+        } catch (error: any) {
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
+        }
+    }
+
     static async getReviewReports(req: Request, res: Response) {
         try {
             const page = parseInt(req.query.page as string) || 1;

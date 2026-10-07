@@ -522,10 +522,41 @@ said "N/21 or /27" for both, which is meaningless). That is a prompt
 instruction, not a guarantee. The product does not diagnose and the briefing is
 labelled advisory.
 
-**No audit coverage of reads.** `AuditLog` records writes and admin actions.
-There is no access log for a clinician opening a disclosure, a journal or a
-briefing. For the disclosure queue specifically, `acknowledge` and `resolve` are
-both logged — but simply *reading* an alert is not.
+**~~No audit coverage of reads.~~** `AuditLog` recorded writes and admin actions
+only, so there was no access log for a clinician opening a disclosure, a briefing,
+a message thread or a care plan — and the absence was invisible precisely because
+the write side was always covered. Every one of those reads now records a
+`clinical.read` entry naming **both** the reader and the patient, which are not
+derivable from each other: an access trail that cannot answer "who has seen *this
+person*" is not an access trail. Self-service is excluded on purpose — a patient
+opening their own safety plan is not an access event, and a trail full of those is
+a trail nobody reads.
+
+Two properties are load-bearing and are asserted by tests rather than described:
+
+- **A failed audit write must not deny the read.** If `logRead` could reject, a
+  database hiccup would become a clinician unable to open a crisis disclosure. The
+  failure mode of an access log is "a gap in the record" — logged at `error` with
+  the actor and subject so it is findable — never "a patient does not get help".
+  The cost is honest: a sustained outage of the audit table produces a real gap,
+  and the error log is the compensating control.
+- **The calls are held in place by a source check.** `scripts/check-read-audit.js`
+  fails the build if a `logRead` call is removed, if a resource type is misspelled,
+  or if the self-service guard is deleted. A test cannot do this: the audit tests
+  still pass if one method loses its call while the others keep theirs.
+
+For the disclosure queue this is per *alert*, not per request — a page returning
+thirty alerts discloses thirty disclosures, and a single entry naming thirty
+patients would answer neither "who saw patient X" nor "what did clinician Y open".
+
+**Reads that are still not logged.** Patient self-service throughout
+(`GET /api/journal`, `GET /api/mood`, `GET /api/assessments`) is excluded by
+design. `JournalEntry` and `Assessment` appear in `CLINICAL_RESOURCES` for when a
+clinician-facing path is added, but no clinician can currently read another
+patient's journal or screening results through the API, so there is nothing to log
+today. Admin bulk exports (`GET /api/admin/export/:kind`) are **not** covered and
+should be — an administrator reading a CSV of the whole patient list is the
+largest single access event in the product.
 
 **Uploads are served from the credential origin.** Mitigated by CSP, nosniff and
 `Content-Disposition` as described above, but the mitigation is a header, not an

@@ -6,6 +6,7 @@ import { badRequest, forbidden, notFound } from "../utils/appError";
 import { detectFreeTextRisk } from "./crisisText.service";
 import { raiseRiskAlert } from "./clinicalSafety.service";
 import { logger } from "../utils/logger";
+import { AuditService } from "./audit.service";
 
 
 
@@ -102,6 +103,24 @@ export class MessageService {
                 payload: { byUserId: userId, upToId: messages[0].id },
             });
         }
+
+        // Opening a thread discloses the other party's words, and a message is
+        // where a patient is most likely to say something in their own voice that
+        // no scale would have captured - the crisis-text matcher in
+        // `sendMessage` exists precisely because of that. So the read is recorded
+        // against the *other* participant: `userId` reading `otherUserId`'s
+        // disclosures. Recorded once per thread rather than once per message,
+        // because a scroll through fifty messages is one access, not fifty.
+        //
+        // Both directions are audited, so the entry names the reader rather than
+        // inferring it from the record type.
+        await AuditService.logRead({
+            actorId: userId,
+            subjectType: "Message",
+            subjectId: otherUserId,
+            via: `GET /api/messages/${otherUserId}/messages`,
+            meta: { messages: visible.length, counterpartId: otherUserId },
+        });
 
         return visible.reverse();
     }

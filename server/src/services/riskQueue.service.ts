@@ -251,6 +251,27 @@ export class RiskQueueService {
                 return b.createdAt.getTime() - a.createdAt.getTime();
             });
 
+        // Reading the queue *is* reading every disclosure on it. Nothing
+        // recorded that before, so "which clinicians have seen this patient's
+        // crisis disclosures, and when" was unanswerable - which is precisely
+        // the question an access log exists to answer.
+        //
+        // One row per item rather than one per request: a request that returns
+        // thirty items discloses thirty disclosures, and a single entry naming
+        // thirty patients would be useless for both questions a reviewer asks -
+        // "who saw patient X" and "what did clinician Y look at".
+        await Promise.all(
+            items.map((item) =>
+                AuditService.logRead({
+                    actorId: actor.id,
+                    subjectType: "RiskAlert",
+                    subjectId: item.patient.id,
+                    targetId: item.id,
+                    via: "GET /api/wellness/risk-alerts",
+                })
+            )
+        );
+
         return { items, counts: summarise(rows) };
     }
 
