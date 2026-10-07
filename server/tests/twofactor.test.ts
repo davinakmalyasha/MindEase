@@ -1,26 +1,89 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import speakeasy from "speakeasy";
-import { app, createUser, createDoctor, accessTokenFrom, PASSWORD } from "./helpers";
-
-const futureDate = (days = 3) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split("T")[0];
-};
+import {
+    app,
+    createUser,
+    createDoctor,
+    accessTokenFrom,
+    pinTwoFactorClock,
+    unpinTwoFactorClock,
+    PASSWORD,
+} from "./helpers";
+import { prisma } from "../src/app";
 
 describe("2FA (TOTP)", () => {
-    it("setup returns a secret and QR code", async () => {
+    // Every test here mints a real-clock TOTP code and then makes an HTTP
+    // request whose Argon2 work can outlast a 30-second time step. Pinning
+    // keeps the whole file deterministic. See `pinTwoFactorClock`.
+    beforeEach(() => {
+        pinTwoFactorClock();
+    });
+    afterEach(() => {
+        unpinTwoFactorClock();
+    });
+
+it("setup returns a secret and QR code", async () => {
         const doctor = await createDoctor();
-        const res = await doctor.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", doctor.csrf);
+        const res = await doctor.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", doctor.csrf)
+        .send({ password: PASSWORD });
         expect(res.status).toBe(200);
         expect(res.body.data.secret).toBeTruthy();
         expect(res.body.data.qrDataUrl).toContain("data:image");
     });
 
+    // Enrolment is a privilege change, so it is confirmed with the password like
+    // every other one on the account. It was not, and the route had no schema at
+    // all: an attacker holding a stolen 15-minute access token could call
+    // `/2fa/setup`, enrol an authenticator on their own phone, then call
+    // `/2fa/enable`. `enable` revokes every session *including the attacker's*,
+    // leaving an account that requires a factor the real owner does not have -
+    // locked out of their own treatment records.
+    it("refuses to start enrolment without the password", async () => {
+        const doctor = await createDoctor();
+        const res = await doctor.agent
+            .post("/api/account/2fa/setup")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({});
+        expect(res.status).toBe(400);
+    });
+
+    it("refuses to start enrolment with the wrong password", async () => {
+        const doctor = await createDoctor();
+        const res = await doctor.agent
+            .post("/api/account/2fa/setup")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ password: "not-the-password-1234" });
+        expect(res.status).toBe(400);
+    });
+
+    it("does not write a secret when the password is refused", async () => {
+        // The refusal has to happen before the secret is generated and stored, or
+        // the endpoint is a secret oracle that has already half-completed.
+        const doctor = await createDoctor();
+        const before = await prisma.user.findUnique({
+            where: { id: doctor.id },
+            select: { totpSecret: true },
+        });
+
+        await doctor.agent
+            .post("/api/account/2fa/setup")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ password: "not-the-password-1234" });
+
+        const after = await prisma.user.findUnique({
+            where: { id: doctor.id },
+            select: { totpSecret: true },
+        });
+        expect(after?.totpSecret ?? null).toBe(before?.totpSecret ?? null);
+    });
+
     it("enable rejects a wrong code", async () => {
         const doctor = await createDoctor();
-        await doctor.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", doctor.csrf);
+        await doctor.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", doctor.csrf)
+        .send({ password: PASSWORD });
         const res = await doctor.agent
             .post("/api/account/2fa/enable")
             .set("X-CSRF-Token", doctor.csrf)
@@ -31,7 +94,9 @@ describe("2FA (TOTP)", () => {
     it("enable accepts a valid TOTP code and login requires 2FA", async () => {
         const speakeasy = (await import("speakeasy")).default;
         const doctor = await createDoctor();
-        const setup = await doctor.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", doctor.csrf);
+        const setup = await doctor.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", doctor.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret;
 
         const code = speakeasy.totp({ secret, encoding: "base32" });
@@ -66,7 +131,9 @@ describe("2FA (TOTP)", () => {
 
     it("does not issue a usable session before the second factor", async () => {
         const user = await createUser("patient");
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret;
         const code = speakeasy.totp({ secret, encoding: "base32" });
         await user.agent
@@ -107,7 +174,9 @@ describe("2FA (TOTP)", () => {
         // A captured code stays valid for roughly 90 seconds under the +/- 1
         // step tolerance, so it must not be usable twice.
         const user = await createUser("patient");
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret;
         await user.agent
             .post("/api/account/2fa/enable")

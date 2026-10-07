@@ -1,13 +1,14 @@
 ﻿"use client";
 
 import { Suspense } from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { resolvePostLoginPath } from "@/lib/postLogin";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslations } from "next-intl";
 import { getErrorMessage } from "@/lib/api";
@@ -15,8 +16,10 @@ import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
 import {
     RegisterSchema,
     LoginSchema,
+    toRegisterPayload,
+    type LoginFormInput,
     type LoginFormData,
-    type RegisterFormData,
+    type RegisterFormInput,
 } from "@/lib/validations/auth";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
@@ -44,14 +47,33 @@ function AuthForm() {
     const [twoFactorCode, setTwoFactorCode] = useState("");
     const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
+    // Whether React has hydrated, which is not the same as whether the page has
+    // painted. Until it has, this form has no `onSubmit` handler attached, and a
+    // click on the submit button is a *native* form submission: the browser
+    // serialises every field into the query string and navigates to
+    // `/login?email=...&password=...`.
+    //
+    // That puts a patient's password in their address bar, in browser history, in
+    // any proxy or CDN log between them and us, and in the Referer header sent
+    // with every subsequent request. It is not a theoretical risk - it happened
+    // on the very first run of a screenshot script, because the click landed
+    // before hydration on a loaded page.
+    //
+    // The fix is to make the button inert until the handler exists. There is no
+    // way to preventDefault from server-rendered HTML, so the only safe options
+    // are to not submit or to not put the field in the URL; see the `method` on
+    // the form for the second.
+    const [isHydrated, setIsHydrated] = useState(false);
+    useEffect(() => setIsHydrated(true), []);
+
     const redirectByRole = (role: string) => {
-        const target =
-            nextPath && nextPath.startsWith("/")
-                ? nextPath
-                : role === "patient"
-                ? "/dashboard/mood"
-                : "/dashboard";
-        window.location.href = target;
+        // `isSafeInternalPath`, not `startsWith("/")`. The old check let
+        // `//evil.example` through, which is a protocol-relative URL, so
+        // `/login?next=//evil.example` collected real credentials on the genuine
+        // page and then navigated the authenticated user off-origin - and
+        // because `redirectByRole` also runs after the second factor, the bounce
+        // happened at the point of maximum trust. See `lib/postLogin.ts`.
+        window.location.href = resolvePostLoginPath(nextPath, role);
     };
 
     const verify2FA = async () => {
@@ -95,7 +117,7 @@ function AuthForm() {
         register: loginRegister,
         handleSubmit: handleLoginSubmit,
         formState: { errors: loginErrors },
-    } = useForm<LoginFormData>({ resolver: zodResolver(LoginSchema) });
+    } = useForm<LoginFormInput>({ resolver: zodResolver(LoginSchema) });
 
     const {
         register: registerRegister,
@@ -103,7 +125,7 @@ function AuthForm() {
         setValue,
         watch,
         formState: { errors: registerErrors },
-    } = useForm<RegisterFormData>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
+    } = useForm<RegisterFormInput>({ resolver: zodResolver(RegisterSchema), defaultValues: { role: "patient" } });
 
     const selectedRole = watch("role");
 
@@ -124,13 +146,14 @@ function AuthForm() {
         }
     };
 
-    const onRegister = async (data: RegisterFormData) => {
+    const onRegister = async (data: RegisterFormInput) => {
         setIsLoading(true);
         setError(null);
         try {
             // Preserve referral attribution from invite links (?ref=CODE)
             const refCode = searchParams.get("ref");
-            const user = await register({ ...data, referralCode: refCode || undefined });
+            // Applies the schema's transforms (empty phone -> undefined).
+            const user = await register({ ...toRegisterPayload(data), referralCode: refCode || undefined });
             redirectByRole(user.role);
         } catch (err: any) {
             setError(getErrorMessage(err, "Registration failed"));
@@ -205,6 +228,16 @@ function AuthForm() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 20 }}
                                 onSubmit={handleLoginSubmit(onLogin)}
+                                // `method="post"` is a backstop, not the fix.
+                                //
+                                // Once React has hydrated, `handleSubmit` calls
+                                // preventDefault and this attribute is never
+                                // consulted. Before hydration it *is* consulted,
+                                // and it decides whether an unintended submission
+                                // puts the password in the URL or in a request
+                                // body. Body is the lesser evil; query string is
+                                // written to access logs by default.
+                                method="post"
                                 className="space-y-4"
                             >
                                 {GOOGLE_CLIENT_ID && (
@@ -233,20 +266,41 @@ function AuthForm() {
                                 )}
                                 <div>
                                     <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
-                                    <input id="auth-email" {...loginRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {loginErrors.email && <p className="text-red-500 text-xs mt-1">{loginErrors.email.message}</p>}
+                                    <input
+                                        id="auth-email"
+                                        {...loginRegister("email")}
+                                        aria-invalid={loginErrors.email ? true : undefined}
+                                        aria-describedby={loginErrors.email ? "auth-email-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {loginErrors.email && (
+                                        <p id="auth-email-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {loginErrors.email.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
-                                    <input id="auth-password" type="password" {...loginRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {loginErrors.password && <p className="text-red-500 text-xs mt-1">{loginErrors.password.message}</p>}
+                                    <input
+                                        id="auth-password"
+                                        type="password"
+                                        {...loginRegister("password")}
+                                        aria-invalid={loginErrors.password ? true : undefined}
+                                        aria-describedby={loginErrors.password ? "auth-password-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {loginErrors.password && (
+                                        <p id="auth-password-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {loginErrors.password.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="flex justify-end">
                                     <Link href="/forgot-password" className="text-xs font-semibold text-indigo-600 hover:underline">
                                         {t("forgotPassword")}
                                     </Link>
                                 </div>
-                                <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
+                                <button disabled={isLoading || !isHydrated} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
                                     {isLoading ? <Loader2 className="animate-spin" /> : t("signIn")}
                                 </button>
                             </motion.form>
@@ -257,33 +311,74 @@ function AuthForm() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 onSubmit={handleRegisterSubmit(onRegister)}
+                                method="post"
                                 className="space-y-4"
                             >
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("fullName")}</label>
-                                    <input {...registerRegister("name")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {registerErrors.name && <p className="text-red-500 text-xs mt-1">{registerErrors.name.message}</p>}
-                                </div>
-                                <div>
-                                    <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
-                                    <input {...registerRegister("email")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    {registerErrors.email && <p className="text-red-500 text-xs mt-1">{registerErrors.email.message}</p>}
-                                </div>
-                                <div>
-                                    <label htmlFor="auth-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
+                                    <label htmlFor="register-name" className="block text-sm font-medium text-gray-700 mb-1">{t("fullName")}</label>
                                     <input
-                                        id="auth-phone"
-                                        {...registerRegister("phone_number")}
-                                        placeholder="+6281234567890"
+                                        id="register-name"
+                                        {...registerRegister("name")}
+                                        aria-invalid={registerErrors.name ? true : undefined}
+                                        aria-describedby={registerErrors.name ? "register-name-error" : undefined}
                                         className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
                                     />
-                                    {registerErrors.phone_number && <p className="text-red-500 text-xs mt-1">{registerErrors.phone_number.message as string}</p>}
+                                    {registerErrors.name && (
+                                        <p id="register-name-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.name.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
-                                    <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
-                                    <input type="password" {...registerRegister("password")} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                                    <p className="text-[10px] text-gray-400 mt-1">8+ characters with uppercase, number & special character</p>
-                                    {registerErrors.password && <p className="text-red-500 text-xs mt-1">{registerErrors.password.message}</p>}
+                                    <label htmlFor="register-email" className="block text-sm font-medium text-gray-700 mb-1">{t("email")}</label>
+                                    <input
+                                        id="register-email"
+                                        {...registerRegister("email")}
+                                        aria-invalid={registerErrors.email ? true : undefined}
+                                        aria-describedby={registerErrors.email ? "register-email-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {registerErrors.email && (
+                                        <p id="register-email-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.email.message}
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label htmlFor="register-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (WhatsApp)</label>
+                                    <input
+                                        id="register-phone"
+                                        {...registerRegister("phone_number")}
+                                        placeholder="+6281234567890"
+                                        aria-invalid={registerErrors.phone_number ? true : undefined}
+                                        aria-describedby={registerErrors.phone_number ? "register-phone-error" : undefined}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {registerErrors.phone_number && (
+                                        <p id="register-phone-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.phone_number.message as string}
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 mb-1">{t("password")}</label>
+                                    <input
+                                        id="register-password"
+                                        type="password"
+                                        {...registerRegister("password")}
+                                        aria-invalid={registerErrors.password ? true : undefined}
+                                        aria-describedby={registerErrors.password ? "register-password-error" : "register-password-hint"}
+                                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                                    />
+                                    {/* gray-400 on white is 2.54:1 and fails AA; gray-500 is 4.83:1. */}
+                                    <p id="register-password-hint" className="text-[10px] text-gray-500 mt-1">
+                                        8+ characters with uppercase, number & special character
+                                    </p>
+                                    {registerErrors.password && (
+                                        <p id="register-password-error" role="alert" className="text-red-600 text-xs mt-1 font-medium">
+                                            {registerErrors.password.message}
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">I want to join as</label>
@@ -303,7 +398,7 @@ function AuthForm() {
                                         ))}
                                     </div>
                                 </div>
-                                <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
+                                <button disabled={isLoading || !isHydrated} type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center">
                                     {isLoading ? <Loader2 className="animate-spin" /> : t("createAccountBtn")}
                                 </button>
                             </motion.form>

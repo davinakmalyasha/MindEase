@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { parseLocalDate, timeToMinutes, overlaps } from "../lib/date";
 import { NotificationService } from "./notification.service";
+import { badRequest, conflict, forbidden, notFound } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 export class FollowUpService {
     static async suggest(
@@ -13,19 +15,19 @@ export class FollowUpService {
             where: { id: appointmentId },
             include: { doctor: { select: { userId: true } } },
         });
-        if (!appointment) throw new Error("Appointment not found");
+        if (!appointment) throw notFound("Appointment not found");
         if (appointment.doctor.userId !== doctorUserId) {
-            throw new Error("Forbidden: only the assigned doctor can suggest a follow-up");
+            throw forbidden("only the assigned doctor can suggest a follow-up");
         }
         if (appointment.status !== "completed") {
-            throw new Error("Follow-ups can only be suggested for completed sessions");
+            throw badRequest("Follow-ups can only be suggested for completed sessions");
         }
 
         const existing = await prisma.followUp.findUnique({ where: { appointmentId } });
-        if (existing) throw new Error("A follow-up suggestion already exists for this appointment");
+        if (existing) throw conflict("A follow-up suggestion already exists for this appointment");
 
         const date = parseLocalDate(data.suggestedDate);
-        if (isNaN(date.getTime())) throw new Error("Invalid date");
+        if (isNaN(date.getTime())) throw badRequest("Invalid date");
 
         const followUp = await prisma.followUp.create({
             data: {
@@ -35,7 +37,9 @@ export class FollowUpService {
                 startTime: data.startTime,
                 endTime: data.endTime,
                 consultationType: data.consultationType || appointment.consultationType,
-                notes: data.notes ? data.notes.slice(0, 1000) : null,
+                // Doctor-authored, read back by the patient. Stripped like every other
+    // free-text field rather than length-limited only.
+    notes: data.notes ? sanitize(data.notes).slice(0, 1000) : null,
             },
         });
 
@@ -55,10 +59,10 @@ export class FollowUpService {
             where: { id: appointmentId },
             include: { doctor: { select: { userId: true } } },
         });
-        if (!appointment) throw new Error("Appointment not found");
+        if (!appointment) throw notFound("Appointment not found");
         const isParticipant =
             appointment.userId === actor.id || (actor.role === "doctor" && appointment.doctor.userId === actor.id);
-        if (!isParticipant) throw new Error("Forbidden: not a participant");
+        if (!isParticipant) throw forbidden("not a participant");
 
         return await prisma.followUp.findUnique({ where: { appointmentId } });
     }
@@ -68,17 +72,29 @@ export class FollowUpService {
             where: { id: followUpId },
             include: { appointment: { select: { userId: true } } },
         });
-        if (!followUp) throw new Error("Follow-up not found");
+        if (!followUp) throw notFound("Follow-up not found");
         if (followUp.appointment.userId !== patientId) {
-            throw new Error("Forbidden: not your appointment");
+            throw forbidden("not your appointment");
         }
-        if (followUp.status !== "pending") throw new Error("This follow-up was already responded to");
+        if (followUp.status !== "pending") throw conflict("This follow-up was already responded to");
 
         if (!accept) {
-            const updated = await prisma.followUp.update({
-                where: { id: followUpId },
+            // Claimed, not assigned.
+            //
+            // This wrote `status: "declined"` by id. The check above already
+            // rejects a *sequential* second response, so this is only reachable
+            // concurrently: accept claims the row and creates an appointment
+            // inside a transaction, and a decline that read `pending` before that
+            // claim committed then writes `declined` over it. The result is an
+            // appointment beside a follow-up saying it was refused, and a doctor
+            // already notified that it was accepted.
+            const claimed = await prisma.followUp.updateMany({
+                where: { id: followUpId, status: "pending" },
                 data: { status: "declined" },
             });
+            if (claimed.count !== 1) throw conflict("This follow-up was already responded to");
+
+            const updated = await prisma.followUp.findUniqueOrThrow({ where: { id: followUpId } });
             return { followUp: updated, appointment: null };
         }
 
@@ -86,7 +102,7 @@ export class FollowUpService {
             where: { id: followUp.appointmentId },
             include: { doctor: { select: { id: true, userId: true, awayUntil: true } } },
         });
-        if (!appointment) throw new Error("Appointment not found");
+        if (!appointment) throw notFound("Appointment not found");
 
         // A suggestion for a date that has already passed can no longer be
         // accepted — previously a doctor could propose a past date and the
@@ -94,9 +110,9 @@ export class FollowUpService {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const suggested = new Date(followUp.suggestedDate);
-        if (isNaN(suggested.getTime())) throw new Error("This follow-up has an invalid date");
+        if (isNaN(suggested.getTime())) throw badRequest("This follow-up has an invalid date");
         if (suggested < today) {
-            throw new Error("This follow-up date has already passed — please ask your doctor for a new time");
+            throw conflict("This follow-up date has already passed — please ask your doctor for a new time");
         }
 
         // Times are compared in minutes, not lexicographically. The previous
@@ -104,8 +120,8 @@ export class FollowUpService {
         // so `"10:00" <= "9:00"` was true and overlapping sessions were accepted.
         const start = timeToMinutes(followUp.startTime);
         const end = timeToMinutes(followUp.endTime);
-        if (isNaN(start) || isNaN(end)) throw new Error("This follow-up has an invalid time");
-        if (start >= end) throw new Error("This follow-up has an invalid time range");
+        if (isNaN(start) || isNaN(end)) throw badRequest("This follow-up has an invalid time");
+        if (start >= end) throw badRequest("This follow-up has an invalid time range");
 
         const dayStart = new Date(suggested);
         dayStart.setHours(0, 0, 0, 0);
@@ -120,10 +136,11 @@ export class FollowUpService {
             },
             select: { startTime: true, endTime: true },
         });
-        const conflict = sameDay.some((a) =>
+        const hasConflict = sameDay.some((a) =>
             overlaps(start, end, timeToMinutes(a.startTime ?? ""), timeToMinutes(a.endTime ?? ""))
         );
-        if (conflict) throw new Error("That time is already booked for this doctor — please ask them for another slot");
+        if (hasConflict)
+            throw conflict("That time is already booked for this doctor — please ask them for another slot");
 
         // Claim and create inside one transaction, and mark the follow-up
         // accepted in the same transaction. Previously the status was written
@@ -134,7 +151,7 @@ export class FollowUpService {
                 where: { id: followUpId, status: "pending" },
                 data: { status: "accepted" },
             });
-            if (claim.count !== 1) throw new Error("This follow-up was already responded to");
+            if (claim.count !== 1) throw conflict("This follow-up was already responded to");
 
             return tx.appointment.create({
                 data: {
@@ -171,13 +188,31 @@ export class FollowUpService {
      * Follow-up bookings previously bypassed package/credit reservation
      * entirely, so the ledger drifted: sessions were consumed without being
      * decremented, and the credits a referral had granted were never spent.
+     *
+     * ## Why the decrement is conditional
+     *
+     * Reserving was a read followed by a write by id alone: find a purchase with
+     * `sessionsLeft > 0`, then decrement it. Two follow-ups accepted at the same
+     * moment both read the same purchase and both decremented, so one remaining
+     * session covered two bookings - and `sessionsLeft` went negative, which is
+     * worse than a leak because nothing in the schema prevents it and no report
+     * reads it back.
+     *
+     * The booking path in `appointment.service.ts` already reserved correctly,
+     * with `sessionsLeft: { gte: 1 }` in the write's `where`. This one had
+     * drifted from it: same intent, same table, one of them atomic.
+     *
+     * Every branch below now claims with a conditional write and checks that it
+     * won. A purchase that loses the race is skipped rather than throwing,
+     * because a patient may legitimately hold two packages and the first one
+     * being spent is not an error - so candidates are tried in order.
      */
     private static async findConsumableReservation(
         tx: Prisma.TransactionClient,
         patientId: number,
         doctorId: number
     ): Promise<{ packagePurchaseId?: number; creditApplied?: boolean }> {
-        const purchase = await tx.packagePurchase.findFirst({
+        const candidates = await tx.packagePurchase.findMany({
             where: {
                 userId: patientId,
                 sessionsLeft: { gt: 0 },
@@ -185,28 +220,37 @@ export class FollowUpService {
                 // A package covers its own doctor's sessions.
                 package: { doctorId },
             },
+            // Oldest first, so the package closest to expiry is the one spent.
             orderBy: { createdAt: "asc" },
             select: { id: true },
         });
-        if (purchase) {
-            await tx.packagePurchase.update({
-                where: { id: purchase.id },
-                data: { sessionsLeft: { decrement: 1 }, status: "active" },
+
+        for (const candidate of candidates) {
+            const claimed = await tx.packagePurchase.updateMany({
+                where: { id: candidate.id, sessionsLeft: { gt: 0 } },
+                data: { sessionsLeft: { decrement: 1 } },
             });
-            return { packagePurchaseId: purchase.id };
+            if (claimed.count !== 1) continue;
+
+            // Exhausted packages flip to completed, matching the booking path -
+            // so "active with nothing left" is not a state a reader has to know
+            // about.
+            await tx.packagePurchase.updateMany({
+                where: { id: candidate.id, sessionsLeft: 0 },
+                data: { status: "completed" },
+            });
+
+            return { packagePurchaseId: candidate.id };
         }
 
-        const user = await tx.user.findUnique({
-            where: { id: patientId },
-            select: { sessionCredits: true },
+        // Credits last, and conditionally for the same reason: `sessionCredits`
+        // is an Integer column, so two unconditional decrements from 1 leave it
+        // at -1.
+        const claimed = await tx.user.updateMany({
+            where: { id: patientId, sessionCredits: { gt: 0 } },
+            data: { sessionCredits: { decrement: 1 } },
         });
-        if (user && user.sessionCredits > 0) {
-            await tx.user.update({
-                where: { id: patientId },
-                data: { sessionCredits: { decrement: 1 } },
-            });
-            return { creditApplied: true };
-        }
+        if (claimed.count === 1) return { creditApplied: true };
 
         return {};
     }

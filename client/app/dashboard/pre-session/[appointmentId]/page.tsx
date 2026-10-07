@@ -30,32 +30,71 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
         params.then(({ appointmentId }) => setAppointmentId(appointmentId));
     }, [params]);
 
-    const loadData = useCallback(async () => {
+    // Two distinct failures that the old code merged into one.
+    //
+    // The existence probe used to be `.catch(() => null)`, which turned *any*
+    // error into "no questions exist yet" and therefore fell through to the
+    // generating POST. A patient who had already answered their questions could
+    // lose that work to one dropped connection, because the code that was asked
+    // whether it existed never got an answer and answered for it.
+    //
+    // Only a 404 is evidence that nothing exists.
+    const [loadFailed, setLoadFailed] = useState(false);
+
+    const loadData = useCallback(async (isCurrent: () => boolean = () => true) => {
         if (!appointmentId) return;
         setIsLoading(true);
+        setLoadFailed(false);
         try {
-            // Check for existing questions/answers first
-            const existingRes = await api.get(`/ai/pre-session/${appointmentId}`).catch(() => null);
-            const existing = existingRes?.data?.data;
+            let existing = null;
+            try {
+                const existingRes = await api.get(`/ai/pre-session/${appointmentId}`);
+                existing = existingRes?.data?.data;
+            } catch (err) {
+                const status = (err as { response?: { status?: number } })?.response?.status;
+                if (status !== 404) throw err;
+            }
+
+            // Every write is gated on `isCurrent()`. The check sits after each await
+            // rather than once at the end, because the awaits are not adjacent:
+            // a generation POST can outlive the navigation that abandoned it.
             if (existing?.questions?.length) {
+                if (!isCurrent()) return;
                 setQuestions(existing.questions);
                 const saved = existing.answers || [];
                 setSavedAnswers(saved);
                 setAnswers(Object.fromEntries(saved.map((a: Answer) => [a.question, a.answer])));
             } else {
                 const res = await api.post("/ai/pre-session", { appointmentId: Number(appointmentId) });
+                if (!isCurrent()) return;
                 setQuestions(res.data?.data?.questions || []);
                 setAnswers({});
             }
         } catch (error) {
+            // A rejection from an abandoned request is not news.
+            if (!isCurrent()) return;
+            console.error("[pre-session] load failed", error);
             toast(getErrorMessage(error, "Failed to load questions"), "error");
+            setLoadFailed(true);
         } finally {
-            setIsLoading(false);
+            if (isCurrent()) setIsLoading(false);
         }
     }, [appointmentId, toast]);
 
     useEffect(() => {
-        loadData();
+        // Guards against a slow response from an abandoned appointment.
+        //
+        // `params` resolves asynchronously, so on a client-side navigation
+        // between two appointments this component stays mounted while
+        // `appointmentId` changes. Without the flag, the *first* request can
+        // settle after the second and overwrite the new appointment's questions
+        // with the previous patient's answers - the wrong patient's reflections,
+        // on the screen of a clinician who is about to read them.
+        let current = true;
+        loadData(() => current);
+        return () => {
+            current = false;
+        };
     }, [loadData]);
 
     const allAnswered = questions.length > 0 && questions.every((q) => answers[q]?.trim());
@@ -104,6 +143,22 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                         <div key={i} className="h-28 bg-white border border-gray-100 rounded-3xl animate-pulse" />
                     ))}
                 </div>
+            ) : loadFailed ? (
+                <div role="alert" className="bg-white border border-rose-200 rounded-3xl py-16 px-8 text-center">
+                    <MessageCircleQuestion className="w-12 h-12 text-rose-300 mx-auto mb-4" />
+                    <h3 className="text-xl font-bold text-rose-800 mb-2">Could not load your questions</h3>
+                    <p className="text-rose-700 max-w-sm mx-auto">
+                        Any answers you have already given are still saved &mdash; this is a connection problem, not
+                        a lost form.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => loadData()}
+                        className="mt-6 px-6 py-3 bg-rose-600 text-white rounded-2xl font-bold hover:bg-rose-700 transition-all"
+                    >
+                        Try Again
+                    </button>
+                </div>
             ) : questions.length === 0 ? (
                 <div className="bg-white border border-dashed border-gray-200 rounded-3xl py-16 text-center">
                     <MessageCircleQuestion className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -111,7 +166,7 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                     <p className="text-gray-500 max-w-sm mx-auto">
                         Questions are generated once your appointment is confirmed. Refresh if you just confirmed it.
                     </p>
-                    <button onClick={loadData} className="mt-6 px-6 py-3 bg-violet-600 text-white rounded-2xl font-bold hover:bg-violet-700 transition-all">
+                    <button onClick={() => loadData()} className="mt-6 px-6 py-3 bg-violet-600 text-white rounded-2xl font-bold hover:bg-violet-700 transition-all">
                         Try Again
                     </button>
                 </div>

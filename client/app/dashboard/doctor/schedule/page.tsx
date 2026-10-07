@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,6 +20,7 @@ import {
 import api, { getErrorMessage } from "@/lib/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
+import { localDayKey } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/ui/Toast";
 
@@ -91,8 +92,13 @@ export default function DoctorSchedule() {
         }
     };
 
+    // `fetchSlots` closes over the current filters, so the dependency list has to
+    // include the values it reads rather than the function identity: an inline
+    // `useCallback` around it would re-run on every render and refetch forever,
+    // which is the same bug wearing a different hat.
     useEffect(() => {
         if (user?.role === "doctor") fetchSlots();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,7 +201,8 @@ export default function DoctorSchedule() {
     const slotsByDate = useMemo(() => {
         const map: Record<string, SlotData[]> = {};
         slots.forEach((slot) => {
-            const key = new Date(slot.date).toISOString().split("T")[0];
+            // Calendar day in the doctor's own timezone — see `localDayKey`.
+            const key = localDayKey(new Date(slot.date));
             if (!map[key]) map[key] = [];
             map[key].push(slot);
         });
@@ -243,7 +250,7 @@ export default function DoctorSchedule() {
                                     value={form.date}
                                     onChange={handleChange}
                                     required
-                                    min={new Date().toISOString().split("T")[0]}
+                                    min={localDayKey(new Date())}
                                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-medium text-gray-900 text-sm"
                                 />
                             </div>
@@ -367,7 +374,7 @@ export default function DoctorSchedule() {
                                     <div key={p.id} className="flex items-center justify-between px-3 py-2.5 bg-indigo-50/60 border border-indigo-100 rounded-xl">
                                         <div className="text-xs font-bold text-gray-700">
                                             {WEEKDAY_LABELS[p.weekday]}
-                                            <span className="font-medium text-gray-400"> · {p.startTime}–{p.endTime}</span>
+                                            <span className="font-medium text-gray-400"> – {p.startTime}–{p.endTime}</span>
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <button
@@ -402,7 +409,7 @@ export default function DoctorSchedule() {
                                     type="date"
                                     value={awayUntil}
                                     onChange={(e) => setAwayUntil(e.target.value)}
-                                    min={new Date().toISOString().split("T")[0]}
+                                    min={localDayKey(new Date())}
                                     className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                                 />
                                 <button
@@ -457,7 +464,12 @@ export default function DoctorSchedule() {
                         ) : (
                             <div className="grid grid-cols-7 divide-x divide-gray-50 overflow-x-auto">
                                 {weekDays.map((day) => {
-                                    const dateKey = day.toISOString().split("T")[0];
+                                    // Same key function the slot map uses. These two
+                                    // were `toISOString()` (UTC) on opposite sides of
+                                    // the comparison, which in any timezone east of
+                                    // Greenwich matched a slot against the wrong column
+                                    // and rendered the week empty.
+                                    const dateKey = localDayKey(day);
                                     const daySlots = slotsByDate[dateKey] || [];
                                     const today = isToday(day);
                                     const isPast = day < new Date(new Date().toDateString());

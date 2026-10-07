@@ -6,6 +6,7 @@ import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { AuditService } from "./audit.service";
 import { signAccessToken, signRefreshToken, verifyToken, hashToken, type AuthMethod } from "../lib/tokens";
+import { badRequest, conflict, notFound, unauthorized } from "../utils/appError";
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
@@ -71,11 +72,11 @@ export class AuthService {
     static async register(data: any) {
         const userData = data.body || data;
         if (!["patient", "doctor"].includes(userData.role)) {
-            throw new Error("Invalid role. Roles must be patient or doctor.");
+            throw badRequest("Invalid role. Roles must be patient or doctor.");
         }
 
         const existingUser = await prisma.user.findUnique({ where: { email: userData.email } });
-        if (existingUser) throw new Error("Email already registered");
+        if (existingUser) throw conflict("Email already registered");
 
         const hashedPassword = await argon2.hash(userData.password);
 
@@ -138,20 +139,20 @@ export class AuthService {
         // exists, so response timing cannot be used to enumerate users.
         const validPassword = await argon2.verify(user?.password || DUMMY_PASSWORD_HASH, loginData.password);
 
-        if (!user || !user.password) throw new Error(GENERIC_AUTH_ERROR);
+        if (!user || !user.password) throw unauthorized(GENERIC_AUTH_ERROR);
         if (!validPassword) {
             if (!user.isBanned) await this.recordFailedAttempt(user);
-            throw new Error(GENERIC_AUTH_ERROR);
+            throw unauthorized(GENERIC_AUTH_ERROR);
         }
 
         // A suspended account is only revealed once the caller has proved they
         // own it, so this cannot be used to probe for banned accounts.
-        if (user.isBanned) throw new Error("Account suspended. Contact support.");
+        if (user.isBanned) throw badRequest("Account suspended. Contact support.");
 
         // Lockout check happens after the password check so a locked account
         // is not distinguishable from a wrong password.
         if (user.lockedUntil && user.lockedUntil > new Date()) {
-            throw new Error("Account temporarily locked due to too many failed attempts. Try again later.");
+            throw badRequest("Account temporarily locked due to too many failed attempts. Try again later.");
         }
 
         if (user.failedAttempts > 0 || user.lockedUntil) {
@@ -180,24 +181,51 @@ export class AuthService {
         return { user: toSafeUser(user), requiresTwoFactor: false as const, ...tokens };
     }
 
-    private static async recordFailedAttempt(user: { id: number; failedAttempts: number }) {
-        const attempts = user.failedAttempts + 1;
+    private static async recordFailedAttempt(user: { id: number }) {
+        // `{ increment: 1 }` in SQL, not `user.failedAttempts + 1` in JavaScript.
+        //
+        // The read-modify-write version had two failure modes and they compound.
+        // Five concurrent wrong passwords all read `failedAttempts: 0` and all
+        // wrote 1, so the counter never reached the threshold and the lockout
+        // never fired under parallel load - unlimited guesses in batches of five.
+        //
+        // And `lockedUntil` was written unconditionally once the threshold was
+        // reached, so every further failed attempt pushed the expiry fifteen
+        // minutes further out. An attacker who kept hammering never let the lock
+        // expire, which permanently denies a named patient the ability to sign in
+        // or reset their password. On a mental-health product that is a
+        // denial-of-care tool aimed at a specific person.
+        //
+        // The stamp is now applied only when no lock is currently in force, so the
+        // window is a fixed fifteen minutes from the fifth failure rather than
+        // fifteen minutes from the last attempt.
         await prisma.user
             .update({
                 where: { id: user.id },
                 data: {
-                    failedAttempts: attempts,
-                    lockedUntil: attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MS) : null,
+                    failedAttempts: { increment: 1 },
+                    ...(await this.stampLockIfUnlocked(user.id)),
                 },
             })
             .catch(() => {});
     }
 
+    /** The lock deadline, only when the account is not already locked. */
+    private static async stampLockIfUnlocked(userId: number) {
+        const current = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { failedAttempts: true, lockedUntil: true },
+        });
+        const alreadyLocked = current?.lockedUntil && current.lockedUntil > new Date();
+        if (alreadyLocked) return {};
+        if ((current?.failedAttempts ?? 0) + 1 < MAX_FAILED_ATTEMPTS) return { lockedUntil: null as Date | null };
+        return { lockedUntil: new Date(Date.now() + LOCKOUT_MS) };
+    }
 
     // Google Auth Logic: Verify token, find/create user
     static async googleLogin(token: string) {
         if (!env.googleClientId) {
-            throw new Error("Google sign-in is not configured on the server");
+            throw badRequest("Google sign-in is not configured on the server");
         }
 
         const ticket = await googleClient.verifyIdToken({
@@ -205,14 +233,14 @@ export class AuthService {
             audience: env.googleClientId,
         });
         const payload = ticket.getPayload();
-        if (!payload || !payload.email) throw new Error("Invalid Google Token");
+        if (!payload || !payload.email) throw badRequest("Invalid Google Token");
         // Never trust unverified emails — linking an account by email without
         // verification enables pre-account takeover.
-        if (!payload.email_verified) throw new Error("Google account email is not verified");
+        if (!payload.email_verified) throw badRequest("Google account email is not verified");
 
         let user = await prisma.user.findUnique({ where: { email: payload.email } });
 
-        if (user?.isBanned) throw new Error("Account suspended. Contact support.");
+        if (user?.isBanned) throw badRequest("Account suspended. Contact support.");
 
         if (!user) {
             // Create new user if not exists (Google-verified emails are auto-verified)
@@ -311,7 +339,7 @@ export class AuthService {
         try {
             decoded = verifyToken<{ userId: number; amr?: AuthMethod[] }>(token, "refresh");
         } catch {
-            throw new Error("Invalid Refresh Token");
+            throw badRequest("Invalid Refresh Token");
         }
 
         const storedToken = await prisma.refreshToken.findUnique({
@@ -330,19 +358,19 @@ export class AuthService {
                 actorId: decoded.userId,
                 meta: { reason: "unknown_token", revoked: revoked.count },
             }).catch(() => {});
-            throw new Error("Invalid Refresh Token");
+            throw badRequest("Invalid Refresh Token");
         }
 
         if (storedToken.expiresAt < new Date()) {
             await prisma.refreshToken.delete({ where: { id: storedToken.id } }).catch(() => null);
-            throw new Error("Refresh Token Expired");
+            throw badRequest("Refresh Token Expired");
         }
 
         // Rotate: delete old, create new
         await prisma.refreshToken.delete({ where: { id: storedToken.id } });
 
         const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-        if (!user || user.isBanned) throw new Error("User not found");
+        if (!user || user.isBanned) throw notFound("User not found");
 
         // A refresh never *newly* satisfies a second factor — it only carries
         // forward the assurance the original session already had. A token
@@ -350,7 +378,7 @@ export class AuthService {
         // verified session by rotating.
         const amr: AuthMethod[] = decoded.amr ?? ["pwd"];
         if (user.totpEnabled && !amr.includes("otp")) {
-            throw new Error("Two-factor verification required");
+            throw badRequest("Two-factor verification required");
         }
 
         const newTokens = generateTokens(user, { amr });

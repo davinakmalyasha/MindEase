@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
+import { dayKey } from "../src/lib/date";
 
 const prisma = new PrismaClient();
 
@@ -86,7 +87,13 @@ async function main() {
                 bio: BIOS[i],
                 experience: 3 + (i % 12),
                 price: 150000 + i * 75000,
-                rating: Math.round((4.2 + (i % 8) * 0.1) * 10) / 10,
+                // `rating` and `totalReviews` are deliberately left at their
+                // defaults. This seed previously invented a 4.2–4.9 rating for
+                // every clinician with zero reviews, which is exactly the
+                // fabricated-5.0 policy that `ReviewService.recalcDoctorRating`
+                // and the `Doctor.rating` column comment exist to prevent — and
+                // it made the "Top Rated" sort rank the most-liked-looking
+                // profiles first. Demo data should not model the bug.
                 availability: i % 3 === 0 ? "Busy" : "Available",
                 verificationStatus: "approved",
                 licenseNumber: `STR-DEMO-${100000 + i}`,
@@ -121,6 +128,11 @@ async function main() {
     // Seed mood history for the demo patient
     const moodCount = await prisma.moodEntry.count({ where: { userId: patient.id } });
     if (moodCount === 0) {
+        // `moodDate` is NOT NULL and carries a unique (userId, moodDate) key, so
+        // every insert must supply the calendar day in the *user's* timezone.
+        // Omitting it made `npm run db:seed` — step 2 of the documented quick
+        // start — throw, and the fourteen days of demo history with it.
+        const timezone = patient.timezone || "Asia/Jakarta";
         for (let i = 13; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
@@ -131,10 +143,97 @@ async function main() {
                     mood: 2 + ((i * 7) % 4),
                     notes: ["Feeling productive today.", "A bit anxious about work.", "Enjoyed time with family.", ""][i % 4],
                     createdAt: date,
+                    moodDate: dayKey(date, timezone),
+                    factors: JSON.stringify([["sleep", "exercise", "social", "work", "stress"][i % 5]]),
                 },
             });
         }
         console.log("Seeded 14 days of mood history for", patient.email);
+    }
+
+    // A risk queue with nothing in it is a screenshot of an empty table, and it
+    // is the wrong first impression of the screen this repository is built
+    // around. The README's central claim is that a disclosure reaches a named
+    // clinician; a fresh clone could not demonstrate that, because `make up`
+    // seeded accounts, mood entries and availability but never a single
+    // RiskAlert. The queue was therefore always empty on arrival.
+    //
+    // Four alerts, chosen so the queue demonstrates the distinctions the
+    // implementation makes rather than just filling space:
+    //
+    //   - urgent, unseen, from the SOS button. Nothing has touched it.
+    //   - elevated, acknowledged 3 days ago and still unresolved. This is the
+    //     case the schema's two-timestamp split exists for: seen on Monday,
+    //     still owed an outcome on Friday.
+    //   - elevated, unseen, from a PHQ-9 item 9 response.
+    //   - urgent, resolved with a note. Present so "show resolved" has
+    //     something to show, and so the audit trail is visible.
+    //
+    // All four are assigned to dr1 so a demo clinician sees a full queue rather
+    // than an empty one.
+    const riskCount = await prisma.riskAlert.count();
+    if (riskCount === 0) {
+        const dr1 = await prisma.user.findUnique({ where: { email: "dr1@mindease.app" } });
+        if (dr1) {
+            const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
+            await prisma.riskAlert.createMany({
+                data: [
+                    {
+                        userId: patient.id,
+                        level: "urgent",
+                        reason:
+                            "Patient pressed the SOS button and wrote: I don't want to be here anymore. No clinician had responded at the time it was sent.",
+                        sourceType: "sos",
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        createdAt: daysAgo(0),
+                    },
+                    {
+                        userId: patient.id,
+                        level: "elevated",
+                        reason:
+                            "Answered yes to PHQ-9 item 9 (thoughts of being better off dead or of hurting themselves) on the intake screening.",
+                        sourceType: "phq9",
+                        // Acknowledged three days ago and deliberately left
+                        // unresolved: the queue's whole argument is that
+                        // "seen" and "dealt with" are different acts.
+                        acknowledgedAt: daysAgo(3),
+                        acknowledgedById: dr1.id,
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        createdAt: daysAgo(4),
+                    },
+                    {
+                        userId: patient.id,
+                        level: "elevated",
+                        reason:
+                            "Message contained crisis phrasing: \"I have been thinking about disappearing and nobody would notice.\"",
+                        sourceType: "message",
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        createdAt: daysAgo(1),
+                    },
+                    {
+                        userId: patient.id,
+                        level: "urgent",
+                        reason: "Six consecutive days of low mood entries triggered the decline rule.",
+                        sourceType: "mood",
+                        notifiedDoctorUserId: dr1.id,
+                        assignedDoctorUserId: dr1.id,
+                        acknowledgedAt: daysAgo(6),
+                        acknowledgedById: dr1.id,
+                        resolvedAt: daysAgo(5),
+                        resolvedById: dr1.id,
+                        resolutionNote:
+                            "Called and spoke with them for 25 minutes. Agreed a safety plan and a check-in on Thursday. Crisis line numbers given as well.",
+                        createdAt: daysAgo(7),
+                    },
+                ],
+            });
+
+            console.log("Seeded 4 risk alerts for dr1@mindease.app (3 open, 1 resolved)");
+        }
     }
 
     console.log("\nSeed complete.");

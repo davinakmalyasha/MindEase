@@ -1,29 +1,41 @@
 {
   "name": "server",
-  "version": "1.0.0",
+  "version": "0.3.0",
+  "private": true,
   "main": "src/index.ts",
+  "engines": {
+    "node": ">=22 <27"
+  },
   "scripts": {
     "dev": "nodemon src/index.ts",
     "start": "ts-node src/index.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
     "db:push": "prisma db push",
     "db:seed": "ts-node scripts/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:db": "cross-env DATABASE_URL=mysql://root:@localhost:3306/mindease_test prisma db push --skip-generate"
+    "test:db": "cross-env DATABASE_URL=mysql://root:@localhost:3306/mindease_test prisma db push --skip-generate",
+    "coverage": "vitest run --coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mental-health",
+    "telehealth",
+    "express",
+    "prisma",
+    "mysql",
+    "typescript"
+  ],
+  "author": "Davin Akmal Yasha",
+  "license": "MIT",
   "type": "commonjs",
-  "description": "",
+  "description": "MindEase API - Express, Prisma and MySQL backend for a mental-health telehealth platform.",
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@aws-sdk/client-s3": "^3.1107.0",
     "@google/generative-ai": "^0.24.1",
-    "@prisma/client": "^6.2.1",
+    "@prisma/client": "6.12.0",
     "@sentry/node": "^10.70.0",
-    "@types/multer": "^2.0.0",
     "argon2": "^0.44.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -36,7 +48,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.16.2",
     "node-cron": "^4.6.0",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.13",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "qrcode": "^1.5.4",
@@ -48,12 +60,14 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
-    "@types/node": "^25.2.2",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.18.0",
     "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
     "@types/sanitize-html": "^2.16.1",
@@ -61,12 +75,27 @@
     "@types/supertest": "^7.2.1",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/web-push": "^3.6.4",
+    "@vitest/coverage-v8": "^4.1.11",
     "cross-env": "^10.1.0",
+    "eslint": "^9.39.5",
     "nodemon": "^3.1.11",
-    "prisma": "^6.2.1",
+    "prisma": "6.12.0",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.0",
     "vitest": "^4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davinakmalyasha/MindEase.git",
+    "directory": "server"
+  },
+  "bugs": {
+    "url": "https://github.com/davinakmalyasha/MindEase/issues"
+  },
+  "allowScripts": {
+    "@prisma/client@6.12.0": true,
+    "argon2@0.44.0": true
   }
 }

@@ -118,8 +118,26 @@ interface RetriableRequest extends InternalAxiosRequestConfig {
     _generation?: number;
 }
 
-/** Endpoints that must never trigger a refresh-and-replay cycle. */
-const NO_RETRY_PATHS = ["/auth/refresh", "/auth/login", "/auth/register", "/auth/google", "/account/2fa/verify"];
+/**
+ * Endpoints that must never trigger a refresh-and-replay cycle.
+ *
+ * The auth endpoints answer 401 for a wrong password or code, and replaying
+ * those would bounce the user to the login screen mid-form instead of showing
+ * the actual error. `/realtime/ticket` is here for a different reason: a ticket
+ * is single-use and valid for 30 seconds, so a replayed copy is worthless.
+ */
+const NO_RETRY_PATHS = [
+    "/auth/refresh",
+    "/auth/login",
+    "/auth/register",
+    "/auth/google",
+    "/account/2fa/verify",
+    "/account/forgot-password",
+    "/account/reset-password",
+    "/account/verify-email",
+    "/account/resend-verification",
+    "/realtime/ticket",
+];
 
 const isRetriable = (config: RetriableRequest | undefined): boolean => {
     if (!config) return false;
@@ -162,7 +180,11 @@ api.interceptors.response.use(
             }
         }
 
-        if (status === 401 && isRetriable(originalRequest)) {
+        // `originalRequest` is absent for network-level failures (no response
+        // either), so the guard is checked explicitly rather than relied on to
+        // narrow inside `isRetriable`. Replaying a request with no config
+        // cannot work, and a 401 always has one.
+        if (status === 401 && originalRequest && isRetriable(originalRequest)) {
             originalRequest._retried = true;
 
             try {
@@ -195,6 +217,26 @@ export const getErrorMessage = (error: unknown, fallback = "Something went wrong
     }
     if (error instanceof Error && error.message) return error.message;
     return fallback;
+};
+
+/**
+ * Obtains a short-lived ticket the WebSocket service will accept.
+ *
+ * A WebSocket handshake cannot carry an `Authorization` header, and the
+ * `accessToken` cookie is host-only for the API origin, so a browser has no way
+ * to present its session to the realtime service on a deployed setup. The API
+ * issues a ticket that is valid for 30 seconds and can do exactly one thing:
+ * open a socket. Going through the shared axios instance means the CSRF token
+ * and a single-flight access-token refresh are handled for free.
+ */
+export const fetchRealtimeTicket = async (): Promise<string | null> => {
+    try {
+        const res = await api.post("/realtime/ticket");
+        const ticket = res.data?.data?.ticket;
+        return typeof ticket === "string" ? ticket : null;
+    } catch {
+        return null;
+    }
 };
 
 export default api;

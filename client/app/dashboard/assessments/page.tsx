@@ -4,14 +4,15 @@ import { Suspense, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { ClipboardCheck, ShieldAlert, ChevronLeft, ChevronRight, CheckCircle2, Printer } from "lucide-react";
+import { ClipboardCheck, ShieldAlert, ChevronLeft, ChevronRight, CheckCircle2, Printer, TrendingUp } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Spinner from "@/components/ui/Spinner";
 import AIDisclaimer from "@/components/ui/AIDisclaimer";
+import TrajectoryChart from "@/components/assessments/TrajectoryChart";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { ASSESSMENTS, OPTION_LABELS, severityLabel } from "@/lib/data/assessments";
-import { useAssessments, useSubmitAssessment } from "@/hooks/queries/useMoodQuery";
+import { useAssessments, useSubmitAssessment, useAssessmentTrajectory, type SubmittedAssessment } from "@/hooks/queries/useMoodQuery";
 
 const SEVERITY_STYLES: Record<string, string> = {
     minimal: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -90,9 +91,10 @@ function AssessmentsContent() {
     const [activeType, setActiveType] = useState<"phq9" | "gad7">("phq9");
     const [step, setStep] = useState(0);
     const [answers, setAnswers] = useState<number[]>([]);
-    const [result, setResult] = useState<any>(null);
+    const [result, setResult] = useState<SubmittedAssessment | null>(null);
 
     const { data: history = [], isLoading } = useAssessments(activeType, 10);
+const { data: trajectory } = useAssessmentTrajectory(activeType);
     const submit = useSubmitAssessment();
 
     if (searchParams.get("print") === "1") {
@@ -178,27 +180,96 @@ function AssessmentsContent() {
                         </div>
                     </div>
 
-                    {result ? (
-                        <div className="text-center py-10">
-                            <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
-                            <h3 className="text-2xl font-black text-gray-900 mb-1">{result.score} / {meta.maxScore}</h3>
-                            <span className={cn("inline-block px-4 py-1.5 rounded-full text-sm font-bold border", SEVERITY_STYLES[result.severity])}>
-                                {severityLabel(activeType, result.severity)}
-                            </span>
-                            <p className="text-sm text-gray-500 mt-4 max-w-md mx-auto">
-                                {result.severity === "severe" || result.severity === "moderately-severe"
-                                    ? t("severeHint")
-                                    : t("savedHint")}
-                            </p>
-                            <button onClick={startOver} className="mt-6 px-6 py-2.5 rounded-xl bg-teal-500 text-white text-sm font-bold hover:bg-teal-600 transition-all">
-                                {t("takeAgain")}
-                            </button>
+{result ? (
+                        <div className="py-10">
+                            {/* A disclosure outranks the score.
+                                PHQ-9 item 9 answered above "not at all" pages a
+                                clinician and returns crisis hotlines in this very
+                                response. The screen used to render a green tick and
+                                "your result has been saved" without reading
+                                `result.risk` at all, so a patient who had just told
+                                the questionnaire they think about dying was shown a
+                                reassuring screen and no hotline.
+                                role="alert" because it appears without a navigation
+                                and is the most important thing on the page. */}
+                            {result.risk?.riskFlag && (
+                                <div
+                                    role="alert"
+                                    className="max-w-2xl mx-auto mb-8 rounded-3xl border-2 border-rose-300 bg-rose-50 p-6 text-left"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <ShieldAlert className="w-7 h-7 text-rose-600 shrink-0 mt-0.5" aria-hidden="true" />
+                                        <div className="min-w-0">
+                                            <h3 className="text-lg font-black text-rose-900">
+                                                {t("disclosureTitle")}
+                                            </h3>
+                                            <p className="text-sm text-rose-800 mt-2 leading-relaxed">
+                                                {t("disclosureBody")}
+                                            </p>
+
+                                            <p className="text-sm font-bold text-rose-900 mt-4">
+                                                {t("disclosureStatus")}
+                                            </p>
+                                            <ul className="text-sm text-rose-800 mt-1 space-y-1">
+                                                <li>
+                                                    {result.risk.clinicianNotified
+                                                        ? t("disclosureClinicianNotified")
+                                                        : t("disclosureClinicianNotReached")}
+                                                </li>
+                                                <li>
+                                                    {result.risk.recorded
+                                                        ? t("disclosureRecorded")
+                                                        : t("disclosureNotRecorded")}
+                                                </li>
+                                            </ul>
+
+                                            <p className="text-sm font-bold text-rose-900 mt-4">
+                                                {t("hotlinesTitle")}
+                                            </p>
+                                            <ul className="mt-1 space-y-1">
+                                                {result.risk.hotlines.map((h) => (
+                                                    <li key={h.dial} className="text-sm text-rose-800">
+                                                        <a
+                                                            href={h.whatsapp ? `https://wa.me/${h.dial.replace(/\D/g, "")}` : `tel:${h.dial}`}
+                                                            className="font-bold underline underline-offset-2"
+                                                        >
+                                                            {h.name}
+                                                        </a>{" "}
+                                                        &mdash; {h.contact}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="text-center">
+                                {/* Not a green tick when the answer included a
+                                    disclosure. The icon used to say "done" to
+                                    somebody who had just been escalated. */}
+                                {result.risk?.riskFlag ? (
+                                    <ShieldAlert className="w-14 h-14 text-amber-600 mx-auto mb-4" aria-hidden="true" />
+                                ) : (
+                                    <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" aria-hidden="true" />
+                                )}
+                                <h3 className="text-2xl font-black text-gray-900 mb-1">{result.score} / {meta.maxScore}</h3>
+                                <span className={cn("inline-block px-4 py-1.5 rounded-full text-sm font-bold border", SEVERITY_STYLES[result.severity])}>
+                                    {severityLabel(activeType, result.severity)}
+                                </span>
+                                <p className="text-sm text-gray-500 mt-4 max-w-md mx-auto">
+                                    {result.severity === "severe" || result.severity === "moderately-severe"
+                                        ? t("severeHint")
+                                        : t("savedHint")}
+                                </p>
+                                <button onClick={startOver} className="mt-6 px-6 py-2.5 rounded-xl bg-teal-500 text-white text-sm font-bold hover:bg-teal-600 transition-all">
+                                    {t("takeAgain")}
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>
-                            <p className="text-xs text-gray-400 mb-6">
-                                <strong>Over the last two weeks</strong>, how often have you been bothered by the following?
-                            </p>
+                            <p className="text-sm text-gray-500 text-center mb-6">{t("questionHint")}</p>
                             <div className="space-y-5">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-bold text-gray-500">Question {step + 1} of {meta.questions.length}</p>
@@ -255,6 +326,65 @@ function AssessmentsContent() {
 
                 {/* History */}
                 <div className="lg:col-span-2 space-y-4">
+                    {/* Trajectory. The history list below shows every sitting;
+                        this shows whether the line is going anywhere, which is the
+                        question the list cannot answer. */}
+                    {trajectory && trajectory.points.length > 0 && (
+                        <div className="bg-white rounded-3xl border border-gray-100 p-6">
+                            <h3 className="font-extrabold text-gray-900 mb-1 flex items-center gap-2">
+                                <TrendingUp className="w-4 h-4 text-indigo-500" /> {t("trajectoryTitle")}
+                            </h3>
+                            <p className="text-xs text-gray-500 mb-4">{t("trajectoryHint")}</p>
+                            <TrajectoryChart
+                                points={trajectory.points}
+                                instrument={trajectory.instrument}
+                                label={`${meta.name} (0-${trajectory.instrument.max})`}
+                            />
+                            <div className="mt-4 flex flex-wrap items-center gap-4 text-xs">
+                                <span className="font-bold text-gray-500">
+                                    {t("sittings")}: {trajectory.summary.sittings}
+                                </span>
+                                {trajectory.summary.latest !== null && (
+                                    <span className="font-bold text-gray-500">
+                                        {t("latestScore")}: {trajectory.summary.latest}
+                                    </span>
+                                )}
+                                {trajectory.summary.totalChange !== null && (
+                                    <span className="font-bold text-gray-500">
+                                        {t("change")}:{" "}
+                                        <span
+                                            className={cn(
+                                                trajectory.summary.totalChange < 0
+                                                    ? "text-emerald-600"
+                                                    : trajectory.summary.totalChange > 0
+                                                      ? "text-rose-600"
+                                                      : "text-gray-500"
+                                            )}
+                                        >
+                                            {trajectory.summary.totalChange > 0 ? "+" : ""}
+                                            {trajectory.summary.totalChange}
+                                        </span>
+                                    </span>
+                                )}
+                                <span
+                                    className={cn(
+                                        "rounded-full px-2.5 py-1 font-bold",
+                                        trajectory.summary.direction === "improving"
+                                            ? "bg-emerald-50 text-emerald-700"
+                                            : trajectory.summary.direction === "worsening"
+                                              ? "bg-rose-50 text-rose-700"
+                                              : "bg-gray-100 text-gray-600"
+                                    )}
+                                >
+                                    {t(`direction_${trajectory.summary.direction.replace("-", "_")}`)}
+                                </span>
+                            </div>
+                            <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
+                                {t("trajectoryDisclaimer")}
+                            </p>
+                        </div>
+                    )}
+
                     <div className="bg-white rounded-3xl border border-gray-100 p-6">
                         <h3 className="font-extrabold text-gray-900 mb-4 flex items-center gap-2">
                             <ShieldAlert className="w-4 h-4 text-amber-500" /> {meta.name} {t("history")}

@@ -1,0 +1,349 @@
+name: CD
+
+# Deploys on merge to main, behind a required approval.
+#
+# AGENTS.md forbids mutating production without explicit approval, so the
+# production job runs in a `production` environment with required reviewers. The
+# workflow can be dispatched for real, but nothing reaches production until a
+# human accepts the deploy job. Create that environment with required reviewers
+# in repo settings; until you do, GitHub allows the deploy with no prompt, so
+# this is the one piece of setup that matters.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_web:
+        description: "Deploy the API only (web app unchanged)"
+        type: boolean
+        default: false
+
+concurrency:
+  # One deploy at a time. Two concurrent production deploys race on
+  # `prisma migrate deploy`, and a partially-applied migration is worse than a
+  # queued one.
+  group: production-deploy
+  cancel-in-progress: false
+
+# Least privilege, stated once. `deploy_api` and `deploy_web` are the only jobs
+# that need more, and they narrow to exactly what they use at the job level.
+# Everything else runs third-party actions against a read-only token.
+permissions:
+  contents: read
+
+jobs:
+  # Fails fast on missing configuration, before anything has been built. A
+  # half-configured deploy that fails at the last step is the expensive kind.
+  preflight:
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      api_service: ${{ steps.check.outputs.api }}
+      realtime_service: ${{ steps.check.outputs.realtime }}
+    steps:
+      - name: Check required secrets and variables are present
+        id: check
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          API_SERVICE: ${{ vars.RAILWAY_API_SERVICE }}
+          REALTIME_SERVICE: ${{ vars.RAILWAY_REALTIME_SERVICE }}
+          # The URLs are read by later steps, so they are checked here. They were
+          # not, which meant a missing PRODUCTION_API_URL passed preflight, built
+          # and deployed the API, and then failed at "wait for the API health
+          # endpoint" with curl pointed at an empty string. The stated purpose of
+          # this job is "fails fast on missing configuration, before anything has
+          # been built", and it was not doing that for three of the six values its
+          # own steps consume.
+          PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+          PRODUCTION_REALTIME_URL: ${{ vars.PRODUCTION_REALTIME_URL }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_REALTIME_URL: ${{ vars.NEXT_PUBLIC_REALTIME_URL }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+        run: |
+          missing=0
+          for v in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!v}" ]; then
+              echo "::error::secret $v is not set"
+              missing=1
+            fi
+          done
+          # An empty Google client id is survivable - the sign-in page hides the
+          # button behind `GOOGLE_CLIENT_ID &&` - so it is a warning. The URLs
+          # are not: they are inlined into the bundle at build time and the only
+          # fallback is `localhost`.
+          #
+          # It was in the loop above anyway, which meant the comment described a
+          # behaviour the job did not have. A comment that promises a warning and
+          # a job that blocks the deploy are both defensible; having them disagree
+          # is the problem, because the next reader trusts the comment.
+          for v in API_SERVICE REALTIME_SERVICE \
+                   PRODUCTION_API_URL PRODUCTION_REALTIME_URL \
+                   NEXT_PUBLIC_API_URL NEXT_PUBLIC_REALTIME_URL \
+                   NEXT_PUBLIC_SITE_URL; do
+            if [ -z "${!v}" ]; then
+              echo "::error::repository variable $v is not set"
+              missing=1
+            fi
+          done
+          if [ -z "${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}" ]; then
+            echo "::warning::NEXT_PUBLIC_GOOGLE_CLIENT_ID is unset; Google sign-in will be hidden"
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+          echo "api=$API_SERVICE" >> "$GITHUB_OUTPUT"
+          echo "realtime=$REALTIME_SERVICE" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------
+  # Migrations
+  #
+  # Deliberately not a separate step that runs `prisma migrate deploy` from
+  # this workflow. `server/scripts/start.sh` - the API image's entrypoint -
+  # already runs `prisma migrate deploy` before starting, so deploying the API
+  # *is* applying the migrations, using the same command in CI and in
+  # production.
+  #
+  # A second migration path is a second thing to get wrong. `db push` is never
+  # used against production; it does not record applied migrations and would
+  # leave the database silently diverged from the datamodel.
+  # ---------------------------------------------------------------------
+
+  deploy_api:
+    permissions:
+      contents: read
+      deployments: write
+    timeout-minutes: 40
+    name: Deploy API + realtime (Railway)
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+
+      # Deployed before the realtime service, not after: the API boots by
+      # running the migrations, and the realtime service is useless until the
+      # database has the tables it expects.
+      - name: Deploy API
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE: ${{ needs.preflight.outputs.api_service }}
+        run: |
+          railway up --service "$SERVICE" --detach
+          railway service logs --service "$SERVICE" --deployment "$(
+            railway status --json --service "$SERVICE" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["deployments"][0]["id"])'
+          )" || true
+
+      - name: Wait for the API health endpoint
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+        run: |
+          # The image runs migrations before binding, so the first successful
+          # response also confirms the migration succeeded.
+          for i in $(seq 1 30); do
+            if curl -fsS "$API_URL/api/health" > /dev/null 2>&1; then
+              echo "API is up after ${i} attempts"
+              curl -fsS "$API_URL/api/health/db"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::API did not become healthy within 5 minutes"
+          exit 1
+
+      - name: Deploy realtime
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE: ${{ needs.preflight.outputs.realtime_service }}
+        run: railway up --service "$SERVICE" --detach
+
+      - name: Wait for realtime to report Redis reachable
+        env:
+          RT_URL: ${{ vars.PRODUCTION_REALTIME_URL }}
+        run: |
+          # `/health` returns 503 when Redis is unreachable, which is the failure
+          # that used to be invisible: the service stayed up, health stayed
+          # green, and every browser sat in a reconnect loop.
+          for i in $(seq 1 20); do
+            if curl -fsS "$RT_URL/health" > /dev/null 2>&1; then
+              curl -fsS "$RT_URL/health"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Realtime did not report healthy within 3 minutes"
+          exit 1
+
+  deploy_web:
+    permissions:
+      contents: read
+      deployments: write
+    timeout-minutes: 30
+    name: Deploy web (Vercel)
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: production
+    if: ${{ github.event_name == 'push' && !inputs.skip_web }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: client
+        run: npm ci
+
+      # Built before deploying. A production build that fails should fail here,
+      # where nothing has been touched, rather than inside the Vercel build
+      # where the failure is a red badge and the previous deployment is already
+      # gone.
+      - name: Verify the production build
+        working-directory: client
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_REALTIME_URL: ${{ vars.NEXT_PUBLIC_REALTIME_URL }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+        run: npm run build
+
+      # `vercel build` then `vercel deploy --prebuilt`, so the artefact uploaded is
+      # the one built in this job rather than a second build happening on Vercel's
+      # infrastructure where it cannot be inspected afterwards.
+      #
+      # The NEXT_PUBLIC_* block is passed here as well as to the check above, and
+      # that is the fix rather than a duplication. Those variables are inlined into
+      # the browser bundle at build time, so a build without them produces an app
+      # whose API client points at `http://localhost:5000/api`. The previous
+      # version injected them only into the *check* build, so the check verified a
+      # bundle that was never uploaded - and because the fallback still loads, the
+      # post-deploy web probe returned 200 for an app talking to nothing. The
+      # comment above used to claim the opposite of what happened.
+      - name: Build for Vercel
+        working-directory: client
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_REALTIME_URL: ${{ vars.NEXT_PUBLIC_REALTIME_URL }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+        run: npx vercel pull --yes --environment=production && npx vercel build --prod
+
+      # Cheap, and it would have caught the above on its first run: assert the
+      # inlined values are actually present in the artefact rather than absent and
+      # silently defaulted.
+      - name: Assert the build-time URLs were inlined, not defaulted
+        working-directory: client
+        env:
+          EXPECT_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          EXPECT_REALTIME_URL: ${{ vars.NEXT_PUBLIC_REALTIME_URL }}
+        run: |
+          set -euo pipefail
+          fail=0
+          check() {
+            local label="$1" expected="$2"
+            if [ -z "$expected" ]; then
+              echo "::error::$label is not configured as a repository variable"
+              fail=1
+              return
+            fi
+            if ! grep -rqlF "$expected" .vercel/output/static 2>/dev/null; then
+              echo "::error::$label ('$expected') is not in the built bundle."
+              echo "Next.js inlines NEXT_PUBLIC_* at build time, so this bundle calls the wrong API."
+              fail=1
+            else
+              echo "$label inlined: $expected"
+            fi
+          }
+          check "NEXT_PUBLIC_API_URL" "$EXPECT_API_URL"
+          check "NEXT_PUBLIC_REALTIME_URL" "$EXPECT_REALTIME_URL"
+          exit "$fail"
+
+      - name: Deploy
+        working-directory: client
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npx vercel deploy --prebuilt --prod
+
+  verify:
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    name: Post-deploy verification
+    needs: [deploy_api, deploy_web]
+    runs-on: ubuntu-latest
+    environment: production
+    # Runs on failure as well as on success, which is the whole point of verifying
+    # after a read-back rather than trusting the deploy output.
+    #
+    # The previous condition was `always() && needs.deploy_api.result == 'success'`,
+    # which excluded the one case where a read-back is most valuable: the API came
+    # up unhealthy. The job whose stated purpose is "the whole point of verifying
+    # after a read-back" did not run when the deploy was in trouble.
+    if: always() && !cancelled()
+    steps:
+      - name: Read back the deployment health
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+          RT_URL: ${{ vars.PRODUCTION_REALTIME_URL }}
+          WEB_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+        run: |
+          # Each probe records its own status and sets `fail`, rather than
+          # `|| echo "FAILED"`.
+          #
+          # The previous version piped the whole block into `tee`, and every probe
+          # ended in `|| echo "FAILED"`. That means curl never failed the script
+          # and `tee` exits 0 unconditionally - so this step reported green while
+          # printing four FAILED lines into the step summary. It is the step
+          # AGENTS.md requires after every deployment, and it could not fail.
+          fail=0
+          probe() {
+            local name="$1" url="$2" code
+            if [ -z "$url" ]; then
+              echo "### $name -> NOT CONFIGURED"
+              fail=1
+              return
+            fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" 2>/dev/null || echo 000)
+            echo "### $name -> $code"
+            case "$code" in
+              2*|3*) ;;
+              *) fail=1 ;;
+            esac
+          }
+
+          probe "API"            "$API_URL/api/health"
+          probe "API (database)" "$API_URL/api/health/db"
+          probe "Realtime"       "$RT_URL/health"
+          probe "Web"            "$WEB_URL/"
+
+          echo ""
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::post-deploy verification failed - at least one endpoint did not answer 2xx/3xx"
+            echo "Rollback is manual; see docs/operations.md."
+          fi
+
+          {
+            echo ""
+            echo "Result: $([ "$fail" -eq 0 ] && echo 'all endpoints healthy' || echo 'FAILED')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$fail"

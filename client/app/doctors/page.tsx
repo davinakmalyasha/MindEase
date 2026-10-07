@@ -7,36 +7,9 @@ import { Star, Sparkles, Loader2 } from "lucide-react";
 import FilterSidebar from "@/components/doctors/FilterSidebar";
 import DoctorGrid from "@/components/doctors/DoctorGrid";
 import Navbar from "@/components/layout/Navbar";
+import AiSourceBadge from "@/components/ui/AiSourceBadge";
 import api from "@/lib/api";
-
-interface ApiDoctor {
-    id: number;
-    specialty: string;
-    bio: string;
-    experience: number;
-    rating: number;
-    price: number;
-    availability: string;
-    verificationStatus?: string;
-    user: { name?: string; avatar?: string; phone_number?: string };
-    reviews?: any[];
-}
-
-const mapDoctor = (d: ApiDoctor): any => ({
-    id: d.id,
-    name: d.user?.name || "Doctor",
-    specialty: d.specialty,
-    avatar: d.user?.avatar || "",
-    image: d.user?.avatar || "",
-    rating: d.rating || 0,
-    reviewCount: (d as any)._count?.reviews || d.reviews?.length || 0,
-    experience: d.experience || 0,
-    isAvailable: d.availability === "Available",
-    isVerified: d.verificationStatus === "approved",
-    bio: d.bio || "",
-    price: d.price || 0,
-    availability: d.availability,
-});
+import { mapDoctor, type ApiDoctor } from "@/lib/mapDoctor";
 
 const PRICE_RANGES: Record<string, { min?: number; max?: number }> = {
     under100: { max: 100000 },
@@ -49,14 +22,19 @@ function DoctorsContent() {
     const [doctors, setDoctors] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState(false);
+    // Distinct from `loadError`: the first page failed, so there is nothing to
+    // show. A later page failed, so there is a list to show and it is short.
+    const [pageError, setPageError] = useState(false);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [aiQuery, setAiQuery] = useState("");
     const [aiMatches, setAiMatches] = useState<any[] | null>(null);
+    const [aiFailed, setAiFailed] = useState(false);
     const [aiLoading, setAiLoading] = useState(false);
     const [aiCriteria, setAiCriteria] = useState<string>("");
+    const [aiSource, setAiSource] = useState<"model" | "fallback" | undefined>(undefined);
 
     // Filters live in the URL and are applied SERVER-SIDE (search, specialty,
     // price preset, experience, availability, sort) so pagination is correct.
@@ -81,7 +59,17 @@ function DoctorsContent() {
         return params.toString();
     };
 
-    const loadPage = async (targetPage: number) => {
+    /**
+     * Loads one page.
+     *
+     * Returns whether it succeeded, because the caller advances a page counter
+     * and that counter must not move on a failure. `loadMore` used to do
+     * `await loadPage(page + 1); setPage((p) => p + 1)` regardless, so one failed
+     * request advanced the cursor past a page that was never received: the next
+     * click asked for page 3, and the specialists on page 2 became unreachable
+     * for the rest of the session. Silent, permanent, and not retryable.
+     */
+    const loadPage = async (targetPage: number): Promise<boolean> => {
         try {
             const res = await api.get(`/doctors?${buildQuery(targetPage)}`);
             const data = res.data?.data;
@@ -92,14 +80,18 @@ function DoctorsContent() {
             if (rows.length > 0) {
                 setDoctors((prev) => (targetPage === 1 ? rows.map(mapDoctor) : [...prev, ...rows.map(mapDoctor)]));
             }
-        } catch {
-            // keep previously loaded pages; pagination button simply stays
+            return true;
+        } catch (err) {
+            console.error("[doctors] page failed", err);
+            setPageError(true);
+            return false;
         }
     };
 
     const fetchDoctors = async () => {
         setIsLoading(true);
         setLoadError(false);
+        setPageError(false);
         try {
             const res = await api.get(`/doctors?${buildQuery(1)}`);
             const data = res.data?.data;
@@ -131,8 +123,11 @@ function DoctorsContent() {
     const loadMore = async () => {
         if (isLoadingMore || page >= totalPages) return;
         setIsLoadingMore(true);
-        await loadPage(page + 1);
-        setPage((p) => p + 1);
+        setPageError(false);
+        const next = page + 1;
+        // Advance only on success, so a failed page stays the next page to ask
+        // for rather than being skipped past.
+        if (await loadPage(next)) setPage(next);
         setIsLoadingMore(false);
     };
 
@@ -141,18 +136,25 @@ function DoctorsContent() {
         if (query.length < 3 || aiLoading) return;
         setAiLoading(true);
         setAiMatches(null);
+        setAiFailed(false);
         try {
             const res = await api.post("/ai/match-doctors", { query });
             const data = res.data?.data;
             setAiMatches(data?.doctors || []);
+            setAiSource(data?.ai?.source);
             const c = data?.criteria;
             setAiCriteria(
                 [c?.specialty ? `specialty: ${c.specialty}` : "", c?.maxPrice ? `max price: Rp ${c.maxPrice.toLocaleString("id-ID")}` : "", c?.minExperience ? `min ${c.minExperience} yrs` : ""]
                     .filter(Boolean)
                     .join(" · ")
             );
-        } catch {
-            setAiMatches([]);
+        } catch (err) {
+            // An empty array here would have said "No specialists matched your
+            // description" - a confident claim about the practice's roster,
+            // produced by a connection failure. Ask again instead.
+            console.error("[doctors] ai match failed", err);
+            setAiFailed(true);
+            setAiMatches(null);
         } finally {
             setAiLoading(false);
         }
@@ -223,12 +225,27 @@ function DoctorsContent() {
                             Match
                         </button>
                     </div>
+                    {aiFailed && (
+                        <div role="alert" className="mt-4 pt-4 border-t border-gray-100 text-center">
+                            <p className="text-sm text-rose-700 mb-3">
+                                The AI match did not come back. Nothing about the directory has changed.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={askAI}
+                                className="px-5 py-2 border border-rose-200 bg-white text-rose-700 rounded-2xl text-xs font-black hover:bg-rose-50 transition-all"
+                            >
+                                Ask again
+                            </button>
+                        </div>
+                    )}
                     {aiMatches && (
                         <div className="mt-4 pt-4 border-t border-gray-100">
                             <div className="flex items-center justify-between mb-3">
                                 <p className="text-sm font-black text-gray-900">AI recommended {aiMatches.length} specialist{aiMatches.length === 1 ? "" : "s"}</p>
-                                {aiCriteria && <p className="text-[11px] text-gray-400 font-medium">{aiCriteria}</p>}
+                                <AiSourceBadge source={aiSource} />
                             </div>
+                            {aiCriteria && <p className="text-[11px] text-gray-400 font-medium">{aiCriteria}</p>}
                             {aiMatches.length === 0 ? (
                                 <p className="text-sm text-gray-400 py-4 text-center">No specialists matched your description. Try browsing manually below.</p>
                             ) : (
@@ -269,7 +286,28 @@ function DoctorsContent() {
                         <FilterSidebar />
                         <div className="flex-1">
                             <DoctorGrid doctors={doctors} totalCount={total} />
-                            {page < totalPages && (
+                            {pageError ? (
+                                // The list is real and short. Saying "could not load the
+                                // directory" here would be as wrong as the original
+                                // silent skip, and hiding it entirely left the user
+                                // with no way to know results were missing.
+                                <div role="alert" className="mt-10 text-center border border-rose-200 bg-rose-50 rounded-3xl px-6 py-8">
+                                    <p className="text-sm font-bold text-rose-800 mb-1">
+                                        Could not load the next page
+                                    </p>
+                                    <p className="text-xs text-rose-700 mb-4">
+                                        The {doctors.length} specialists above are complete. The rest have not
+                                        arrived yet.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={loadMore}
+                                        className="px-6 py-2.5 bg-rose-600 text-white rounded-2xl text-sm font-black hover:bg-rose-700 transition-all"
+                                    >
+                                        Try again
+                                    </button>
+                                </div>
+                            ) : page < totalPages ? (
                                 <div className="mt-10 text-center">
                                     <button
                                         onClick={loadMore}
@@ -279,7 +317,7 @@ function DoctorsContent() {
                                         {isLoadingMore ? "Loading…" : "Load more doctors"}
                                     </button>
                                 </div>
-                            )}
+                            ) : null}
                         </div>
                     </div>
                 )}

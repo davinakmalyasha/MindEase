@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import createNextIntlPlugin from "next-intl/plugin";
+import { buildCsp } from "./lib/csp.mjs";
 
 /**
  * @typedef {import('next').NextConfig} NextConfig
@@ -75,12 +77,28 @@ const stampServiceWorker = () => {
   }
 };
 
+
 /** @type {NextConfig} */
 const nextConfig = {
   output: "standalone",
 
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Next 16 generates `client/AGENTS.md` and `client/CLAUDE.md` on `next dev`.
+  // Both are ignored in `.gitignore`, but ignoring them is the second line of
+  // defence: this repository already has a curated root `AGENTS.md` describing
+  // the deploy paths, the secret rules and the test gates, and an auto-generated
+  // file one directory down describing the same project in a different way is
+  // worse than no second file. An agent reading the nearest one gets the
+  // generated version.
+  agentRules: false,
+
+  // The development overlay badge ("N Issues") renders into the page, so it
+  // appears in every screenshot, in every Playwright trace, and in anything a
+  // reviewer opens the dev server to look at. Its error count is also not
+  // something a screenshot should be quietly asserting either way.
+  devIndicators: false,
 
   images: {
     // Avatars are rendered from dicebear as SVG. The sandbox below neutralises
@@ -117,26 +135,7 @@ const nextConfig = {
    * `unsafe-inline` in `script-src` would void the benefit of having one.
    */
   async headers() {
-    const isDev = !isProduction;
-    const csp = [
-      "default-src 'self'",
-      // Next injects a small inline bootstrap; the hash-less form is required
-      // in development where the payload differs on every edit.
-      isDev
-        ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
-        : "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' data: https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://api.dicebear.com https://*.up.railway.app wss:",
-      "frame-src https://meet.jit.si",
-      "media-src 'self' blob:",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "frame-ancestors 'none'",
-      "upgrade-insecure-requests",
-    ].join("; ");
+    const csp = buildCsp({ isProduction, env: process.env });
 
     return [
       {
@@ -177,4 +176,12 @@ const nextConfig = {
 
 stampServiceWorker();
 
-export default nextConfig;
+/**
+ * `createNextIntlPlugin` is what makes `getTranslations()` resolve on the
+ * server. Without it the client half of next-intl still works (the root layout
+ * imports `messages/*.json` directly), which is why the missing plugin was not
+ * obvious: every Server Component calling `getTranslations` threw instead.
+ */
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+
+export default withNextIntl(nextConfig);

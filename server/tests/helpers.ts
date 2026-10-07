@@ -2,6 +2,7 @@ import request from "supertest";
 import argon2 from "argon2";
 import { createApp } from "../src/app";
 import { prisma } from "../src/app";
+import { TwoFactorService } from "../src/services/twoFactor.service";
 
 export const app = createApp();
 
@@ -96,6 +97,35 @@ export const createAdmin = async () => {
 };
 
 export const withAuth = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+/**
+ * Pins the two-factor service's clock to the middle of the *current* 30-second
+ * TOTP step.
+ *
+ * A TOTP code is only a function of a time step, and the +/- 1 step tolerance
+ * is the only buffer between a client minting a code and the server checking
+ * it. These tests mint with `speakeasy.totp()` (real time) and then issue an
+ * HTTP request whose Argon2 work can, on a loaded machine, take longer than a
+ * whole step. When that happened `2fa/enable` returned 400, `totpEnabled` was
+ * never set, and the failure surfaced as an unrelated assertion about
+ * `TOTP_REQUIRED` further down.
+ *
+ * Pinning to the middle of the live step keeps every assertion inside the
+ * window a real authenticator satisfies, and removes the timing dependency
+ * without weakening what is actually tested: the tolerance, the replay guard
+ * and the session behaviour are all unchanged.
+ *
+ * Always pair with `unpinTwoFactorClock()`.
+ */
+export const pinTwoFactorClock = () => {
+    const now = Date.now();
+    TwoFactorService.__pinNow(now);
+    return now;
+};
+
+export const unpinTwoFactorClock = () => {
+    TwoFactorService.__pinNow(null);
+};
 
 /** Seeds a mood entry with the timezone-aware day key the schema now requires. */
 export const createMoodEntry = (

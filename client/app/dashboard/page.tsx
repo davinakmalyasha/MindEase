@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     Calendar,
@@ -20,43 +20,80 @@ import { motion } from "framer-motion";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Avatar from "@/components/ui/Avatar";
 import SOSButton from "@/components/ui/SOSButton";
+import { ErrorState, LoadingState } from "@/components/ui/DataState";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useTranslations } from "next-intl";
 
 export default function Dashboard() {
     const router = useRouter();
+    const t = useTranslations("dashboard");
+const tc = useTranslations("common");
     const { user } = useAuth();
     const [stats, setStats] = useState<any>(null);
 
-    useEffect(() => {
-        if (user?.role === "doctor") {
-            api.get("/doctors/stats").then((res) => setStats(res.data.data)).catch(() => {});
-        }
+    // Three states, not two.
+    //
+    // `stats === null` means "not arrived yet". It used to also mean "the
+    // request failed", because the failure was swallowed with `.catch(() => {})`
+    // and the guard below was `stats && (...)`. So a doctor's practice
+    // statistics that failed to load produced exactly the page a first-time
+    // visitor sees - no spinner to end, no message, and no way to tell that the
+    // numbers are missing rather than zero.
+    //
+    // `load` is a function rather than an effect body so the retry button has
+    // something real to call.
+    const [statsFailed, setStatsFailed] = useState(false);
+    const [loadingStats, setLoadingStats] = useState(false);
+
+    const load = useCallback(() => {
+        if (user?.role !== "doctor") return;
+        setLoadingStats(true);
+        api.get("/doctors/stats")
+            .then((res) => {
+                setStats(res.data.data);
+                setStatsFailed(false);
+            })
+            .catch((err: unknown) => {
+                // The reason goes to the console, not the page: an axios error
+                // body can contain a stack trace and a request id.
+                console.error("[dashboard] stats failed", err);
+                setStatsFailed(true);
+            })
+            .finally(() => setLoadingStats(false));
     }, [user?.role]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
 
     if (!user) return <DashboardLayout><div className="h-40 bg-gray-50 rounded-3xl animate-pulse" /></DashboardLayout>;
 
+    // Titles and descriptions are translation keys, resolved at render. This
+    // page previously hard-coded English here, which left every `dashboard.*`
+    // string below unused and meant an Indonesian user saw a partly translated
+    // dashboard.
     const cards: Record<string, any[]> = {
         patient: [
-            { title: "Mood Tracker", desc: "Log your daily mood and see insights", icon: HeartPulse, link: "/dashboard/mood", color: "bg-rose-500" },
-            { title: "Find a Specialist", desc: "Browse our network of professionals", icon: Search, link: "/appointments", color: "bg-blue-500" },
-            { title: "My Appointments", desc: "View history, pre-session, reviews", icon: History, link: "/dashboard/appointments", color: "bg-indigo-500" },
-            { title: "Messages", desc: "Chat with your doctor", icon: MessageCircle, link: "/messages", color: "bg-emerald-500" },
-            { title: "Notifications", desc: "See all your alerts", icon: Bell, link: "/notifications", color: "bg-amber-500" },
-            { title: "Profile Settings", desc: "Manage your personal information", icon: Settings, link: "/dashboard/profile", color: "bg-purple-500" },
+            { title: t("moodTracker"), desc: t("logMood"), icon: HeartPulse, link: "/dashboard/mood", color: "bg-rose-500" },
+            { title: t("findSpecialist"), desc: t("browseDoctors"), icon: Search, link: "/appointments", color: "bg-blue-500" },
+            { title: t("myAppointments"), desc: t("viewHistory"), icon: History, link: "/dashboard/appointments", color: "bg-indigo-500" },
+            { title: t("messages"), desc: t("chatWithDoctor"), icon: MessageCircle, link: "/messages", color: "bg-emerald-500" },
+            { title: t("notifications"), desc: t("seeAlerts"), icon: Bell, link: "/notifications", color: "bg-amber-500" },
+            { title: t("profileSettings"), desc: t("manageProfile"), icon: Settings, link: "/dashboard/profile", color: "bg-purple-500" },
         ],
         doctor: [
-            { title: "My Schedule", desc: "Manage your consultation slots", icon: Calendar, link: "/dashboard/doctor/schedule", color: "bg-emerald-500" },
-            { title: "Patient History", desc: "Approve, complete & view sessions", icon: Users, link: "/dashboard/appointments", color: "bg-amber-500" },
-            { title: "AI Briefings", desc: "Clinical summaries before sessions", icon: Sparkles, link: "/dashboard/appointments", color: "bg-violet-500" },
-            { title: "Messages", desc: "Chat with your patients", icon: MessageCircle, link: "/messages", color: "bg-indigo-500" },
-            { title: "Notifications", desc: "See all your alerts", icon: Bell, link: "/notifications", color: "bg-rose-500" },
-            { title: "Profile Settings", desc: "Update your professional bio", icon: Settings, link: "/dashboard/profile", color: "bg-purple-500" },
+            { title: t("mySchedule"), desc: t("manageSlots"), icon: Calendar, link: "/dashboard/doctor/schedule", color: "bg-emerald-500" },
+            { title: t("patientHistory"), desc: t("approveSessions"), icon: Users, link: "/dashboard/appointments", color: "bg-amber-500" },
+            { title: t("aiBriefings"), desc: t("clinicalSummaries"), icon: Sparkles, link: "/dashboard/appointments", color: "bg-violet-500" },
+            { title: t("messages"), desc: t("chatWithPatients"), icon: MessageCircle, link: "/messages", color: "bg-indigo-500" },
+            { title: t("notifications"), desc: t("seeAlerts"), icon: Bell, link: "/notifications", color: "bg-rose-500" },
+            { title: t("profileSettings"), desc: t("manageBio"), icon: Settings, link: "/dashboard/profile", color: "bg-purple-500" },
         ],
         admin: [
-            { title: "Admin Overview", desc: "Manage users and view system stats", icon: ShieldCheck, link: "/dashboard/admin", color: "bg-rose-500" },
-            { title: "Notifications", desc: "See all your alerts", icon: Bell, link: "/notifications", color: "bg-amber-500" },
-            { title: "Profile Settings", desc: "Manage your personal information", icon: Settings, link: "/dashboard/profile", color: "bg-purple-500" },
+            { title: t("adminOverview"), desc: t("manageUsers"), icon: ShieldCheck, link: "/dashboard/admin", color: "bg-rose-500" },
+            { title: t("notifications"), desc: t("seeAlerts"), icon: Bell, link: "/notifications", color: "bg-amber-500" },
+            { title: t("profileSettings"), desc: t("manageProfile"), icon: Settings, link: "/dashboard/profile", color: "bg-purple-500" },
         ],
     };
 
@@ -72,23 +109,33 @@ export default function Dashboard() {
                 >
                     <Avatar src={user.avatar} name={user.name} size="lg" />
                     <div className="flex-1 text-center md:text-left">
-                        <p className="text-indigo-600 font-bold tracking-widest uppercase text-xs mb-1">Welcome back,</p>
+                        <p className="text-indigo-600 font-bold tracking-widest uppercase text-xs mb-1">{t("welcomeBack")}</p>
                         <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 font-outfit mb-2">
                             {user.role === "doctor" ? "Dr. " : ""}{user.name} 👋
                         </h1>
-                        <p className="text-gray-500 font-medium">Managing your mental wellness from one place.</p>
+                        <p className="text-gray-500 font-medium">{t("subtitle")}</p>
                     </div>
                     {user.role === "patient" && <SOSButton />}
                 </motion.div>
             </div>
 
-            {user.role === "doctor" && stats && (
+            {user.role === "doctor" &&
+                (statsFailed ? (
+                    // Present and retryable, rather than absent.
+                    <ErrorState
+                        className="mb-12"
+                        detail={tc("couldNotLoad")}
+                        onRetry={load}
+                    />
+                ) : loadingStats && !stats ? (
+                    <LoadingState className="mb-12" />
+                ) : stats ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                     {[
-                        { label: "Total Patients", value: stats.totalPatients, icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
-                        { label: "Pending Requests", value: stats.pendingAppointments, icon: Calendar, color: "text-amber-600", bg: "bg-amber-50" },
-                        { label: "Upcoming Sessions", value: stats.upcomingAppointments, icon: Activity, color: "text-indigo-600", bg: "bg-indigo-50" },
-                        { label: "Completed Sessions", value: stats.completedAppointments, icon: Activity, color: "text-emerald-600", bg: "bg-emerald-50" },
+                        { label: t("totalPatients"), value: stats.totalPatients, icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
+                        { label: t("pendingRequests"), value: stats.pendingAppointments, icon: Calendar, color: "text-amber-600", bg: "bg-amber-50" },
+                        { label: t("upcomingSessions"), value: stats.upcomingAppointments, icon: Activity, color: "text-indigo-600", bg: "bg-indigo-50" },
+                        { label: t("completedSessions"), value: stats.completedAppointments, icon: Activity, color: "text-emerald-600", bg: "bg-emerald-50" },
                     ].map((stat, i) => (
                         <motion.div
                             key={i}
@@ -107,9 +154,9 @@ export default function Dashboard() {
                         </motion.div>
                     ))}
                 </div>
-            )}
+                ) : null)}
 
-            <h2 className="text-2xl font-extrabold text-gray-900 mb-6 font-outfit">Quick Actions</h2>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-6 font-outfit">{t("quickActions")}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userCards.map((card, i) => (
                     <motion.button
@@ -126,7 +173,7 @@ export default function Dashboard() {
                         <h3 className="text-xl font-black text-gray-900 mb-2 group-hover:text-indigo-600 transition-colors">{card.title}</h3>
                         <p className="text-gray-500 font-medium leading-relaxed mb-6">{card.desc}</p>
                         <div className="mt-auto flex items-center gap-2 text-indigo-600 font-bold text-sm uppercase tracking-widest">
-                            Explore <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                            {t("explore")} <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                         </div>
                         <div className={`absolute top-0 right-0 w-32 h-32 ${card.color} opacity-0 group-hover:opacity-[0.03] -mr-8 -mt-8 rounded-full transition-opacity duration-500`}></div>
                     </motion.button>

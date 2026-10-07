@@ -12,53 +12,107 @@ import { publicMessageFor } from "../utils/appError";
 export class AdminController {
     static async getStats(req: Request, res: Response) {
         try {
-            const totalPatients = await prisma.user.count({ where: { role: "patient" } });
-            const totalDoctors = await prisma.user.count({ where: { role: "doctor" } });
-            const successfulBookings = await prisma.appointment.count({ where: { status: "completed" } });
-            const pendingAppointments = await prisma.appointment.count({ where: { status: "pending" } });
-            const totalAppointments = await prisma.appointment.count();
-
-            const revenueResult = await prisma.appointment.findMany({
-                where: { status: "completed" },
-                include: { doctor: true },
-            });
-
-            const totalEstimatedRevenue = revenueResult.reduce((sum, app) => sum + (app.doctor.price || 0), 0);
-
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const newUsersToday = await prisma.user.count({
-                where: { createdAt: { gte: today } },
-            });
-
-            // Revenue trend: last 12 months of completed bookings + package purchases
             const twelveMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 11, 1);
-            const completedForTrend = await prisma.appointment.findMany({
-                where: { status: "completed", appointmentDate: { gte: twelveMonthsAgo } },
-                include: { doctor: { select: { price: true } } },
-            });
-            const packagesForTrend = await prisma.packagePurchase.findMany({
-                where: { createdAt: { gte: twelveMonthsAgo } },
-                include: { package: { select: { totalPrice: true } } },
-            });
+
+            // The five counts and the two monthly aggregates run as one group of
+            // independent queries rather than eight sequential awaits, and
+            // nothing is fetched row-by-row into JavaScript any more.
+            //
+            // `totalEstimatedRevenue` used to be `findMany({ where: { status:
+            // "completed" }, include: { doctor: true } })` with a `.reduce()`.
+            // `include: { doctor: true }` returns every scalar on Doctor, so at
+            // 100k completed appointments this pulled ~60k rows *each carrying a
+            // bio, an education history and a bank account number* into Node
+            // heap on every dashboard load. The same applied to the 12-month
+            // trend, which is on the page's critical path.
+            //
+            // `groupBy` does the aggregation in the database and returns 12 rows
+            // instead of 60,000. `DATE_FORMAT` gives the month bucket directly;
+            // doing it in JS meant a `monthly.find()` per row, O(rows x 12).
+            const [
+                totalPatients,
+                totalDoctors,
+                successfulBookings,
+                pendingAppointments,
+                totalAppointments,
+                newUsersToday,
+                lifetimeRevenue,
+                revenueByMonth,
+                packageRevenueByMonth,
+            ] = await Promise.all([
+                prisma.user.count({ where: { role: "patient" } }),
+                prisma.user.count({ where: { role: "doctor" } }),
+                prisma.appointment.count({ where: { status: "completed" } }),
+                prisma.appointment.count({ where: { status: "pending" } }),
+                prisma.appointment.count(),
+                prisma.user.count({ where: { createdAt: { gte: today } } }),
+
+                // All time, and separate from the trend on purpose. The KPI is
+                // labelled as total estimated revenue, so bounding it to the
+                // 12-month window would quietly change what the number means
+                // rather than making it faster.
+                prisma.$queryRaw<{ revenue: number }[]>`
+                    SELECT COALESCE(SUM(d.price), 0) AS revenue
+                    FROM \`Appointment\` a
+                    JOIN \`Doctor\` d ON d.id = a.doctorId
+                    WHERE a.status = 'completed'
+                `,
+
+                // Session revenue needs the clinician's price, which lives on
+                // Doctor, so it cannot be summed from Appointment alone. Joined
+                // in SQL and grouped, which is the difference between 12 rows
+                // and every completed booking ever made.
+                prisma.$queryRaw<{ month: string; revenue: number; bookings: bigint }[]>`
+                    SELECT DATE_FORMAT(a.appointmentDate, '%Y-%m') AS month,
+                           COALESCE(SUM(d.price), 0) AS revenue,
+                           COUNT(*) AS bookings
+                    FROM \`Appointment\` a
+                    JOIN \`Doctor\` d ON d.id = a.doctorId
+                    WHERE a.status = 'completed'
+                      AND a.appointmentDate >= ${twelveMonthsAgo}
+                    GROUP BY DATE_FORMAT(a.appointmentDate, '%Y-%m')
+                `,
+
+                prisma.$queryRaw<{ month: string; revenue: number }[]>`
+                    SELECT DATE_FORMAT(pp.createdAt, '%Y-%m') AS month,
+                           COALESCE(SUM(p.totalPrice), 0) AS revenue
+                    FROM \`PackagePurchase\` pp
+                    JOIN \`Package\` p ON p.id = pp.packageId
+                    WHERE pp.paidAt IS NOT NULL
+                      AND pp.createdAt >= ${twelveMonthsAgo}
+                    GROUP BY DATE_FORMAT(pp.createdAt, '%Y-%m')
+                `,
+            ]);
+
+            const totalEstimatedRevenue = Number(lifetimeRevenue[0]?.revenue ?? 0);
 
             const monthly: { key: string; label: string; revenue: number; bookings: number }[] = [];
             for (let i = 11; i >= 0; i--) {
                 const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
                 const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                monthly.push({ key, label: d.toLocaleDateString("en-GB", { month: "short" }), revenue: 0, bookings: 0 });
+                monthly.push({
+                    key,
+                    label: d.toLocaleDateString("en-GB", { month: "short" }),
+                    revenue: 0,
+                    bookings: 0,
+                });
             }
-            for (const a of completedForTrend) {
-                const d = new Date(a.appointmentDate);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                const m = monthly.find((x) => x.key === key);
-                if (m) { m.revenue += a.doctor.price || 0; m.bookings += 1; }
+            // A map, not `find()` per row. With the aggregation done in SQL this
+            // is 24 lookups rather than 24 scans, and it is the shape that
+            // survives the trend window being widened.
+            const byKey = new Map(monthly.map((m) => [m.key, m]));
+            for (const r of revenueByMonth) {
+                const m = byKey.get(String(r.month));
+                if (m) {
+                    m.revenue += Number(r.revenue);
+                    m.bookings += Number(r.bookings);
+                }
             }
-            for (const p of packagesForTrend) {
-                const d = new Date(p.createdAt);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                const m = monthly.find((x) => x.key === key);
-                if (m) m.revenue += p.package.totalPrice;
+            for (const r of packageRevenueByMonth) {
+                const m = byKey.get(String(r.month));
+                if (m) m.revenue += Number(r.revenue);
             }
 
             res.json({
@@ -306,6 +360,45 @@ export class AdminController {
         }
     }
 
+    /**
+     * Everything that has been recorded about reads of one patient's records.
+     *
+     * `meta` is parsed rather than returned raw so the actor's role and the
+     * resource are typed on the client instead of being re-derived from a JSON
+     * string at the point of display.
+     */
+    static async getPatientAccessLog(req: Request, res: Response) {
+        try {
+            const patientId = parseInt(req.params.id as string);
+            const entries = await AuditService.readsForSubject(patientId, 200);
+            res.json({
+                status: "success",
+                data: entries.map((e) => {
+                    let meta: Record<string, unknown> = {};
+                    try {
+                        meta = e.meta ? JSON.parse(e.meta) : {};
+                    } catch {
+                        // A malformed `meta` must not hide the access record
+                        // itself - the read happened whatever the note says.
+                        meta = { unparseable: true };
+                    }
+                    return {
+                        id: e.id,
+                        actorId: e.actorId,
+                        actorName: e.actor?.name ?? null,
+                        actorRole: e.actor?.role ?? null,
+                        resource: e.targetType,
+                        targetId: e.targetId,
+                        via: meta.via ?? null,
+                        createdAt: e.createdAt,
+                    };
+                }),
+            });
+        } catch (error: any) {
+            res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});
+        }
+    }
+
     static async getReviewReports(req: Request, res: Response) {
         try {
             const page = parseInt(req.query.page as string) || 1;
@@ -417,6 +510,15 @@ export class AdminController {
                 });
                 const rows: unknown[][] = [["id", "name", "email", "role", "provider", "banned", "createdAt"]];
                 for (const u of users) rows.push([u.id, u.name, u.email, u.role, u.provider, u.isBanned, u.createdAt.toISOString()]);
+                // Recorded before the response is sent, so a download that
+                // happened is a download that was logged. An export of the user
+                // table is the largest single access event in the product and
+                // nothing recorded it.
+                await AuditService.logBulkExport({
+                    actorId: req.user!.id,
+                    kind: "users",
+                    rows: rows.length - 1,
+                });
                 res.setHeader("Content-Type", "text/csv; charset=utf-8");
                 res.setHeader("Content-Disposition", 'attachment; filename="mindease-users.csv"');
                 return res.send(toCsv(rows));
@@ -444,6 +546,11 @@ export class AdminController {
                     agg.revenue = agg.bookings * d.price;
                     rows.push([d.id, d.user.name || "Doctor", agg.bookings, agg.revenue, d.price]);
                 }
+                await AuditService.logBulkExport({
+                    actorId: req.user!.id,
+                    kind: "revenue",
+                    rows: rows.length - 1,
+                });
                 res.setHeader("Content-Type", "text/csv; charset=utf-8");
                 res.setHeader("Content-Disposition", 'attachment; filename="mindease-revenue.csv"');
                 return res.send(toCsv(rows));
@@ -475,6 +582,15 @@ export class AdminController {
             }
             res.setHeader("Content-Type", "text/csv; charset=utf-8");
             res.setHeader("Content-Disposition", 'attachment; filename="mindease-bookings.csv"');
+            // The bookings export carries patient names and email addresses
+            // alongside appointment detail. Logged the same way as the others,
+            // including on the fall-through branch - an unlisted `kind` that
+            // still returns patient data is exactly the case worth recording.
+            await AuditService.logBulkExport({
+                actorId: req.user!.id,
+                kind: "bookings",
+                rows: rows.length - 1,
+            });
             return res.send(toCsv(rows));
         } catch (error: any) {
             res.status(500).json({ status: "error", message: publicMessageFor(error)?.message ?? "Something went wrong. Please try again."});

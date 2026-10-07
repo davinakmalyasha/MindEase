@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import speakeasy from "speakeasy";
 import argon2 from "argon2";
@@ -8,7 +8,8 @@ import {
     createDoctor,
     createAdmin,
     setupClient,
-    grantPaidPackage,
+    pinTwoFactorClock,
+    unpinTwoFactorClock,
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
@@ -18,9 +19,6 @@ import { dayKey, startOfZonedDay, shiftDayKey, timeToMinutes, overlaps } from ".
 
 const localDay = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-const localHHMM = (d: Date) =>
-    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 /** Reads a cookie value out of a response's `Set-Cookie` headers. */
 const readCookie = (res: request.Response, name: string): string | undefined => {
@@ -95,9 +93,23 @@ describe("Token purpose separation", () => {
 });
 
 describe("Two-factor enforcement", () => {
+    // Pinned so a code minted with the real clock cannot fall outside the
+    // server's tolerance window while this test's Argon2 work runs. Without it
+    // the failure surfaced far from its cause: `2fa/enable` returned 400,
+    // `totpEnabled` stayed false, and the assertion below on `TOTP_REQUIRED`
+    // failed instead. See `pinTwoFactorClock`.
+    beforeEach(() => {
+        pinTwoFactorClock();
+    });
+    afterEach(() => {
+        unpinTwoFactorClock();
+    });
+
     it("never authenticates a request without a completed second factor", async () => {
         const user = await createUser("patient");
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret;
         await user.agent
             .post("/api/account/2fa/enable")
@@ -127,7 +139,9 @@ describe("Two-factor enforcement", () => {
         // Registration plus the extra token: more than one session exists.
         expect(await prisma.refreshToken.count({ where: { userId: user.id } })).toBeGreaterThan(1);
 
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         await user.agent
             .post("/api/account/2fa/enable")
             .set("X-CSRF-Token", user.csrf)
@@ -383,10 +397,23 @@ describe("Clinical data lifecycle", () => {
         expect(res.body.data.risk.level).toBe("elevated");
         expect(res.body.data.risk.hotlines.length).toBeGreaterThan(0);
 
+        // The response must be able to say whether the disclosure was *recorded*,
+        // separately from whether a clinician was reached. The two fail
+        // independently - a connection pool exhausted by the crisis submission
+        // itself is exactly the case where the clinician is notified and the
+        // RiskAlert row is missing - and a client that cannot tell them apart
+        // will show a patient a reassuring result screen for a disclosure that
+        // left no audit trail.
+        expect(res.body.data.risk.recorded).toBe(true);
+        expect(res.body.data.risk.alertId).toBeTypeOf("number");
+
         const alert = await prisma.riskAlert.findFirst({ where: { userId: patient.id } });
         expect(alert).toBeTruthy();
         expect(alert?.level).toBe("elevated");
         expect(alert?.acknowledgedAt).toBeNull();
+        expect(alert?.id).toBe(res.body.data.risk.alertId);
+        // A clinician is attached, so the durable record names them.
+        expect(alert?.notifiedDoctorUserId).toBe(doctor.id);
 
         // The clinician is told.
         const notifications = await doctor.agent.get("/api/notifications");
@@ -403,6 +430,11 @@ describe("Clinical data lifecycle", () => {
             .send({ type: "phq9", answers: [3, 3, 2, 2, 1, 1, 2, 1, 0] });
         expect(res.status).toBe(201);
         expect(res.body.data.risk.riskFlag).toBe(false);
+        // The no-risk signal still carries the full contract, so a client can
+        // destructure it the same way it destructures a flagged one.
+        expect(res.body.data.risk.clinicianNotified).toBe(false);
+        expect(res.body.data.risk.recorded).toBe(true);
+        expect(res.body.data.risk.alertId).toBeNull();
         expect(await prisma.riskAlert.count({ where: { userId: patient.id } })).toBe(0);
     });
 
@@ -658,7 +690,8 @@ describe("Availability integrity", () => {
         const again = await patient.agent
             .post(`/api/doctors/${doctor.doctorId}/waitlist`)
             .set("X-CSRF-Token", patient.csrf);
-        expect(again.status).toBe(400);
+        // 409 Conflict: the patient is already on this waitlist.
+        expect(again.status).toBe(409);
         expect(await prisma.waitlistEntry.count({ where: { doctorId: doctor.doctorId, patientId: patient.id } })).toBe(1);
     });
 });

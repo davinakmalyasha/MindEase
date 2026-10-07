@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUser, createDoctor, createAdmin } from "./helpers";
+import { createUser, createDoctor } from "./helpers";
 import { prisma } from "../src/app";
 
 const futureDate = (days = 3) => {
@@ -97,7 +97,9 @@ describe("Appointments", () => {
         expect(first.status).toBe(201);
 
         const second = await other.agent.post("/api/appointments/book").set("X-CSRF-Token", other.csrf).send(payload);
-        expect(second.status).toBe(400);
+        // 409 Conflict: the slot is taken. This used to be 400 only because the
+        // controller hard-coded a status instead of reading the typed error.
+        expect(second.status).toBe(409);
         expect(second.body.message).toContain("already booked");
     });
 
@@ -132,10 +134,11 @@ describe("Appointments", () => {
             .post("/api/appointments/book")
             .set("X-CSRF-Token", patient.csrf)
             .send({ doctorId: doctor.doctorId, appointmentDate: date, startTime: "10:30", endTime: "11:30", consultationType: "video" });
-        expect(overlap.status).toBe(400);
+        // 409 Conflict: the clinician is already booked for an overlapping hour.
+        expect(overlap.status).toBe(409);
     });
 
-    it("confirms on doctor approval and creates a meeting link", async () => {
+    it("confirms on doctor approval without minting a public meeting link", async () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();
         const slot = await createOpenSlot(doctor.doctorId);
@@ -150,10 +153,23 @@ describe("Appointments", () => {
             .set("X-CSRF-Token", doctor.csrf)
             .send({ status: "confirmed" });
         expect(confirm.status).toBe(200);
-        expect(confirm.body.data.meetingLink).toContain("meet.jit.si");
 
+        // The suite runs with VIDEO_PROVIDER=livekit, which is the production
+        // configuration. Previously this asserted `meetingLink` contained
+        // "meet.jit.si", which meant the only room the test suite ever exercised
+        // was the unauthenticated fallback - the token path, the thing that
+        // actually secures a consultation, was untested end to end.
+        // `appointment.service.ts:504` only writes a meeting link when the
+        // active provider is jitsi, so under livekit there must be none: a
+        // stray third-party URL sitting on the row would be the old behaviour
+        // leaking through. The jitsi path is covered by
+        // `video-fallback.test.ts`.
+        expect(confirm.body.data.meetingLink).toBeNull();
+
+        // The per-appointment room seed is what the room name is derived from,
+        // so it is written at confirmation and not at join time.
         const updated = await prisma.appointment.findUnique({ where: { id: appId } });
-        expect(updated?.meetingLink).toBeTruthy();
+        expect(updated?.roomSeed).toBeTruthy();
     });
 
     it("releases the slot when cancelled", async () => {

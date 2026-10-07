@@ -1,0 +1,22 @@
+-- Video room identity.
+--
+-- `Appointment.meetingLink` is a persistent, unauthenticated room URL. Anyone
+-- who learned or guessed it could join the consultation, and it was carried
+-- into the .ics export and the GDPR data export.
+--
+-- This adds the per-appointment random component of the room *name* instead.
+-- On the LiveKit path a client receives a short-lived token scoped to one room
+-- and there is no URL at all; this column is what makes the room name stable
+-- across the two participants, who join independently and must arrive at the
+-- same place.
+--
+-- Nullable and not backfilled. Existing rows have a `meetingLink` and no seed;
+-- they will have a seed generated the next time they are confirmed or joined,
+-- which is the same lazy behaviour the jitsi URL had. Backfilling would mint a
+-- room name for appointments that may be in the past.
+ALTER TABLE `Appointment` ADD COLUMN `roomSeed` VARCHAR(191) NULL;
+
+-- Deliberately no index here. `roomSeed` is only ever read as part of a row
+-- already fetched by primary key, so an index on it would be pure write
+-- amplification on a table written on every booking. An earlier draft of this
+-- file added one; it was removed.

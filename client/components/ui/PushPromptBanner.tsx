@@ -41,8 +41,16 @@ export default function PushPromptBanner() {
                         </p>
                     </div>
                 </div>
-                <button onClick={dismiss} className="text-gray-300 hover:text-gray-500 transition-colors shrink-0">
-                    <X className="w-4 h-4" />
+                {/* Icon only. `text-gray-300` on white is 1.47:1, which fails AA by a wide
+                    margin, so the label is not only for assistive technology - it is
+                    also the only thing telling a sighted user what this control does. */}
+                <button
+                    type="button"
+                    onClick={dismiss}
+                    aria-label="Dismiss"
+                    className="p-1 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
+                >
+                    <X className="w-4 h-4" aria-hidden="true" />
                 </button>
             </div>
             <button

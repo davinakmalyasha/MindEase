@@ -2,7 +2,7 @@ import { Router } from "express";
 import { WellnessController } from "../controllers/wellness.controller";
 import { ClinicalSafetyController } from "../controllers/clinicalSafety.controller";
 import { authenticate } from "../middleware/auth.middleware";
-import { requireDoctor } from "../middleware/role.middleware";
+import { requireDoctor, requireClinicalStaff } from "../middleware/role.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { aiLimiter, skipInTest } from "../middleware/rateLimit.middleware";
 import {
@@ -15,6 +15,8 @@ import {
     AssessmentListSchema,
     MoodStatsSchema,
     JournalIdSchema,
+    ResolveRiskAlertSchema,
+    TrajectorySchema,
     idParam,
 } from "../schemas/wellness.schema";
 
@@ -37,9 +39,27 @@ router.post("/journal/summarize", skipInTest(aiLimiter), validate(JournalSummari
 router.post("/assessments", validate(SubmitAssessmentSchema), WellnessController.submitAssessment);
 router.get("/assessments", validate(AssessmentListSchema), WellnessController.getAssessments);
 
-// Risk disclosures raised by self-report instruments. Scoped to patients the
-// requesting clinician actually has a clinical relationship with.
-router.get("/risk-alerts", requireDoctor, ClinicalSafetyController.listForDoctor);
+// The clinician triage queue. Scoped to patients the requesting clinician
+// actually has a clinical relationship with, or alerts explicitly assigned to
+// them. The two are a disjunction, not a conjunction: an assignment survives a
+// lapsed relationship, an unassigned alert does not. `RiskQueueService.listQueue`
+// carries the reasoning.
+//
+// These three endpoints return the disclosure a patient made about thoughts of
+// self-harm, so they are the highest-consequence surface in the API: every one
+// of them filters server-side, and none of them trusts a client-supplied
+// patient id.
+// Clinician or admin, not `requireDoctor`: an admin is paged for out-of-hours
+// disclosures and the service has an explicit admin branch for reading the whole
+// queue. Acknowledging and resolving stay doctor-only, because a clinician
+// signing off that they have dealt with a disclosure is a clinical act.
+router.get("/risk-alerts", requireClinicalStaff, ClinicalSafetyController.listForDoctor);
 router.post("/risk-alerts/:id/acknowledge", requireDoctor, validate(idParam), ClinicalSafetyController.acknowledge);
+router.post("/risk-alerts/:id/resolve", requireDoctor, validate(idParam), validate(ResolveRiskAlertSchema), ClinicalSafetyController.resolve);
+
+// Longitudinal screening trajectory. Distinct from GET /assessments, which
+// returns the raw history: this returns a scored series with the instrument's
+// bands, for plotting.
+router.get("/assessments/trajectory", validate(TrajectorySchema), WellnessController.getAssessmentTrajectory);
 
 export default router;

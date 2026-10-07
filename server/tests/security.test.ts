@@ -1,6 +1,5 @@
-﻿import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createUser, createDoctor, createAdmin } from "./helpers";
-import { prisma } from "../src/app";
 
 const futureDate = (days = 3) => {
     const d = new Date();
@@ -37,7 +36,11 @@ describe("Authorization matrix (IDOR protection)", () => {
             .put(`/api/appointments/${appId}/status`)
             .set("X-CSRF-Token", patient.csrf)
             .send({ status: "confirmed" });
-        expect(res.status).toBe(403);
+        // 400, not 403: this patient *does* own the appointment. The failure is
+        // that only a doctor may confirm — a rule they break by asking, not an
+        // authorization boundary they are refused at. The 403 came from the
+        // controller hard-coding one status for the whole endpoint.
+        expect(res.status).toBe(400);
     });
 
     it("doctors cannot confirm other doctors' appointments", async () => {
@@ -81,7 +84,7 @@ describe("Authorization matrix (IDOR protection)", () => {
             .post("/api/ai/pre-session")
             .set("X-CSRF-Token", other.csrf)
             .send({ appointmentId: appId });
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(404);
         expect(res.body.message).toContain("Appointment not found");
     });
 
@@ -156,7 +159,8 @@ describe("Authorization matrix (IDOR protection)", () => {
             .post("/api/reviews")
             .set("X-CSRF-Token", patient.csrf)
             .send({ doctorId: doctor.doctorId, appointmentId: appId, rating: 3, comment: "Dupe" });
-        expect(second.status).toBe(400);
+        // 409 Conflict: the review already exists for this appointment.
+        expect(second.status).toBe(409);
         expect(second.body.message).toContain("already reviewed");
     });
 

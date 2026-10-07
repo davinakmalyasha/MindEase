@@ -83,10 +83,16 @@ export default function Footer() {
                     <div>
                         <h4 className="text-white font-bold mb-8 uppercase tracking-widest text-xs">Resources</h4>
                         <ul className="space-y-4">
+                            {/* Every link here must be reachable while signed out:
+                                this footer renders on public pages. "Mental
+                                Checkup" used to point at the protected
+                                /dashboard/mood, so it bounced every visitor to the
+                                login screen. The mood tracker is a patient-only
+                                feature, so it is surfaced in the signed-in
+                                dashboard sidebar instead of being offered here. */}
                             {[
                                 { label: "Find Doctor", href: "/doctors" },
                                 { label: "Book Session", href: "/appointments" },
-                                { label: "Mental Checkup", href: "/dashboard/mood" },
                                 { label: "FAQ", href: "/faq" },
                                 { label: "Help Center", href: "/help" }
                             ].map((item) => (
@@ -147,7 +153,7 @@ export default function Footer() {
                     <div className="flex gap-8 text-xs font-bold text-gray-600 uppercase tracking-widest">
                         <Link href="/privacy" className="hover:text-indigo-400 transition-colors">Privacy</Link>
                         <Link href="/terms" className="hover:text-indigo-400 transition-colors">Terms</Link>
-                        <Link href="/privacy#cookies" className="hover:text-indigo-400 transition-colors">Cookies</Link>
+                        <Link href="/privacy#cookies-storage" className="hover:text-indigo-400 transition-colors">Cookies</Link>
                     </div>
                 </div>
             </div>

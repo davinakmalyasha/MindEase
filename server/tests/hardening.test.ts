@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import speakeasy from "speakeasy";
 import {
     createUser,
@@ -6,6 +6,8 @@ import {
     setupClient,
     accessTokenFrom,
     grantPaidPackage,
+    pinTwoFactorClock,
+    unpinTwoFactorClock,
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
@@ -92,7 +94,12 @@ describe("Booking hardening", () => {
             .put(`/api/appointments/${app.id}/status`)
             .set("X-CSRF-Token", patient.csrf)
             .send({ status: "cancelled" });
-        expect(cancel.status).toBe(403);
+        // 400, not 403: the patient genuinely owns this appointment and is
+        // allowed to cancel it — the grace window has simply closed, which is a
+        // business-rule violation rather than an authorization failure. The 403
+        // here was an artifact of the controller hard-coding one status for the
+        // whole endpoint.
+        expect(cancel.status).toBe(400);
         expect(cancel.body.message).toContain("24 hours");
 
         // The doctor CAN still cancel it
@@ -226,13 +233,244 @@ describe("Therapy package reservation integrity", () => {
         });
         expect(third.status).toBe(201);
     });
+
+    it("cannot spend one remaining session on two follow-ups at once", async () => {
+        // The follow-up path reserved by reading "a purchase with sessions left"
+        // and then decrementing by id, where the booking path above already used
+        // a conditional decrement. Two follow-ups accepted simultaneously both
+        // read the same purchase, both decremented, and one remaining session
+        // covered two bookings - leaving `sessionsLeft` at -1.
+        //
+        // The claim on each *follow-up* is already atomic, so this needs two
+        // different follow-ups: the reuse has to be over the shared package, not
+        // over one row.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+
+        const create = await doctor.agent
+            .post("/api/doctors/packages")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ name: "Single plan", sessionCount: 1, totalPrice: 100000 });
+        const purchaseId = (await grantPaidPackage(patient.id, create.body.data.id)).id;
+
+        // Two completed sessions, so the doctor may propose a follow-up off each.
+        const priorAppointments = await Promise.all(
+            [3, 4].map((daysAgo) =>
+                prisma.appointment.create({
+                    data: {
+                        userId: patient.id,
+                        doctorId: doctor.doctorId,
+                        appointmentDate: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000),
+                        startTime: "09:00",
+                        endTime: "10:00",
+                        status: "completed",
+                        consultationType: "video",
+                    },
+                })
+            )
+        );
+
+        const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+        const followUps = await Promise.all(
+            priorAppointments.map((a, i) =>
+                prisma.followUp.create({
+                    data: {
+                        appointmentId: a.id,
+                        doctorId: doctor.doctorId,
+                        suggestedDate: future,
+                        // Distinct, non-overlapping times, so the conflict check
+                        // is not what decides the outcome.
+                        startTime: i === 0 ? "09:00" : "11:00",
+                        endTime: i === 0 ? "10:00" : "12:00",
+                        consultationType: "video",
+                        status: "pending",
+                    },
+                })
+            )
+        );
+
+        const [first, second] = await Promise.all([
+            patient.agent
+                .post(`/api/follow-ups/${followUps[0].id}/accept`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({}),
+            patient.agent
+                .post(`/api/follow-ups/${followUps[1].id}/accept`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({}),
+        ]);
+
+        // Both follow-ups are legitimately accepted - they are separate rows and
+        // separate sessions. What must not happen is the *package* being spent
+        // twice.
+        expect([first.status, second.status]).toEqual([200, 200]);
+
+        const purchase = await prisma.packagePurchase.findUnique({ where: { id: purchaseId } });
+        expect(purchase?.sessionsLeft, "one remaining session covered two bookings").toBe(0);
+        expect(purchase?.status).toBe("completed");
+
+        // And exactly one appointment carries the reservation, so the ledger says
+        // the same thing the counter does.
+        const reserved = await prisma.appointment.count({
+            where: { packagePurchaseId: purchaseId },
+        });
+        expect(reserved).toBe(1);
+    });
+
+    it("cannot decline a follow-up that was accepted concurrently", async () => {
+        // The sequential case was already safe: `respond` rejects a second
+        // response before it branches, so a test that accepts and *then* declines
+        // passes against the broken code too. Only an interleaving exposes it.
+        //
+        // And the natural interleaving does not: decline does one read and one
+        // write, while accept validates and opens a transaction, so decline's
+        // write normally lands first and accept's claim then fails cleanly. Firing
+        // both with Promise.all and asserting the invariant passes on the broken
+        // code - I checked - which makes it a test that proves nothing.
+        //
+        // The window is real, though: any latency on the decline write - a loaded
+        // connection pool, a slow disk, a retry - lets accept's claim commit
+        // first. So the window is injected rather than waited for. This is a real
+        // interleaving, reached on purpose instead of by luck.
+        const original = prisma.followUp.update.bind(prisma.followUp);
+        // @ts-expect-error - delaying one write to widen a window that exists
+        prisma.followUp.update = async (args: unknown) => {
+            await new Promise((r) => setTimeout(r, 250));
+            return original(args as never);
+        };
+
+        try {
+            const patient = await createUser("patient");
+            const doctor = await createDoctor();
+
+            const prior = await prisma.appointment.create({
+                data: {
+                    userId: patient.id,
+                    doctorId: doctor.doctorId,
+                    appointmentDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+                    startTime: "09:00",
+                    endTime: "10:00",
+                    status: "completed",
+                    consultationType: "video",
+                },
+            });
+            const followUp = await prisma.followUp.create({
+                data: {
+                    appointmentId: prior.id,
+                    doctorId: doctor.doctorId,
+                    suggestedDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+                    startTime: "09:00",
+                    endTime: "10:00",
+                    consultationType: "video",
+                    status: "pending",
+                },
+            });
+
+            // Decline starts first, so its read sees `pending` and its write is
+            // held. Accept starts while that write is in flight and claims the row
+            // in the meantime.
+            const declining = patient.agent
+                .post(`/api/follow-ups/${followUp.id}/decline`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({});
+            await new Promise((r) => setTimeout(r, 80));
+            const accepting = patient.agent
+                .post(`/api/follow-ups/${followUp.id}/accept`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({});
+
+            await Promise.all([declining, accepting]);
+
+            const after = await prisma.followUp.findUniqueOrThrow({ where: { id: followUp.id } });
+            const created = await prisma.appointment.count({
+                where: { userId: patient.id, status: "pending" },
+            });
+
+            // Whichever branch won, the two records must agree. `declined` with an
+            // appointment beside it is the defect: the patient is booked into a
+            // session the follow-up says they refused.
+            if (after.status === "accepted") {
+                expect(created, "accepted but no appointment").toBe(1);
+            } else {
+                expect(after.status).toBe("declined");
+                expect(created, "declined, but an appointment was created anyway").toBe(0);
+            }
+        } finally {
+            // @ts-expect-error - restoring
+            prisma.followUp.update = original;
+        }
+    });
+
+    it("cannot refund one cancellation twice", async () => {
+        // `updateStatus` read the appointment, decided the transition was legal,
+        // and then wrote the new status by id. Two cancels at the same moment
+        // both read `pending`, both passed the terminal-state check, and both
+        // wrote `cancelled` - so the refund below ran twice and a patient could
+        // cancel once and come away with a free session. The slot release and the
+        // waitlist notification ran twice as well.
+        //
+        // A double-tap on Cancel is the whole reproduction; no unusual client is
+        // needed.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+
+        const create = await doctor.agent
+            .post("/api/doctors/packages")
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ name: "Single plan", sessionCount: 1, totalPrice: 100000 });
+        const purchaseId = (await grantPaidPackage(patient.id, create.body.data.id)).id;
+
+        const booked = await book(patient.agent, patient.csrf, {
+            doctorId: doctor.doctorId,
+            appointmentDate: futureDate(3),
+            packagePurchaseId: purchaseId,
+            idempotencyKey: `cancel-race-${Date.now()}`,
+        });
+        expect(booked.status).toBe(201);
+        const appointmentId = booked.body.data.id;
+
+        // Spent by the booking.
+        const afterBooking = await prisma.packagePurchase.findUnique({ where: { id: purchaseId } });
+        expect(afterBooking?.sessionsLeft).toBe(0);
+
+        const [first, second] = await Promise.all([
+            patient.agent
+                .put(`/api/appointments/${appointmentId}/status`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({ status: "cancelled" }),
+            patient.agent
+                .put(`/api/appointments/${appointmentId}/status`)
+                .set("X-CSRF-Token", patient.csrf)
+                .send({ status: "cancelled" }),
+        ]);
+
+        // Exactly one transition, so exactly one refund. The loser is told the
+        // appointment moved rather than being told it succeeded.
+        const statuses = [first.status, second.status].sort();
+        expect(statuses, `got ${first.status} and ${second.status}`).toEqual([200, 409]);
+
+        const afterCancel = await prisma.packagePurchase.findUnique({ where: { id: purchaseId } });
+        expect(afterCancel?.sessionsLeft, "one cancellation refunded twice").toBe(1);
+    });
 });
 
 describe("2FA backup codes", () => {
+    // Pinned so a code minted with the real clock cannot fall outside the
+    // server's tolerance window while this test's Argon2 work runs. See
+    // `pinTwoFactorClock`.
+    beforeEach(() => {
+        pinTwoFactorClock();
+    });
+    afterEach(() => {
+        unpinTwoFactorClock();
+    });
+
     it("issues single-use recovery codes that work at sign-in exactly once", async () => {
         const user = await createUser("patient");
 
-        const setup = await user.agent.post("/api/account/2fa/setup").set("X-CSRF-Token", user.csrf);
+        const setup = await user.agent.post("/api/account/2fa/setup")
+        .set("X-CSRF-Token", user.csrf)
+        .send({ password: PASSWORD });
         const secret = setup.body.data.secret as string;
         const enable = await user.agent
             .post("/api/account/2fa/enable")
@@ -282,6 +520,64 @@ describe("2FA backup codes", () => {
             .set("X-CSRF-Token", loginCsrf)
             .send({ token: secondLogin.body.data.twoFactorToken, code: backupCodes[1] });
         expect(thirdVerify.status).toBe(200);
+    });
+
+    it("cannot spend one code twice at the same moment", async () => {
+        // The reuse test above is sequential, and the write always removes the
+        // code, so it cannot see this. The old implementation read the array,
+        // verified against each hash (argon2 - slow enough for the other request
+        // to slip in) and then wrote "the array minus that hash". Two requests
+        // racing the same code both verified, and both wrote an array computed
+        // from the state before either write - so both were admitted while the
+        // code was removed only once.
+        //
+        // It is the shape of bug a serial suite cannot find, which is why it is
+        // reproduced here by firing both verifications without awaiting the first.
+        const user = await createUser("patient");
+
+        const setup = await user.agent
+            .post("/api/account/2fa/setup")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ password: PASSWORD });
+        const secret = setup.body.data.secret as string;
+        const enable = await user.agent
+            .post("/api/account/2fa/enable")
+            .set("X-CSRF-Token", user.csrf)
+            .send({ code: speakeasy.totp({ secret, encoding: "base32" }) });
+        const backupCodes: string[] = enable.body.data.backupCodes;
+
+        // Two logins, so there are two independent 2FA tokens: the race is over
+        // the *code*, not over the ticket.
+        const a = await setupClient();
+        const b = await setupClient();
+        const loginA = await a.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", a.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        const loginB = await b.agent
+            .post("/api/auth/login")
+            .set("X-CSRF-Token", b.csrf)
+            .send({ email: user.email, password: PASSWORD });
+        expect(loginA.body.data.requires2FA).toBe(true);
+        expect(loginB.body.data.requires2FA).toBe(true);
+
+        const code = backupCodes[0];
+        const [first, second] = await Promise.all([
+            a.agent
+                .post("/api/account/2fa/verify")
+                .set("X-CSRF-Token", a.csrf)
+                .send({ token: loginA.body.data.twoFactorToken, code }),
+            b.agent
+                .post("/api/account/2fa/verify")
+                .set("X-CSRF-Token", b.csrf)
+                .send({ token: loginB.body.data.twoFactorToken, code }),
+        ]);
+
+        // Exactly one session, not two. The assertions are on both sides so a
+        // failure says which shape it took: two admissions is the reuse bug,
+        // zero is a broken consume.
+        const statuses = [first.status, second.status].sort();
+        expect(statuses, `got ${first.status} and ${second.status}`).toEqual([200, 401]);
     });
 });
 
@@ -366,5 +662,111 @@ describe("Waitlist maintenance", () => {
         expect(
             await prisma.waitlistEntry.findFirst({ where: { patientId: ancientPatient.id } })
         ).toBeNull();
+    });
+});
+
+/**
+ * The `include`-everything leak, in the two places it survived the first fix.
+ *
+ * The public doctor directory leaked bankAccount, bankName and bankHolder to
+ * anonymous callers. That was fixed with an explicit `select` allowlist and a
+ * test. Two sibling queries used `include: { user: { select } }` and
+ * `include: { doctor: true }` respectively, both of which look restricted and
+ * neither of which is: the first selects the *inner* user and not the outer
+ * doctor, the second selects nothing at all. Both serialised every Doctor scalar
+ * to an authenticated caller who had no business seeing them.
+ *
+ * The assertions are `not.toContain` on the serialised body rather than an exact
+ * key set, so they fail on the symptom - the field being present - regardless of
+ * which query shape produced it.
+ */
+describe("Doctor payout details never leave the platform", () => {
+    /**
+     * The Doctor columns that must never reach a patient.
+     *
+     * Only the payout details. `bio` and `education` are deliberately public -
+     * the public profile renders them, and `doctor-directory.test.ts` asserts
+     * their absence from the *directory* only because that endpoint is
+     * deliberately terse, not because a clinician's professional bio is a
+     * secret from their own patient. `licenseNumber` is published on the
+     * public profile by an explicit product decision so a patient can check a
+     * clinician's registration.
+     *
+     * An earlier draft of this test asserted on `bio` as well and failed: the
+     * appointment list is allowed to show it.
+     */
+    const PAYOUT_FIELDS = ["bankAccount", "bankName", "bankHolder"];
+
+    const expectNoPayoutDetails = (body: unknown) => {
+        const serialised = JSON.stringify(body);
+        for (const field of PAYOUT_FIELDS) {
+            expect(serialised, `${field} must not be serialised`).not.toContain(field);
+        }
+    };
+
+    /** Books and confirms one session so the patient has a treating clinician. */
+    const withConfirmedSession = async () => {
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        const book = await patient.agent
+            .post("/api/appointments/book")
+            .set("X-CSRF-Token", patient.csrf)
+            .send({
+                doctorId: doctor.doctorId,
+                appointmentDate: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
+                startTime: "10:00",
+                endTime: "11:00",
+                consultationType: "video",
+            });
+        await doctor.agent
+            .put(`/api/appointments/${book.body.data.id}/status`)
+            .set("X-CSRF-Token", doctor.csrf)
+            .send({ status: "confirmed" });
+        return { patient, doctor };
+    };
+
+    it("are absent from the patient's own appointment list", async () => {
+        const { patient } = await withConfirmedSession();
+
+        const res = await patient.agent.get("/api/appointments/my");
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.rows.length).toBeGreaterThan(0);
+        expectNoPayoutDetails(res.body);
+    });
+
+    it("are absent from a patient's package purchases", async () => {
+        const { patient, doctor } = await withConfirmedSession();
+        // grantPaidPackage takes the Package id, not the doctor's.
+        const pkg = await prisma.package.create({
+            data: {
+                doctorId: doctor.doctorId,
+                name: "Course of six",
+                sessionCount: 6,
+                totalPrice: 900000,
+            },
+        });
+        await grantPaidPackage(patient.id, pkg.id);
+
+        const res = await patient.agent.get("/api/payments/purchases");
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.length).toBeGreaterThan(0);
+        expectNoPayoutDetails(res.body);
+        // The doctor is still usable - the fix is a projection, not a deletion.
+        expect(res.body.data[0].package.doctor.specialty).toBeTruthy();
+    });
+
+    it("actually exist on the rows being projected away", async () => {
+        // Guards the negative assertions above: if the payout fields were renamed
+        // or dropped from the schema, both tests would pass while proving nothing.
+        const { doctor } = await withConfirmedSession();
+        await prisma.doctor.update({
+            where: { id: doctor.doctorId },
+            data: { bankAccount: "1234567890", bankName: "Bank", bankHolder: "Dr Test" },
+        });
+
+        const row = await prisma.doctor.findUnique({ where: { id: doctor.doctorId } });
+        expect(row?.bankAccount).toBe("1234567890");
     });
 });

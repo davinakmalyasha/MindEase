@@ -126,6 +126,52 @@ export const cacheDel = async (...keys: string[]) => {
 };
 
 /**
+ * Atomic increment, setting the TTL on first write.
+ *
+ * Exists for the shared rate-limit store, which needs a counter that two API
+ * replicas increment correctly - `redis@5`'s `INCR` is atomic, so this is a
+ * real shared limit rather than a per-process one.
+ *
+ * `null` means "Redis is not available", which is not the same as zero. The
+ * caller decides what to do about it; a rate limiter that treats an unreachable
+ * Redis as "no requests made yet" would fail open on every deploy that has not
+ * configured it.
+ */
+export const cacheIncr = async (
+    key: string,
+    ttlSeconds: number
+): Promise<{ count: number; resetAtMs: number } | null> => {
+    try {
+        const c = await getClient();
+        if (!c) return null;
+
+        const count = await c.incr(key);
+        if (count === 1) {
+            // First write in this window: give it an expiry. `NX` because a
+            // concurrent replica may have set it between the INCR and here, and
+            // re-setting the TTL on every hit would make a fixed window slide.
+            await c.expire(key, ttlSeconds, "NX");
+        }
+        const ttl = await c.ttl(key);
+        const resetAtMs = Date.now() + Math.max(ttl, 0) * 1000;
+        return { count, resetAtMs };
+    } catch {
+        return null;
+    }
+};
+
+/** Remaining TTL in seconds, or null when unavailable. */
+export const cacheTtl = async (key: string): Promise<number | null> => {
+    try {
+        const c = await getClient();
+        if (!c) return null;
+        return await c.ttl(key);
+    } catch {
+        return null;
+    }
+};
+
+/**
  * Coalesces concurrent cache misses for the same key onto one loader.
  *
  * Without it, a popular key expiring produces a thundering herd: every
@@ -167,16 +213,35 @@ export const closeCache = async () => {
 /**
  * Advisory lock for cron jobs: only one runner proceeds per key.
  *
- * Redis is tried first. If Redis is unreachable the lock **fails closed** and
- * the job does not run — a missed weekly report is far cheaper than sending
- * every opted-in patient the same email once per replica. `GET_LOCK` provides
- * a database-backed fallback so the job still runs on single-replica
- * deployments that have no Redis at all.
+ * Redis is tried first. If Redis is unreachable the lock **fails closed** and the
+ * job does not run — a missed weekly report is far cheaper than sending every
+ * opted-in patient the same email once per replica.
+ *
+ * The no-Redis fallback used to be MySQL's `GET_LOCK`, and it could not work.
+ * `GET_LOCK` is scoped to the *connection*, and Prisma borrows connections from a
+ * pool. The lock was taken on one connection; the job ran while that connection
+ * held it; the connection then returned to the pool still holding the name; and
+ * `RELEASE_LOCK` on a different borrowed connection returned NULL, so the lock
+ * stayed held until the server restarted.
+ *
+ * The observable effect was not "the lock does not work" but something worse and
+ * less legible: `runCareCheckins` either ran on every replica or stopped running
+ * entirely, depending on which pooled connection the next query borrowed. Writing
+ * a test for the job was impossible for the same reason — the result depended on
+ * connection reuse. The old comment here admitted the fallback "cannot work as
+ * written" and the callers carried on treating the lock as an optimisation, which
+ * is how it survived that long.
+ *
+ * The fallback is now a row in `JobLock`. Acquisition is an `INSERT`, or an
+ * `UPDATE ... WHERE expiresAt <= now` on an existing row; both are atomic in the
+ * database, neither holds a connection open, and neither depends on a matching
+ * release call - expiry is data rather than a live session, so a crashed runner
+ * wedges the job for at most the TTL rather than until a restart.
  */
 export const acquireLock = async (key: string, ttlSeconds = 600): Promise<boolean> => {
     const redisKey = `lock:${key}`;
 
-    let client: RedisClient | null = null;
+    let client: RedisClient | null;
     try {
         client = await getClient();
     } catch {
@@ -192,23 +257,42 @@ export const acquireLock = async (key: string, ttlSeconds = 600): Promise<boolea
         }
     }
 
-    // No Redis: fall back to a MySQL named lock, which is scoped to the
-    // connection, so hold it on a dedicated connection for the job's duration
-    // is not possible here. `GET_LOCK` is used purely as a best-effort gate.
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
     try {
-        const rows = await prisma.$queryRawUnsafe<{ acquired: number }[]>(
-            "SELECT GET_LOCK(?, ?) AS acquired",
-            redisKey,
-            ttlSeconds
-        );
-        return rows[0]?.acquired === 1;
+        // Try the row first. `create` is atomic against the primary key, so two
+        // runners racing on a key that has never been used produce one winner and
+        // one unique-constraint violation, rather than two winners.
+        try {
+            await prisma.jobLock.create({ data: { key, expiresAt } });
+            return true;
+        } catch (err: any) {
+            // Already held by somebody. Fall through to the expiry check.
+            if (err?.code !== "P2002") throw err;
+        }
+
+        // The key exists. Take it only if the current lease has run out.
+        // `updateMany` with the expiry in the `where` is one atomic statement, so
+        // exactly one concurrent runner sees `count === 1`.
+        const taken = await prisma.jobLock.updateMany({
+            where: { key, expiresAt: { lte: new Date() } },
+            data: { expiresAt },
+        });
+        return taken.count === 1;
     } catch (err: any) {
         logger.error({ err: err.message, key }, "Unable to determine lock ownership — skipping run");
         return false;
     }
 };
 
-/** Releases a lock acquired via {@link acquireLock}. */
+/**
+ * Releases a lock acquired via {@link acquireLock}.
+ *
+ * Best-effort on the Redis path. The `JobLock` row is deliberately *not* deleted:
+ * releasing a job early would defeat the TTL the lock exists to provide, and a
+ * runner that crashes simply leaves the row to expire. Deleting it would also make
+ * the next acquisition a `create` again, which is a second code path for no
+ * benefit.
+ */
 export const releaseLock = async (key: string): Promise<void> => {
     const redisKey = `lock:${key}`;
     try {
@@ -216,10 +300,5 @@ export const releaseLock = async (key: string): Promise<void> => {
         if (c) await c.del(redisKey);
     } catch {
         // best-effort
-    }
-    try {
-        await prisma.$queryRawUnsafe("SELECT RELEASE_LOCK(?)", redisKey);
-    } catch {
-        // best-effort; the lock also expires on its own
     }
 };

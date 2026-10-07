@@ -1,5 +1,6 @@
 ﻿import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import { logger } from "../utils/logger";
 
 dotenv.config();
 
@@ -16,7 +17,33 @@ const esc = (v: unknown) =>
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
-let transporter: nodemailer.Transporter | null = null;
+// Scrub a value before it goes into a log entry.
+//
+// `to` and `subject` are user-controlled, and a log line is a format: a value
+// containing a newline forges a second line, and one containing an ANSI escape
+// sequence can retype the terminal of whoever is reading it. Neither is
+// hypothetical, and both are cheap to prevent.
+//
+// Truncated as well, because an unbounded user-controlled string in a log line is
+// a log-volume problem as well as a safety one.
+const forLog = (v: unknown): string => {
+    const raw = String(v ?? "");
+    // eslint-disable-next-line no-control-regex
+    const scrubbed = raw.replace(/[\r\n\u0000-\u001F\u007F]/g, " ");
+    return scrubbed.length > 200 ? `${scrubbed.slice(0, 200)}...` : scrubbed;
+};
+
+// `ReturnType<typeof createTransport>` rather than the old `nodemailer.Transporter`.
+//
+// nodemailer 10 removed the `Transporter` type and replaced it with a generic
+// `Mail<SentMessageInfo, Options>`: the return type now depends on which transport
+// you asked for, so there is no single `Transporter` name to reference. Deriving
+// the type from the function means this annotation is correct for whichever
+// transport is configured here, and it will not break again on the next major -
+// which is what upgrading to 10 to pick up the TLS servername advisory fix did.
+type Transporter = ReturnType<typeof nodemailer.createTransport>;
+
+let transporter: Transporter | null = null;
 let smtpConfigured = false;
 
 const getTransporter = () => {
@@ -55,7 +82,7 @@ export const checkMailerStatus = () => {
 };
 
 export const MailerService = {
-    async send(to: string, subject: string, html: string) {
+    async send(to: string, subject: string, html: string, devCode?: string) {
         const transport = getTransporter();
         if (!transport) {
             if (IS_PROD) {
@@ -66,8 +93,30 @@ export const MailerService = {
                         "Password reset and email verification are disabled."
                 );
             }
-            // Dev fallback: no SMTP configured — log the email body
-            console.log(`\n[MAIL:${to}] ${subject}\n${html.replace(/<[^>]+>/g, "")}\n`);
+            // Dev fallback: no SMTP configured. Log what a developer needs - the recipient,
+// the subject and the code - and nothing else.
+            //
+            // It used to log `html.replace(/<[^>]+>/g, "")`, and CodeQL found three
+            // separate problems on that one expression: the regex is not a
+            // sufficient HTML sanitiser (`<!--` survives it, so an HTML comment
+            // opener can still reach a log viewer that renders it), it is flagged
+            // as a polynomial expression over attacker-controlled input, and the
+            // `to` and `subject` beside it are user-controlled values written into
+            // a log entry, which is log injection - a crafted address containing a
+            // newline can forge a second log line.
+            //
+            // None of that is fixed by a better regular expression. The caller
+            // already knows the code, so it passes it, and the values written to
+            // the log are scrubbed of anything that could structure it.
+            logger.warn(
+                {
+                    to: forLog(to),
+                    subject: forLog(subject),
+                    devCode: devCode ? forLog(devCode) : undefined,
+                    devFallback: true,
+                },
+                "[MAIL] SMTP not configured; no message was sent. Code above, if any."
+            );
             return { devFallback: true };
         }
         return await transport.sendMail({

@@ -48,6 +48,20 @@ export interface RiskSignal {
     crisisPage: string;
     /** Present only when a clinician could actually be reached. */
     clinicianNotified: boolean;
+    /**
+     * False when the `RiskAlert` row could not be written.
+     *
+     * `clinicianNotified` and `recorded` are separate because they fail
+     * independently, and conflating them is how a disclosure ends up with no
+     * durable record while every caller believes it was handled. The failure that
+     * motivates this is a pool exhaustion during a crisis submission — exactly
+     * the moment the database is least likely to accept the write. The clinician
+     * was paged by notification, so `clinicianNotified` was true; the row was
+     * gone, so the audit trail said nothing.
+     */
+    recorded: boolean;
+    /** Id of the `RiskAlert` row, or null when it could not be written. */
+    alertId: number | null;
 }
 
 /**
@@ -85,14 +99,30 @@ export const raiseRiskAlert = async (input: {
     sourceType: string;
     sourceId?: number | null;
 }): Promise<RiskSignal> => {
-    const base: RiskSignal = {
+    // `clinicianNotified`, `recorded` and `alertId` are all resolved below. The
+    // base is the part that is true the moment the disclosure is recognised.
+    const base: Omit<RiskSignal, "clinicianNotified" | "recorded" | "alertId"> = {
         riskFlag: true,
         level: input.level,
         reason: input.reason,
         hotlines: CRISIS_HOTLINES,
         crisisPage: "/crisis",
-        clinicianNotified: false,
     };
+
+    // Resolved before the row is written, so `assignedDoctorUserId` can be set
+    // in the same insert. The clinician is looked up first deliberately: an
+    // alert that exists but is addressed to nobody is the failure this column
+    // was added to prevent, so the write and the addressing have to be one
+    // decision rather than two that can disagree.
+    const appointment = await prisma.appointment
+        .findFirst({
+            where: { userId: input.userId, status: { in: ["confirmed", "completed"] } },
+            orderBy: { appointmentDate: "desc" },
+            select: { doctor: { select: { userId: true, user: { select: { name: true } } } } },
+        })
+        .catch(() => null);
+
+    const assignedDoctorUserId = appointment?.doctor.userId ?? null;
 
     let alertId: number | null = null;
     try {
@@ -103,31 +133,31 @@ export const raiseRiskAlert = async (input: {
                 reason: input.reason,
                 sourceType: input.sourceType,
                 sourceId: input.sourceId ?? null,
+                assignedDoctorUserId,
             },
         });
         alertId = alert.id;
     } catch (err: any) {
         // The record is the audit trail; if it fails the escalation is still
-        // attempted, but the failure must be visible.
+        // attempted, but the failure must be visible - both in the log and in
+        // what the caller is told. Returning a shape that reads as success here
+        // is how a disclosure ends up with no durable trace.
         logger.error({ err: err.message, userId: input.userId }, "Failed to persist risk alert");
     }
 
-    const appointment = await prisma.appointment
-        .findFirst({
-            where: { userId: input.userId, status: { in: ["confirmed", "completed"] } },
-            orderBy: { appointmentDate: "desc" },
-            select: { doctor: { select: { userId: true, user: { select: { name: true } } } } },
-        })
-        .catch(() => null);
+    // Whether the durable record exists, as opposed to whether a human was
+    // pinged. Computed once, from the same source as `alertId`, so the two
+    // cannot disagree.
+    const recorded = alertId !== null;
 
     if (!appointment) {
         await AuditService.log({
             action: "risk.raised",
             actorId: input.userId,
-            meta: { level: input.level, sourceType: input.sourceType, clinicianNotified: false },
+            meta: { level: input.level, sourceType: input.sourceType, clinicianNotified: false, recorded },
         }).catch(() => {});
         logger.warn({ userId: input.userId, level: input.level }, "Risk disclosure with no assigned clinician");
-        return base;
+        return { ...base, clinicianNotified: false, recorded, alertId };
     }
 
     const doctorUserId = appointment.doctor.userId;
@@ -190,13 +220,26 @@ export const raiseRiskAlert = async (input: {
         })
     );
 
-    if (clinicianReached) {
+    // `alertId !== null` rather than `recorded`, because TypeScript narrows the
+    // null away and the `where` clause needs a `number`. The two are equivalent
+    // by construction - `recorded` is defined as that comparison - and the
+    // narrowing is worth more than the readability of reusing the flag.
+    if (clinicianReached && alertId !== null) {
         await prisma.riskAlert
-            .update({ where: { id: alertId! }, data: { notifiedDoctorUserId: doctorUserId } })
+            .update({ where: { id: alertId }, data: { notifiedDoctorUserId: doctorUserId } })
             .catch(() => null);
     }
 
-    return { ...base, clinicianNotified: clinicianReached };
+    if (!recorded) {
+        // Loud, and separate from the per-channel warnings above: this one means
+        // the disclosure has no durable record at all.
+        logger.error(
+            { userId: input.userId, level: input.level, clinicianReached },
+            "Risk disclosure escalated with no durable record: the RiskAlert row was not written"
+        );
+    }
+
+    return { ...base, clinicianNotified: clinicianReached, recorded, alertId };
 };
 
 export const NO_RISK: Omit<RiskSignal, "riskFlag"> = {
@@ -205,4 +248,6 @@ export const NO_RISK: Omit<RiskSignal, "riskFlag"> = {
     hotlines: CRISIS_HOTLINES,
     crisisPage: "/crisis",
     clinicianNotified: false,
+    recorded: true,
+    alertId: null,
 };

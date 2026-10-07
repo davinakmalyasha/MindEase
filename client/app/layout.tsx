@@ -1,4 +1,6 @@
-﻿import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
+import localFont from "next/font/local";
 import { cookies } from "next/headers";
 import ThemeProvider from "@/components/ui/ThemeProvider";
 import IntlProvider from "@/components/ui/IntlProvider";
@@ -17,23 +19,32 @@ import enMessages from "../messages/en.json";
 import idMessages from "../messages/id.json";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+// Self-hosted via `next/font/local`, not `next/font/google`.
+//
+// `next/font/google` downloads the font files at build time, which made the
+// build depend on reaching `fonts.googleapis.com`. That failed twice on a
+// transient network error - once in CI and once locally - and the error was
+// `Failed to fetch Geist from Google Fonts` / `Can't resolve
+// '@vercel/turbopack-next/internal/font/google/font'`, which reads like a broken
+// dependency rather than a flaky network and sent me looking in the wrong place
+// both times. A build that fails on someone else's connection is not a build.
+//
+// The files are committed under `app/fonts/` (SIL OFL 1.1); see the README there
+// and `scripts/fetch-fonts.js` to upgrade them. The font is a variable font, so
+// one file covers every weight the UI uses and `weight` is omitted.
+//
+// Only Plus Jakarta is declared. Geist Sans and Geist Mono were also declared
+// here, each registering a CSS variable that nothing applied - the body has only
+// ever carried `jakarta`'s - so both were downloaded and served to every visitor
+// and then never used. They were removed rather than applied, because wiring a
+// font into a design is a decision and deleting an unused one is not.
+const jakarta = localFont({
+  src: "./fonts/PlusJakartaSans-Variable.woff2",
+  display: "swap",
+  variable: "--font-jakarta",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ['300', '400', '500', '600', '700', '800'],
-  variable: '--font-jakarta',
-});
-
-export const metadata = {
+export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://mindease.app"),
   title: {
     default: "MindEase - Mental Health Consultation Platform",
@@ -55,14 +66,33 @@ export const metadata = {
   robots: { index: true, follow: true },
 };
 
-export default async function RootLayout({ children }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
   const cookieStore = await cookies();
   const locale = cookieStore.get("locale")?.value === "id" ? "id" : "en";
   const messages = locale === "id" ? idMessages : enMessages;
 
   return (
-    <html lang={locale} className="scroll-smooth">
-      <body className={`${jakarta.className} ${jakarta.variable}`} suppressHydrationWarning>
+    // `suppressHydrationWarning` belongs on <html>, not on <body>.
+    //
+    // `ThemeProvider` is next-themes with `attribute="class"`, and next-themes
+    // runs a blocking inline script before hydration that writes `light` or
+    // `dark` onto the <html> element (plus `color-scheme`) so the page does not
+    // flash the wrong theme. The server cannot know which, because it cannot read
+    // the stored preference. So the server renders `class="scroll-smooth"` and
+    // the browser finds `class="scroll-smooth light"`.
+    //
+    // That is the mismatch React warns about on every page in development, and
+    // it had `suppressHydrationWarning` on <body> instead, where it does
+    // nothing - it only suppresses mismatches on the element it is written on,
+    // and the mismatch is one level up.
+    //
+    // It was not cosmetic. On a hard hydration failure React discards the server
+    // tree and rebuilds on the client, and on /login that happened before the
+    // form's submit handler was attached. The form then fell back to a native
+    // GET, which put the password into the URL - and into browser history, proxy
+    // logs and any Referer header - on a page that looked like it had worked.
+    <html lang={locale} className="scroll-smooth" suppressHydrationWarning>
+      <body className={`${jakarta.className} ${jakarta.variable}`}>
         <IntlProvider locale={locale} messages={messages}>
           <ThemeProvider>
             <AuthProvider>

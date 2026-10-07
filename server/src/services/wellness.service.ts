@@ -2,6 +2,8 @@ import { prisma } from "../lib/prisma";
 import { AIService } from "./ai.service";
 import { detectAssessmentRisk, raiseRiskAlert, NO_RISK } from "./clinicalSafety.service";
 import { dayKey, resolveTimezone, shiftDayKey, startOfZonedDay, todayKey } from "../lib/date";
+import { badRequest, notFound } from "../utils/appError";
+import { sanitize } from "../utils/sanitize";
 
 export const MOOD_FACTORS = ["sleep", "exercise", "social", "work", "stress"] as const;
 export type MoodFactor = (typeof MOOD_FACTORS)[number];
@@ -12,6 +14,59 @@ export type AssessmentType = (typeof ASSESSMENT_TYPES)[number];
 export const ASSESSMENT_QUESTION_COUNTS: Record<AssessmentType, number> = {
     phq9: 9,
     gad7: 7,
+};
+
+/**
+ * The two instruments, described once.
+ *
+ * Both are self-report *screening* instruments. They indicate whether further
+ * assessment is warranted; they do not diagnose, and the product must not
+ * present them as though they do. `max` is the instrument's own top score -
+ * they differ, which is exactly why both instruments can never share an axis.
+ *
+ * Sourced here rather than in the client so a chart cannot quietly disagree
+ * with the server about where a band starts.
+ */
+export const INSTRUMENTS: Record<
+    AssessmentType,
+    { label: string; max: number; bands: { upTo: number; severity: string }[] }
+> = {
+    phq9: {
+        label: "PHQ-9",
+        max: 27,
+        bands: [
+            { upTo: 4, severity: "minimal" },
+            { upTo: 9, severity: "mild" },
+            { upTo: 14, severity: "moderate" },
+            { upTo: 19, severity: "moderately-severe" },
+            { upTo: 27, severity: "severe" },
+        ],
+    },
+    gad7: {
+        label: "GAD-7",
+        max: 21,
+        bands: [
+            { upTo: 4, severity: "minimal" },
+            { upTo: 9, severity: "mild" },
+            { upTo: 14, severity: "moderate" },
+            { upTo: 21, severity: "severe" },
+        ],
+    },
+};
+
+/**
+ * "Fewer than three sittings" is the honest answer for anything shorter.
+ * A single sitting is not a trend, and a two-point difference between two
+ * measurements is inside the noise of a self-report instrument.
+ */
+const describeDirection = (
+    totalChange: number | null,
+    sittings: number
+): "improving" | "worsening" | "stable" | "insufficient-data" => {
+    if (totalChange === null || sittings < 3) return "insufficient-data";
+    if (totalChange <= -3) return "improving";
+    if (totalChange >= 3) return "worsening";
+    return "stable";
 };
 
 const severityFor = (type: AssessmentType, score: number): string => {
@@ -40,12 +95,17 @@ const parseFactors = (raw: string | null): MoodFactor[] => {
 
 export class WellnessService {
     static async logMood(userId: number, mood: number, notes?: string, factors?: string[]) {
-        if (mood < 1 || mood > 5) throw new Error("Mood must be between 1 and 5.");
+        if (mood < 1 || mood > 5) throw badRequest("Mood must be between 1 and 5.");
 
         const validFactors = (factors || []).filter((f) => (MOOD_FACTORS as readonly string[]).includes(f));
+        // Sanitised on the way in, like every other free-text field in the
+        // codebase. These notes are the patient writing about their own mental
+        // state, they are surfaced verbatim in the clinician pre-session
+        // briefing and in the AI briefing prompt, and nothing was stripping
+        // markup from them.
         const data = {
             mood,
-            notes,
+            notes: notes ? sanitize(notes) : null,
             factors: validFactors.length ? JSON.stringify(validFactors) : null,
         };
 
@@ -60,11 +120,24 @@ export class WellnessService {
         const timezone = await this.getUserTimezone(userId);
         const moodDate = todayKey(timezone);
 
-        return await prisma.moodEntry.upsert({
+        // Read-before-upsert purely to tell the caller whether it created or
+        // replaced today's entry. The unique constraint is what actually
+        // guarantees the invariant; this pre-read is a display hint and a lost
+        // race only ever mislabels the toast, never duplicates a row.
+        const existing = await prisma.moodEntry.findUnique({
+            where: { userId_moodDate: { userId, moodDate } },
+            select: { id: true },
+        });
+
+        const entry = await prisma.moodEntry.upsert({
             where: { userId_moodDate: { userId, moodDate } },
             create: { userId, moodDate, ...data },
             update: data,
         });
+
+        // Surfaced so the UI can be honest about the fact that a same-day
+        // re-log overwrites the earlier entry instead of silently discarding it.
+        return { ...entry, replaced: existing !== null };
     }
 
     static async getMoodHistory(userId: number, days = 14) {
@@ -180,23 +253,23 @@ export class WellnessService {
 
     static async createJournalEntry(userId: number, content: string) {
         return await prisma.journalEntry.create({
-            data: { userId, content },
+            data: { userId, content: sanitize(content) },
         });
     }
 
     // Owner-checked edit/delete for journal entries
     static async updateJournalEntry(userId: number, entryId: number, content: string) {
         const entry = await prisma.journalEntry.findUnique({ where: { id: entryId } });
-        if (!entry || entry.userId !== userId) throw new Error("Journal entry not found");
+        if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         return await prisma.journalEntry.update({
             where: { id: entryId },
-            data: { content },
+            data: { content: sanitize(content) },
         });
     }
 
     static async deleteJournalEntry(userId: number, entryId: number) {
         const entry = await prisma.journalEntry.findUnique({ where: { id: entryId } });
-        if (!entry || entry.userId !== userId) throw new Error("Journal entry not found");
+        if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         await prisma.journalEntry.delete({ where: { id: entryId } });
         return { success: true };
     }
@@ -223,19 +296,23 @@ export class WellnessService {
             new Date(entries[0].createdAt)
         );
 
-        return { summary, count: entries.length };
+        return {
+            summary: summary.data,
+            count: entries.length,
+            ai: { source: summary.source, degradedReason: summary.degradedReason },
+        };
     }
 
     static async submitAssessment(userId: number, type: string, answers: number[]) {
         if (!(ASSESSMENT_TYPES as readonly string[]).includes(type)) {
-            throw new Error("Assessment type must be phq9 or gad7");
+            throw badRequest("Assessment type must be phq9 or gad7");
         }
         const questionCount = ASSESSMENT_QUESTION_COUNTS[type as AssessmentType];
         if (!Array.isArray(answers) || answers.length !== questionCount) {
-            throw new Error(`Assessment requires exactly ${questionCount} answers`);
+            throw badRequest(`Assessment requires exactly ${questionCount} answers`);
         }
         if (!answers.every((a) => Number.isInteger(a) && a >= 0 && a <= 3)) {
-            throw new Error("Each answer must be an integer between 0 and 3");
+            throw badRequest("Each answer must be an integer between 0 and 3");
         }
 
         const score = answers.reduce((s, a) => s + a, 0);
@@ -285,6 +362,80 @@ export class WellnessService {
             orderBy: { createdAt: "desc" },
             take: Math.min(limit, 100),
         });
+    }
+
+    /**
+     * A scored series for one instrument, oldest first, with the change since
+     * the previous sitting.
+     *
+     * The clinical framing belongs here, not in the chart. A screening
+     * instrument moving from 18 to 11 is a change in a *screening score*, and
+     * the response says so explicitly rather than reporting "an 7-point
+     * improvement", which reads as a treatment effect. PHQ-9 and GAD-7 are
+     * screening tools; they are not diagnoses, and a trend line is not
+     * evidence of recovery.
+     *
+     * `bands` travels with the data so a client cannot invent its own cut-offs
+     * and get them subtly wrong per instrument - the two scales differ, and
+     * both are already wrong in most client code that hardcodes them.
+     */
+    static async getAssessmentTrajectory(userId: number, type: AssessmentType, limit = 24) {
+        // Newest first, then reversed.
+        //
+        // The previous query was `orderBy: { createdAt: "asc" }, take: limit`. MySQL
+        // applies LIMIT *after* ORDER BY, so the window was the *beginning* of the
+        // screening history: once a patient had more than `limit` sittings, the
+        // oldest ones were kept and the newest discarded.
+        //
+        // That is a clinical bug, not a display one. `summary.latest` is rendered
+        // by the client as "Latest score", and `summary.direction` as the
+        // improving / stable / worsening verdict - so a patient whose PHQ-9 had
+        // risen sharply was shown a permanently frozen verdict derived from their
+        // *earliest* sittings, while `GET /api/wellness/assessments` on the very
+        // same screen showed the real current score.
+        //
+        // Taking the newest N and reversing gives ascending order for the
+        // `changeFromPrevious` arithmetic below while keeping the window anchored
+        // to the present. `getAssessments` at line 362 already ordered `desc` for
+        // exactly this reason.
+        const newest = await prisma.assessment.findMany({
+            where: { userId, type },
+            orderBy: { createdAt: "desc" },
+            take: Math.min(limit, 100),
+            select: { id: true, score: true, severity: true, createdAt: true },
+        });
+        const rows = [...newest].reverse();
+
+        const points = rows.map((row, i) => ({
+            id: row.id,
+            score: row.score,
+            severity: row.severity,
+            createdAt: row.createdAt,
+            // Negative means the score fell, which is the direction these scales
+            // move in when symptoms ease. Named rather than left as a signed
+            // number so a client cannot render it as an increase in severity.
+            changeFromPrevious: i === 0 ? null : row.score - rows[i - 1].score,
+        }));
+
+        const first = points[0]?.score ?? null;
+        const last = points[points.length - 1]?.score ?? null;
+        const totalChange = first !== null && last !== null ? last - first : null;
+
+        return {
+            type,
+            instrument: INSTRUMENTS[type],
+            points,
+            summary: {
+                sittings: points.length,
+                first,
+                latest: last,
+                totalChange,
+                // Null rather than "stable" when there is not enough data. A
+                // single sitting is not a trend, and calling it stable would be
+                // a claim about a person made from one data point.
+                direction: describeDirection(totalChange, points.length),
+            },
+        };
     }
 
     static async getLatestAssessments(userId: number) {

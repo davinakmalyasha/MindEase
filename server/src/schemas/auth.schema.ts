@@ -20,16 +20,11 @@ export const passwordRules = z
     .regex(/[0-9]/, "Password must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character");
 
-/**
- * The inner shape of a MySQL INT primary key path parameter. Rejects `NaN`,
- * zero, negatives and junk strings.
- */
-export const idObject = z.object({
-    id: z.coerce.number().int().positive("Invalid id").max(2_147_483_647, "Invalid id"),
-});
+import { idObject, idParam } from "./params.schema";
 
-/** Route-level schema for a path that is only an `:id`. */
-export const idParam = z.object({ params: idObject });
+// Re-exported so existing imports keep working; the definitions now live in one
+// place rather than being duplicated per schema file.
+export { idObject, idParam };
 
 export const RegisterSchema = z.object({
     body: z
@@ -131,6 +126,27 @@ export const TwoFactorCodeSchema = z.object({
         .strict(),
 });
 
+/**
+ * Starting two-factor enrolment is a privilege change, not a read.
+ *
+ * This route had no schema at all and the controller dropped the body, so a
+ * stolen access token could enrol an attacker's own authenticator and then lock
+ * the real user out of their treatment records. It now carries the same
+ * confirmation `disable` does.
+ *
+ * The password is optional rather than required because a Google-only account
+ * has none. Which accounts those are is decided by `provider` inside
+ * `generateSecret`, not by whether the stored hash happens to be null - and it
+ * fails closed, so an unrecognised provider is confirmed rather than exempt.
+ */
+export const TwoFactorSetupSchema = z.object({
+    body: z
+        .object({
+            password: z.string().min(1, "Password confirmation is required").max(200).optional(),
+        })
+        .strict(),
+});
+
 /** Disabling 2FA is the most sensitive self-service action on the account. */
 export const TwoFactorDisableSchema = z.object({
     body: z
@@ -151,14 +167,6 @@ export const DeleteAccountSchema = z.object({
         .strict(),
 });
 
-export const RescheduleSchema = z.object({
-    body: z
-        .object({
-            appointmentDate: z.string().min(1, "Date is required").max(40),
-            startTime: z.string().min(1, "Start time is required").max(10),
-            endTime: z.string().min(1, "End time is required").max(10),
-            slotId: z.coerce.number().int().positive().optional(),
-        })
-        .strict(),
-    params: idObject,
-});
+// `RescheduleSchema` now lives in `appointment.schema.ts` alongside the other
+// appointment bodies, so the `HH:mm` and `YYYY-MM-DD` rules are defined once.
+

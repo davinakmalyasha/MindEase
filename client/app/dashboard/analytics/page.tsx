@@ -1,13 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
-import { BarChart3, Wallet, TrendingDown, HeartPulse, CalendarCheck2, Star } from "lucide-react";
+import { BarChart3, Wallet, TrendingDown, HeartPulse, CalendarCheck2, Star, ShieldAlert } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import Spinner from "@/components/ui/Spinner";
-import api, { getErrorMessage } from "@/lib/api";
-import { useToast } from "@/components/ui/Toast";
+import { useDoctorAnalytics } from "@/hooks/queries/useDoctorsQuery";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -21,28 +18,54 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 export default function AnalyticsPage() {
     const t = useTranslations("features.analytics");
     const { user } = useAuth();
-    const { toast } = useToast();
-    const [data, setData] = useState<any>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const isDoctor = user?.role === "doctor";
 
-    useEffect(() => {
-        api.get("/doctors/analytics")
-            .then((res) => setData(res.data?.data))
-            .catch((err) => toast(getErrorMessage(err, "Failed to load analytics"), "error"))
-            .finally(() => setIsLoading(false));
-    }, [toast]);
+    // The role check has to gate the request, not just the render. This page
+    // used to fire a doctor-only request before checking the role, so a patient
+    // or admin who typed the URL got a 403 toast and then an infinite skeleton.
+    const { data, isLoading, isError, refetch } = useDoctorAnalytics(Boolean(isDoctor));
 
-    if (!user || user.role !== "doctor") {
+    if (!user) {
         return <DashboardLayout><div className="h-40 bg-gray-50 rounded-3xl animate-pulse" /></DashboardLayout>;
     }
 
-    if (isLoading || !data) {
+    if (!isDoctor) {
+        return (
+            <DashboardLayout>
+                <div className="rounded-3xl border border-amber-100 bg-amber-50 p-10 text-center">
+                    <ShieldAlert className="mx-auto mb-4 h-10 w-10 text-amber-500" />
+                    <h2 className="text-lg font-extrabold text-gray-900">Clinicians only</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                        Practice analytics are available to psychologist accounts.
+                    </p>
+                </div>
+            </DashboardLayout>
+        );
+    }
+
+    if (isLoading) {
         return (
             <DashboardLayout>
                 <div className="grid lg:grid-cols-3 gap-6">
                     {[1, 2, 3].map((i) => (
                         <div key={i} className="h-40 bg-white border border-gray-100 rounded-3xl animate-pulse" />
                     ))}
+                </div>
+            </DashboardLayout>
+        );
+    }
+
+    if (isError || !data) {
+        return (
+            <DashboardLayout>
+                <div className="rounded-3xl border border-gray-100 bg-white p-10 text-center">
+                    <p className="text-sm text-gray-600">Analytics are not available right now.</p>
+                    <button
+                        onClick={() => refetch()}
+                        className="mt-4 rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-indigo-700"
+                    >
+                        Try again
+                    </button>
                 </div>
             </DashboardLayout>
         );

@@ -9,22 +9,13 @@ import {
     PASSWORD,
 } from "./helpers";
 import { prisma } from "../src/app";
+import { DEFAULT_TIMEZONE } from "../src/lib/date";
 
 const futureDate = (days = 3) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     return d.toISOString().split("T")[0];
 };
-
-/**
- * A `YYYY-MM-DD` calendar day read in the host's own zone.
- *
- * Deriving the day from `toISOString()` (UTC) while pairing it with a
- * wall-clock time taken from `getHours()` (local) mixes two zones, and near
- * midnight the resulting day and time can disagree by 24 hours.
- */
-const localDay = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const bookFor = async (patient: any, doctor: any, extra: Record<string, any> = {}) => {
     return patient.agent
@@ -46,6 +37,194 @@ const confirmAppointment = async (appId: number, doctor: any) => {
         .set("X-CSRF-Token", doctor.csrf)
         .send({ status: "confirmed" });
 };
+
+/**
+ * A consultation window that starts shortly from now and stays on one calendar
+ * day, expressed in the timezone the *server* reads it in.
+ *
+ * ## Why the timezone has to be the server's, not the host's
+ *
+ * `startTime`/`endTime` are wall-clock `HH:mm` strings paired with a single
+ * `appointmentDate`. `AppointmentService.createAppointment` deliberately
+ * interprets them in the *booker's* timezone, falling back to `DEFAULT_TIMEZONE`
+ * (`Asia/Jakarta`) when the user has not set one - see the comment above the
+ * past-booking check in `appointment.service.ts`. Building the window with the
+ * host's `getHours()` therefore only works when the host happens to sit in the
+ * same zone as the default. It did not:
+ *
+ *     host Asia/Bangkok (UTC+7)   window built as 13:51 -> read as 13:51 WIB -> ok
+ *     host UTC (CI)               window built as 06:51 -> read as 06:51 WIB
+ *                                 = 23:51 *yesterday* -> "Cannot book
+ *                                 appointments in the past"
+ *
+ * So the suite was green on a developer machine in WIB and red in CI, for a
+ * reason that had nothing to do with what the test checks. This reads the clock
+ * in the server's zone directly, which makes it correct on any host.
+ *
+ * The day-wrap hazard is handled too: a window computed as "now + 70 minutes"
+ * crosses local midnight at 23:10, producing start "23:20" against end "00:20",
+ * which the API correctly rejects as `start >= end`. The end is clamped to the
+ * last minute of the same day.
+ */
+/**
+ * The booking window for a given wall-clock minute, as minutes since midnight.
+ *
+ * Extracted rather than inlined so the arithmetic test below can call it with
+ * 1440 different values of "now". It used to *re-derive* the same formula, which
+ * is how the test missed the bug it exists to prevent: a copy of a formula stays
+ * behind when the formula changes, and then agrees with nothing.
+ *
+ * ## The two constraints, which pull in opposite directions at night
+ *
+ * The suite needs an appointment that can be booked *and* joined:
+ *
+ *   - booking refuses a start that is in the past;
+ *   - the room opens 15 minutes before the start, so the start must be no more
+ *     than 15 minutes away for `join` to answer 200.
+ *
+ * So the start has to sit in `[now - 1, now + 15]`, and `endTime` carries no
+ * date, so the end has to stay on the same calendar day.
+ *
+ * Late in the evening that has no solution: from 23:00 there is no same-day
+ * window whose start is still ahead. The first version clamped the start to
+ * 23:00 and clamped only the end, so between 23:00 and midnight it produced an
+ * appointment starting in the *past* — 400 at booking, roughly 4% of runs, on a
+ * test about consultation rooms.
+ *
+ * From 23:45 the next day's midnight is the answer: it is in the future, and its
+ * room already opened at 23:45 today, so the join still works.
+ */
+const windowFor = (nowMinutes: number) => {
+    const DAY_END = 23 * 60 + 59;
+    const ROOM_OPENS_EARLY = 15;
+
+    if (nowMinutes >= DAY_END - ROOM_OPENS_EARLY + 1) {
+        return { startMinutes: 0, endMinutes: 30, nextDay: true };
+    }
+
+    const startMinutes = Math.min(nowMinutes + 10, DAY_END - 1);
+    const endMinutes = Math.min(startMinutes + 60, DAY_END);
+    return { startMinutes, endMinutes, nextDay: false };
+};
+
+const imminentWindow = () => {
+    const zone = DEFAULT_TIMEZONE;
+    // Read "now" as wall-clock parts in `zone`, so the arithmetic below is done
+    // on the same clock the server will read the result back on.
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: zone,
+        hour12: false,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).formatToParts(new Date());
+    const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    const hour = get("hour") % 24; // en-GB renders midnight as 24
+    const minute = get("minute");
+
+    // Minutes since midnight in the server's zone.
+    const nowMinutes = hour * 60 + minute;
+
+    const { startMinutes, endMinutes, nextDay } = windowFor(nowMinutes);
+
+    // The date rolls forward with the window. Built from the wall-clock parts as
+    // a UTC date, so only the Y/M/D is read and the timezone of the temporary
+    // `Date` cannot shift the day by one.
+    const base = new Date(Date.UTC(year, month - 1, day + (nextDay ? 1 : 0)));
+    const date = base.toISOString().slice(0, 10);
+    const hhmm = (m: number) =>
+        `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+    return { date, startTime: hhmm(startMinutes), endTime: hhmm(endMinutes) };
+};
+
+/**
+ * The room-window helper, checked across a whole day.
+ *
+ * ## Two flakes this has had, and why the second one survived the first fix
+ *
+ * The first: the start was `now + 10 minutes` with only the *end* clamped, so a
+ * run starting in the last ten minutes of the day produced `startTime: "24:03"`,
+ * which the `hhmm` schema rejects. Ten minutes out of 1440, about 0.7% of runs.
+ *
+ * The fix for that clamped the start to 23:00 and the end to 23:59, which
+ * introduced a second: between 23:00 and midnight the clamped start is in the
+ * *past*, so booking returned 400 for about 4% of runs. It looked like an
+ * unrelated failure in a test about consultation rooms, and it hit CI at 23:38
+ * Asia/Jakarta.
+ *
+ * That one survived because this test re-derived the arithmetic instead of
+ * calling it, and only asserted the *join* constraint - that the room is already
+ * open. It never asserted the *booking* constraint, that the start is still
+ * ahead. A copy of a formula is a copy of its bugs, and half the invariants is
+ * half the coverage.
+ *
+ * So: it calls `windowFor` now, and it checks both directions. The constraints
+ * genuinely conflict at night, which is the whole difficulty - the start must be
+ * in the future (booking) and no more than 15 minutes away (the room is open),
+ * while the end must stay on the same calendar day.
+ */
+describe("imminentWindow arithmetic", () => {
+    const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const ROOM_OPENS_EARLY = 15;
+
+    it("produces a schema-valid, ordered window at every minute of the day", () => {
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { startMinutes, endMinutes } = windowFor(nowMinutes);
+            const hhmm = (m: number) =>
+                `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+            const start = hhmm(startMinutes);
+            const end = hhmm(endMinutes);
+
+            expect(HHMM.test(start), `start ${start} at minute ${nowMinutes}`).toBe(true);
+            expect(HHMM.test(end), `end ${end} at minute ${nowMinutes}`).toBe(true);
+            expect(endMinutes, `end before start at minute ${nowMinutes}`).toBeGreaterThanOrEqual(
+                startMinutes
+            );
+        }
+    });
+
+    it("is bookable at every minute: the start is never in the past", () => {
+        // The constraint the first version of this test did not check, and the
+        // one that failed for a sixtieth of the day.
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { startMinutes, nextDay } = windowFor(nowMinutes);
+            // A next-day window starts 1440 minutes after midnight of today.
+            const startRelativeToNow = nextDay ? 1440 + startMinutes : startMinutes;
+            expect(
+                startRelativeToNow,
+                `start is ${startMinutes} with now=${nowMinutes}`
+            ).toBeGreaterThanOrEqual(nowMinutes);
+        }
+    });
+
+    it("is joinable at every minute: the room is already open", () => {
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { startMinutes, nextDay } = windowFor(nowMinutes);
+            const startRelativeToNow = nextDay ? 1440 + startMinutes : startMinutes;
+            expect(
+                nowMinutes,
+                `room not open yet with now=${nowMinutes}, start=${startMinutes}`
+            ).toBeGreaterThanOrEqual(startRelativeToNow - ROOM_OPENS_EARLY);
+        }
+    });
+
+    it("keeps the window on one calendar day", () => {
+        // `endTime` carries no date, so an end that overflowed midnight would be
+        // read back as an end *before* the start.
+        for (let nowMinutes = 0; nowMinutes < 24 * 60; nowMinutes += 1) {
+            const { endMinutes } = windowFor(nowMinutes);
+            expect(endMinutes, `end ${endMinutes} past midnight`).toBeLessThanOrEqual(23 * 60 + 59);
+        }
+    });
+});
 
 describe("Journal", () => {
     it("creates, lists and summarizes journal entries", async () => {
@@ -243,26 +422,38 @@ describe("Consultation rooms (video/voice join)", () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();
 
-        const start = new Date(Date.now() + 10 * 60000);
-        const end = new Date(Date.now() + 70 * 60000);
-        const fmt = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        const win = imminentWindow();
 
         const book = await patient.agent
             .post("/api/appointments/book")
             .set("X-CSRF-Token", patient.csrf)
             .send({
                 doctorId: doctor.doctorId,
-                appointmentDate: localDay(start),
-                startTime: fmt(start),
-                endTime: fmt(end),
+                appointmentDate: win.date,
+                startTime: win.startTime,
+                endTime: win.endTime,
                 consultationType: "voice",
             });
+        expect(book.status).toBe(201);
         const appId = book.body.data.id;
         await confirmAppointment(appId, doctor);
 
         const join = await patient.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", patient.csrf);
         expect(join.status).toBe(200);
-        expect(join.body.data.meetingLink).toContain("meet.jit.si");
+        // LiveKit, because that is what the suite is configured with and what
+        // production runs. This asserts the whole grant contract on the HTTP
+        // path: a provider, an opaque room name, and a short-lived token. The
+        // previous assertion (`meetingLink` contains "meet.jit.si") only ever
+        // exercised the unauthenticated fallback, so the token-minting branch of
+        // `joinRoom` had no HTTP coverage at all.
+        expect(join.body.data.provider).toBe("livekit");
+        expect(join.body.data.degraded).toBe(false);
+        expect(join.body.data.room).toBeTruthy();
+        expect(join.body.data.token).toBeTruthy();
+        // The room is not a URL. A URL here would mean the public provider is
+        // still being used under a livekit configuration.
+        expect(join.body.data.room).not.toContain("http");
+        expect(join.body.data.meetingLink).toBeNull();
         expect(join.body.data.consultationType).toBe("voice");
 
         const doctorJoin = await doctor.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", doctor.csrf);
@@ -279,6 +470,50 @@ describe("Consultation rooms (video/voice join)", () => {
 
         const res = await stranger.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", stranger.csrf);
         expect(res.status).toBe(403);
+    });
+
+    it("puts both participants in one room when they join at the same moment", async () => {
+        // The seed decides the room name and is minted on first join, so two
+        // participants arriving together is exactly the case that decides
+        // whether they share a room. Both used to read `roomSeed: null`, both
+        // generate a different seed, and both write - the loser keeping its own
+        // value, so each was issued a token for a room the other was not in. It
+        // presents as "the other person never joined".
+        //
+        // The status is set directly rather than through the confirm endpoint,
+        // because that endpoint mints the seed itself and would mask the race.
+        // This is the pre-existing state the comment in `joinRoom` describes: an
+        // appointment that is confirmed with no seed yet.
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        const win = imminentWindow();
+
+        const book = await patient.agent
+            .post("/api/appointments/book")
+            .set("X-CSRF-Token", patient.csrf)
+            .send({
+                doctorId: doctor.doctorId,
+                appointmentDate: win.date,
+                startTime: win.startTime,
+                endTime: win.endTime,
+                consultationType: "voice",
+            });
+        const appId = book.body.data.id;
+        await prisma.appointment.update({
+            where: { id: appId },
+            data: { status: "confirmed", roomSeed: null },
+        });
+
+        const [a, b] = await Promise.all([
+            patient.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", patient.csrf),
+            doctor.agent.post(`/api/appointments/${appId}/join`).set("X-CSRF-Token", doctor.csrf),
+        ]);
+
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
+        expect(a.body.data.room, "the two participants were sent to different rooms").toBe(
+            b.body.data.room
+        );
     });
 
     it("rejects joining outside the window with a friendly message", async () => {
@@ -573,7 +808,9 @@ describe("Rebook assist", () => {
 
 describe("AI doctor matching", () => {
     it("matches doctors from a natural-language query (fallback mode)", async () => {
-        const doctor = await createDoctor();
+        // Seed a doctor so the directory is not empty; the fallback matcher
+        // scores against real profiles rather than returning a fixed list.
+        await createDoctor();
         const patient = await createUser("patient");
         const res = await patient.agent
             .post("/api/ai/match-doctors")

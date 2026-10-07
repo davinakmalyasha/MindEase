@@ -5,7 +5,7 @@ import { CalendarClock, Loader2, Check } from "lucide-react";
 import Dialog from "@/components/ui/Dialog";
 import DatePicker from "@/components/appointments/DatePicker";
 import { cn } from "@/lib/utils";
-import { formatDate, formatTimeRange } from "@/lib/format";
+import { formatDate, formatTimeRange, localDayKey } from "@/lib/format";
 import { useDoctorSlots } from "@/hooks/queries/useDoctorsQuery";
 import { useRescheduleAppointment } from "@/hooks/queries/useAppointmentsQuery";
 
@@ -63,14 +63,13 @@ export default function RescheduleModal({ appointment, onClose }: RescheduleModa
 
     const submit = async () => {
         if (!selectedDate || !selectedSlot) return;
-        const dateKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(
-            2,
-            "0"
-        )}-${String(selectedDate.getDate()).padStart(2, "0")}`;
         try {
             await rescheduleMutation.mutateAsync({
                 id: appointment.id,
-                appointmentDate: dateKey,
+                // Shared helper rather than a hand-rolled key: this is the same
+                // calendar day the doctor view groups by, and BookingModal now
+                // derives it the same way.
+                appointmentDate: localDayKey(selectedDate),
                 startTime: selectedSlot.startTime,
                 endTime: selectedSlot.endTime,
                 slotId: selectedSlot.id,

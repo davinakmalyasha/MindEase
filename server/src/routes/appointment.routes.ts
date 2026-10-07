@@ -3,7 +3,7 @@ import { AppointmentController } from "../controllers/appointment.controller";
 import { authenticate } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { BookAppointmentSchema, UpdateStatusSchema } from "../schemas/appointment.schema";
-import { RescheduleSchema } from "../schemas/auth.schema";
+import { RescheduleSchema } from "../schemas/appointment.schema";
 
 const router = Router();
 
