@@ -101,7 +101,7 @@ Numbers measured from the tree, not estimated.
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
 | **126** | API routes · **28** Prisma models · **17** migrations |
 | **499** | server tests across 40 files, against a real MySQL and real Argon2 |
-| **49** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
+| **52** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -171,7 +171,7 @@ MindEase/
 │  ├─ hooks/queries/    TanStack Query — the house data-fetching pattern
 │  ├─ messages/         en.json and id.json, kept in parity by a test
 │  ├─ e2e/              12 Playwright journeys
-│  └─ tests/            46 unit tests
+│  └─ tests/            52 unit tests
 ├─ server-realtime/     Go WebSocket hub. 31 tests with -race.
 ├─ docs/                architecture, data model, operations, testing, roadmap
 │  ├─ adr/              four records of decisions and what was rejected

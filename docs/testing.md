@@ -11,7 +11,7 @@ what it costs.
 |---|---|---|---|
 | **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 499 tests, 40 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
-| **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 49 tests, 7 files |
+| **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
 Counts are from `npx vitest list --run`, `go test -list` and the Vitest client
 run, not from prose elsewhere in the repository. If they disagree with a README
@@ -297,7 +297,7 @@ The local Go toolchain and the cached build cache can disagree (`compile: versio
 
 ```bash
 cd client
-npm test          # Vitest + jsdom, 49 tests in 7 files
+npm test          # Vitest + jsdom, 52 tests in 8 files
 npm run lint
 npm run build
 ```

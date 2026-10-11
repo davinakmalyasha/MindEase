@@ -1,0 +1,34 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - link "Back to Home" [ref=f4e3] [cursor=pointer]:
+      - /url: /
+    - generic [ref=f4e6]:
+      - heading "Create Account" [level=2] [ref=f4e7]
+      - paragraph [ref=f4e8]: Join MindEase to start your wellness journey
+      - generic [ref=f4e9]:
+        - generic [ref=f4e10]:
+          - generic [ref=f4e11]: Full Name
+          - textbox "Full Name" [ref=f4e12]
+        - generic [ref=f4e13]:
+          - generic [ref=f4e14]: Email
+          - textbox "Email" [ref=f4e15]
+        - generic [ref=f4e16]:
+          - generic [ref=f4e17]: Phone (WhatsApp)
+          - textbox "Phone (WhatsApp)" [ref=f4e18]:
+            - /placeholder: "+6281234567890"
+        - generic [ref=f4e19]:
+          - generic [ref=f4e20]: Password
+          - textbox "Password" [ref=f4e21]
+          - paragraph [ref=f4e22]: 8+ characters with uppercase, number & special character
+        - generic [ref=f4e23]:
+          - generic [ref=f4e24]: I want to join as
+          - generic [ref=f4e25]:
+            - button "patient" [ref=f4e26] [cursor=pointer]
+            - button "doctor" [ref=f4e27] [cursor=pointer]
+        - button "Create Account" [ref=f4e28] [cursor=pointer]
+      - paragraph [ref=f4e29]:
+        - text: Already have an account?
+        - link "Sign In" [ref=f4e30] [cursor=pointer]:
+          - /url: /login
+  - button "Open support chat" [ref=f4e31] [cursor=pointer]
+  - status

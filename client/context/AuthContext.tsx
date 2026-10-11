@@ -64,6 +64,18 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const STORAGE_KEY = "mindease:user";
 
+/**
+ * Paths that need a session, mirroring the matcher in `proxy.ts`.
+ *
+ * Used to decide whether a dead session warrants a redirect. The server-side
+ * proxy already refuses these routes without a valid cookie; this is the
+ * client's equivalent, and it is deliberately the *protected* list rather than a
+ * list of public pages - a new protected page that someone forgets to add here
+ * behaves as it did before, while a new public page is not accidentally treated
+ * as needing a session.
+ */
+const PROTECTED_PREFIXES = ["/dashboard", "/messages", "/notifications"];
+
 const readStoredUser = (): AuthUser | null => {
     if (typeof window === "undefined") return null;
     try {
@@ -89,7 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Seed from storage so the first paint is not empty, but treat it as
     // unverified until the server confirms it.
     const [user, setUserState] = useState<AuthUser | null>(readStoredUser);
-    const [isLoading, setIsLoading] = useState(true);
+    // Only a browser holding a stored session has anything to wait for. Without
+    // one the app is already in its final state, and starting `true` would show a
+    // spinner for a check that is about to be skipped.
+    const [isLoading, setIsLoading] = useState(() => readStoredUser() !== null);
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -121,6 +136,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Validate the stored session against the server exactly once on mount.
     useEffect(() => {
         let cancelled = false;
+
+        // Nothing to validate when this browser has never held a session.
+        //
+        // This ran unconditionally, and that made the entire public site
+        // unreachable. A logged-out visitor loaded `/`, or `/register`, or a
+        // clinician's profile; this fired `GET /users/profile`; the API answered
+        // 401 because there was no session; the interceptor tried a refresh,
+        // which failed for the same reason; and the failure was reported as a
+        // *session expiry*, which redirects to `/login?expired=1`.
+        //
+        // So a first-time visitor was told their session had expired, and the
+        // registration page could not be reached at all - the one page that
+        // exists for people who do not yet have an account. The e2e journey that
+        // registers a patient is what surfaced it, on the suite's first run.
+        //
+        // A stored user is the only thing there is to re-validate. Without one,
+        // the answer is already known.
+        if (!readStoredUser()) {
+            return;
+        }
+
         (async () => {
             try {
                 const res = await api.get("/users/profile");
@@ -155,7 +191,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             persistUser(null);
             if (typeof window === "undefined") return;
             const { pathname, search } = window.location;
-            if (pathname.startsWith("/login")) return;
+
+            // Only redirect away from somewhere that needed the session.
+            //
+            // This skipped `/login` and redirected from everywhere else, so a
+            // session that died while someone was reading the home page, the
+            // privacy notice or a clinician's public profile threw them at a
+            // login screen captioned "your session expired". Being signed out is
+            // not a reason to leave a page that never required being signed in.
+            if (!PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+                return;
+            }
+
             const next = encodeURIComponent(`${pathname}${search}`);
             window.location.href = `/login?next=${next}&expired=1`;
         });
