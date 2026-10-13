@@ -25,6 +25,16 @@ async function login(page: Page, email: string, password: string) {
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign In" }).click();
+
+    // Wait for the post-login navigation to settle before returning.
+    //
+    // The app redirects with `window.location.href`, so the click resolves while
+    // a navigation is still in flight. A caller that immediately called
+    // `page.goto(...)` had that navigation aborted by the pending one, which
+    // surfaced as `net::ERR_ABORTED` on the *next* URL and an empty page
+    // snapshot - reading like the destination is broken rather than like the
+    // test raced the redirect. Three journeys failed that way.
+    await expect(page).toHaveURL(/dashboard/, { timeout: 20_000 });
 }
 
 test.describe("Journey 1: Patient registers, logs mood, books an appointment", () => {
@@ -74,7 +84,12 @@ test.describe("Journey 1: Patient registers, logs mood, books an appointment", (
         await page.locator("button", { hasText: /Continue/ }).first().click();
 
         // Step 4: confirm
-        await page.getByRole("button", { name: /Confirm & Schedule/ }).click();
+        // Case-insensitive: the button reads "Confirm & schedule", and this
+        // expectation was written as "Confirm & Schedule" against a UI that has
+        // never been run alongside it. Playwright's regex matching is
+        // case-sensitive, so the journey timed out waiting for a button that was
+        // on screen the whole time.
+        await page.getByRole("button", { name: /Confirm & schedule/i }).click();
         await expect(page.getByText(/Booking Confirmed/)).toBeVisible({ timeout: 20_000 });
     });
 });
@@ -115,7 +130,15 @@ test.describe("Journey 4: Assessments + mood factors (round 3)", () => {
             }
         }
         await page.getByRole("button", { name: /Submit/ }).click();
-        await expect(page.getByText(/Minimal/i)).toBeVisible({ timeout: 10_000 });
+
+        // The score heading is unique to the result block: a PHQ-9 answered
+        // entirely "Not at all" is "0 / 27", and nothing else on the page says
+        // that. Asserting on the severity alone is a strict-mode violation - the
+        // result badge, the trajectory chart's data point, that chart's legend
+        // and its axis all name a severity - which is what the suite's first run
+        // reported.
+        await expect(page.getByRole("heading", { name: "0 / 27" })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText("Minimal", { exact: true }).first()).toBeVisible();
 
         // Mood factors chips on the mood page
         await page.goto("/dashboard/mood");
@@ -159,9 +182,18 @@ test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", (
         await page.goto("/dashboard/doctor/schedule");
         await expect(page.getByText(/Weekly Pattern/)).toBeVisible({ timeout: 15_000 });
 
-        await page.locator('select').first().selectOption("3"); // Thursday
-        await page.locator('input[type="time"]').nth(0).fill("15:00");
-        await page.locator('input[type="time"]').nth(1).fill("16:00");
+        // By label, not by position.
+        //
+        // `page.locator('input[type="time"]').nth(0)` and `.nth(1)` were the first
+        // two time inputs on the page, which belong to the "add a slot" form - so
+        // the pattern's own times stayed empty, the request failed `hhmm`
+        // validation, and the journey waited for a "Pattern created" toast that
+        // could not arrive. The fields had no `id` or `htmlFor` at all, which is
+        // also what made them position-only: unlabelled inputs announce nothing
+        // useful to a screen reader.
+        await page.getByLabel("Day").selectOption({ label: "Thursday" });
+        await page.getByLabel("Start").fill("15:00");
+        await page.getByLabel("End").fill("16:00");
         await page.getByRole("button", { name: /Create Pattern/ }).click();
         await expect(page.getByText(/Pattern created/)).toBeVisible({ timeout: 15_000 });
         await expect(page.getByText(/Active patterns/)).toBeVisible();
@@ -204,10 +236,26 @@ test.describe("Journey 7: SOS button (round 3)", () => {
         await login(page, "patient@mindease.app", "Patient@123");
         await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
 
+        // Patients are sent to `/dashboard/mood` after signing in, so this has to
+        // navigate explicitly. The assertion above passed on the post-login URL -
+        // the mood page is under `/dashboard` - and the SOS button only exists on
+        // the dashboard itself, which is why this looked like a missing control
+        // rather than a missing navigation.
+        await page.goto("/dashboard");
+
         await page.getByRole("button", { name: /SOS/ }).first().click();
+
+        // The dialog's title is "SOS — I need help now" and its confirm button is
+        // "Alert my doctor". This clicked a *button* named /I need help now/,
+        // which is the title - so it waited for a control that does not exist
+        // while the one it wanted was on screen.
         await expect(page.getByText(/I need help now/)).toBeVisible({ timeout: 10_000 });
-        await page.getByRole("button", { name: /I need help now/ }).click();
-        page.on("dialog", (dialog) => dialog.accept());
+        await page.getByRole("button", { name: /Alert my doctor/i }).click();
+
+        // No `dialog` handler: `open()` opens the modal directly, and there is no
+        // `window.confirm` anywhere in the flow. The handler here was registered
+        // after the click that would have fired one anyway, so it could never
+        // have caught anything.
         await expect(page.getByText(/Crisis hotlines/)).toBeVisible({ timeout: 10_000 });
     });
 });
@@ -228,8 +276,19 @@ test.describe("Journey 9: Chat smoke (round 3)", () => {
         await login(page, "patient@mindease.app", "Patient@123");
         await page.goto("/messages");
         await expect(page.getByText(/Messages/).first()).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByPlaceholder(/Search\.\.\./)).toBeVisible();
-        await expect(page.getByPlaceholder(/Type a message/)).toBeVisible();
+
+        // The seed creates no messages, and the search box and composer are part
+        // of the conversation panel - so they cannot render here. This asserted
+        // both placeholders, which is unreachable against a seeded database: the
+        // seeded patient has no conversation, and a conversation requires a
+        // confirmed appointment (`canChat`), which the seed does not create
+        // either.
+        //
+        // So this asserts the empty state, which is what the seed actually
+        // produces. Exercising the composer needs a journey that builds the
+        // appointment and the message first, the way Journey 10 builds the review
+        // it needs rather than assuming one exists.
+        await expect(page.getByText(/No conversations yet/i)).toBeVisible();
     });
 });
 
@@ -298,7 +357,8 @@ test.describe("Journey 10: review lifecycle", () => {
 
         await page.getByLabel(/Patient Full Name/).fill("E2E Reviewer");
         await page.locator("button", { hasText: /Continue/ }).first().click();
-        await page.getByRole("button", { name: /Confirm & Schedule/ }).click();
+        // Case-insensitive, as in Journey 1: the UI reads "Confirm & schedule".
+        await page.getByRole("button", { name: /Confirm & schedule/i }).click();
         await expect(page.getByText(/Booking Confirmed/)).toBeVisible({ timeout: 20_000 });
 
         // --- Clinician accepts and completes ---------------------------------

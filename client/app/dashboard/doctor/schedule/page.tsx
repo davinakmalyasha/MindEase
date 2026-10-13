@@ -310,8 +310,9 @@ export default function DoctorSchedule() {
 
                         <form onSubmit={handlePatternSubmit} className="space-y-4">
                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Day</label>
+                                <label htmlFor="pattern-weekday" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Day</label>
                                 <select
+                                    id="pattern-weekday"
                                     value={patternForm.weekday}
                                     onChange={(e) => setPatternForm({ ...patternForm, weekday: e.target.value })}
                                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium text-gray-900 text-sm"
@@ -324,8 +325,9 @@ export default function DoctorSchedule() {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Start</label>
+                                    <label htmlFor="pattern-start" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Start</label>
                                     <input
+                                        id="pattern-start"
                                         type="time"
                                         value={patternForm.start_time}
                                         onChange={(e) => setPatternForm({ ...patternForm, start_time: e.target.value })}
@@ -334,8 +336,9 @@ export default function DoctorSchedule() {
                                     />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">End</label>
+                                    <label htmlFor="pattern-end" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">End</label>
                                     <input
+                                        id="pattern-end"
                                         type="time"
                                         value={patternForm.end_time}
                                         onChange={(e) => setPatternForm({ ...patternForm, end_time: e.target.value })}
@@ -346,8 +349,9 @@ export default function DoctorSchedule() {
                             </div>
 
                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Weeks ahead</label>
+                                <label htmlFor="pattern-weeks" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Weeks ahead</label>
                                 <input
+                                    id="pattern-weeks"
                                     type="number"
                                     min={1}
                                     max={12}

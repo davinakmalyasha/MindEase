@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 const VAPID_KEY_URL = "/push/public-key";
+
+// Snapshots for `useSyncExternalStore`. Module-level so their identities are
+// stable across renders; an inline arrow would make React resubscribe every time.
+const subscribeToNothing = () => () => {};
+const getPushSupport = () =>
+    typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+const serverSnapshot = () => false;
 
 /**
  * Decodes a base64url VAPID public key into bytes.
@@ -44,9 +51,30 @@ const encodeSubscriptionKey = (key: ArrayBuffer | null): string =>
  */
 export function usePushNotifications() {
     const { user } = useAuth();
-    const [supported] = useState(
-        () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
+
+    // Whether this browser can do web push at all.
+    //
+    // This decides whether the banner renders, so the server and the client's
+    // first render have to agree on it. As a `useState` initialiser it read
+    // `navigator` on the client and returned `false` on the server, which is a
+    // hydration mismatch - React regenerates the subtree when it finds one, and
+    // that mechanism is how the login form's submit handler went missing in an
+    // earlier bug of the same kind.
+    //
+    // `useSyncExternalStore` is the API for a value that legitimately differs
+    // between the two: React calls `getServerSnapshot` while hydrating and the
+    // client snapshot immediately after, and re-renders without a mismatch. It is
+    // also already the pattern for shared client state in this codebase - see
+    // `useNotifications`.
+    const supported = useSyncExternalStore(
+        // Nothing to subscribe to: browser capability does not change while the
+        // page is open, and a new function identity each render would resubscribe
+        // forever.
+        subscribeToNothing,
+        getPushSupport,
+        serverSnapshot
     );
+
     const [subscribed, setSubscribed] = useState(false);
     const [dismissed, setDismissed] = useState(false);
 
