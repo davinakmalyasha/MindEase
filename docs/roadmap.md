@@ -181,6 +181,20 @@ automation ([`testing.md`](testing.md#why-e2e-is-not-required)). Getting it gree
 and promoting it to required is worth more than any coverage number, because it
 is the only thing that exercises the three processes together.
 
+**It has now run, locally, for the first time — and it paid for itself before
+promotion.** Nine of twelve journeys pass. It found two product bugs that reading
+had not: every public page bounced a logged-out visitor to `/login?expired=1`
+(registration was unreachable), and a hydration mismatch in the push-prompt
+banner, which is the same mechanism that had removed the login form's submit
+handler earlier in this pass.
+
+The remaining three fail on the API's own rate limits: the e2e stack runs with
+`NODE_ENV=production`, twelve journeys log in from one IP, and auth is limited to
+twenty attempts per window. The suite is shaped wrongly for the limits rather than
+the other way round, so the next step is Playwright's `storageState` —
+authenticate once per role in a setup project and reuse the session, taking
+roughly thirty logins down to three. Promotion to a required check waits for that.
+
 ### 6. ~~Editor concurrency on the care plan and safety plan~~ — done
 
 **The gap.** `CarePlan` and `SafetyPlan` were single-row-per-owner documents with

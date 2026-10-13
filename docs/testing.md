@@ -348,6 +348,36 @@ four health checks, seed — *is* gated, because that part has a known-good
 expectation and a red there is always a real defect. It is promoted to required
 once green.
 
+### The suite's first real run, and where it got to
+
+It ran locally, against the three processes started by hand, and it was worth
+doing before promoting anything. It found two product bugs that no amount of
+reading had:
+
+- **Every public page bounced a logged-out visitor to `/login?expired=1`**,
+  because the client validated the session on every page load and reported the
+  resulting 401 as an expiry. Registration was unreachable — the one page that
+  exists for people without an account. The journey that registers a patient
+  failed on a label that was never rendered, and the two journeys that passed
+  were the ones that sign in as a seeded account first.
+- **A hydration mismatch in `PushPromptBanner`**, from a `useState` initialiser
+  that read `navigator` — false on the server, true on the client's first render.
+  That is the same mechanism that removed the login form's submit handler in an
+  earlier bug, so it was a known shape rather than a new one.
+
+Nine of the twelve journeys pass. The other three fail on HTTP 429s: the API
+enforces its real production limits here, because the stack runs with
+`NODE_ENV=production` and only the *server* suite bypasses them (`skipInTest`).
+Twelve journeys from one IP each log in one to three times, which is far more
+auth traffic than a person generates in a quarter of an hour. The suite is shaped
+wrongly for the limits rather than the limits being wrong, and relaxing a
+security control so a test passes would be the wrong repair.
+
+The fix is Playwright's `storageState`: authenticate once per role in a setup
+project and reuse the session, which takes roughly thirty logins down to three.
+That is a designed change rather than more diagnosis, so it is the next piece of
+work and the promotion waits for it.
+
 ## The 40 server test files
 
 | File | Tests | What it covers |
