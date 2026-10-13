@@ -90,7 +90,11 @@ test.describe("Journey 1: Patient registers, logs mood, books an appointment", (
         // case-sensitive, so the journey timed out waiting for a button that was
         // on screen the whole time.
         await page.getByRole("button", { name: /Confirm & schedule/i }).click();
-        await expect(page.getByText(/Booking Confirmed/)).toBeVisible({ timeout: 20_000 });
+        // Case-insensitive for the same reason as the button above: the dialog
+        // title is "Booking confirmed", and this looked for "Booking Confirmed".
+        // The booking had already succeeded by the time this timed out - the
+        // failure snapshot shows the dialog open with the confirmation in it.
+        await expect(page.getByText(/Booking confirmed/i)).toBeVisible({ timeout: 20_000 });
     });
 });
 
@@ -359,7 +363,7 @@ test.describe("Journey 10: review lifecycle", () => {
         await page.locator("button", { hasText: /Continue/ }).first().click();
         // Case-insensitive, as in Journey 1: the UI reads "Confirm & schedule".
         await page.getByRole("button", { name: /Confirm & schedule/i }).click();
-        await expect(page.getByText(/Booking Confirmed/)).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByText(/Booking confirmed/i)).toBeVisible({ timeout: 20_000 });
 
         // --- Clinician accepts and completes ---------------------------------
         // Over HTTP rather than the UI: see the note above. Both transitions
