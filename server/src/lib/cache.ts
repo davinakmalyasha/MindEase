@@ -213,9 +213,10 @@ export const closeCache = async () => {
 /**
  * Advisory lock for cron jobs: only one runner proceeds per key.
  *
- * Redis is tried first. If Redis is unreachable the lock **fails closed** and the
- * job does not run — a missed weekly report is far cheaper than sending every
- * opted-in patient the same email once per replica.
+ * Redis is tried first, and a Redis *error* fails closed: a missed weekly
+ * report is far cheaper than sending every opted-in patient the same email once
+ * per replica. When Redis cannot be reached at all, the fallback is a `JobLock`
+ * row rather than an open door.
  *
  * The no-Redis fallback used to be MySQL's `GET_LOCK`, and it could not work.
  * `GET_LOCK` is scoped to the *connection*, and Prisma borrows connections from a

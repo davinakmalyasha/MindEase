@@ -26,6 +26,12 @@ model User {
   timezone      String?        @default("Asia/Jakarta")
   lastMoodNudgeAt DateTime?
   lastDeclineNudgeAt DateTime?
+  // The last week the patient's report went out. This is the report job's claim
+  // and its catch-up record in one: a user whose timestamp predates the current
+  // week is due, so a run missed to an outage fires the next morning instead of
+  // being skipped until the following Monday, and a crashed run retries without
+  // re-sending to everyone it already reached.
+  lastWeeklyReportAt DateTime?
   failedAttempts Int           @default(0)
   lockedUntil   DateTime?
   totpSecret    String?
@@ -81,7 +87,7 @@ model User {
   // every replica, before these existed.
   @@index([role, lastMoodNudgeAt])
   @@index([role, lastDeclineNudgeAt])
-  @@index([weeklyReportEnabled, role])
+  @@index([weeklyReportEnabled, role, lastWeeklyReportAt])
   // The admin user list sorts by `createdAt desc` with an optional `role`
   // filter, and there was no `createdAt` index on this model at all - so every
   // page click was a full scan plus a filesort.
