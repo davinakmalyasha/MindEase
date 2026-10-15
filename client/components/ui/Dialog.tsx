@@ -127,12 +127,22 @@ export default function Dialog({
     return (
         <AnimatePresence>
             {open && (
+                /*
+                 * `z-[100]` is deliberate: it must outrank the passive floating
+                 * widgets - the push prompt (`z-[70]`), the cookie banner
+                 * (`z-[80]`) and the support chat (`z-[90]`) - and be outranked
+                 * only by toasts (`z-[200]`). At `z-[70]` the cookie banner
+                 * covered the booking modal's Back button, so a patient who had
+                 * not answered the consent prompt could not step back through
+                 * the booking wizard. A modal is the one surface that may not
+                 * be occluded.
+                 */
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
-                    className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
                     onClick={requestClose}
                 >
                     <motion.div

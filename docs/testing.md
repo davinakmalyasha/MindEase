@@ -317,42 +317,41 @@ values are inlined at **build** time, so a build that succeeds with the wrong
 ones still ships the wrong ones. `docker-compose.yml` declares them as build args
 for exactly this reason.
 
-## Why e2e is not required
+## The end-to-end journeys
 
-`client/e2e/journeys.spec.ts` — 12 Playwright tests in 10 `test.describe` blocks:
+`client/e2e/journeys.spec.ts` — 12 Playwright tests in 11 `test.describe` blocks:
 the full patient flow, admin dashboard, forgot-password, assessments and mood
-factors, the doctor follow-up and availability pattern, review reply and report,
-the SOS modal, admin moderation and exports, a chat smoke test, and a review
-lifecycle.
+factors, the printable assessment report, the doctor follow-up and availability
+pattern, the reviews section, the SOS modal, admin moderation and exports, a
+chat smoke test, and a review lifecycle. Plus three cached sign-ins in
+`client/e2e/auth.setup.ts`, for fifteen tests in total.
 
 ```bash
-cd client && npx playwright test     # with the compose stack already running and seeded
+cd client && npx playwright test     # with the stack already running and seeded
 ```
 
-It has **never been executed by any automated process.** The `docker` job's first
-step was `docker compose build`, and it failed — so every later step (four health
-checks, the seed, all the journeys) was permanently unreachable, and nothing in
-the pipeline noticed, because a job whose first step fails just reports red and
-the unreachable steps are never examined.
+They are a **required check** in the `docker` job, after the four health checks
+and the seed. The path there is worth recording, because it is the same shape as
+the `compose` story above.
 
-That same bug killed the `compose` validation job's motivation, which is why
-`compose` now runs first, alone, for about ten seconds: a mis-indented key in
-`docker-compose.yml` should cost ten seconds rather than a full three-job test
-run.
+The suite had **never been executed by any automated process.** The `docker`
+job's first step was `docker compose build`, and it failed — so every later step
+(four health checks, the seed, all the journeys) was permanently unreachable, and
+nothing in the pipeline noticed, because a job whose first step fails just
+reports red and the unreachable steps are never examined. That same bug killed
+the `compose` validation job's motivation, which is why `compose` now runs
+first, alone, for about ten seconds: a mis-indented key in `docker-compose.yml`
+should cost ten seconds rather than a full three-job test run.
 
-The journeys now run on `workflow_dispatch`, or on a PR labelled `e2e`. They are
-not a required check yet, on purpose: they run on selectors that have never been
-exercised, and reporting a selector failure as a required-check failure on the
-first attempt would be the wrong signal. Everything above them — build, boot,
-four health checks, seed — *is* gated, because that part has a known-good
-expectation and a red there is always a real defect. It is promoted to required
-once green.
+Once the plumbing was repaired, the journeys ran on `workflow_dispatch` or an
+`e2e` label while their selectors were being exercised for the first time — a
+required-check failure then would have been indistinguishable from a
+regression. They were promoted to required after a green run.
 
-### The suite's first real run, and where it got to
+### What running them actually found
 
-It ran locally, against the three processes started by hand, and it was worth
-doing before promoting anything. It found two product bugs that no amount of
-reading had:
+Everything below was found by the suite's first runs, and none of it by reading
+— the existing test suites were all green in every one of these states:
 
 - **Every public page bounced a logged-out visitor to `/login?expired=1`**,
   because the client validated the session on every page load and reported the
@@ -364,19 +363,41 @@ reading had:
   that read `navigator` — false on the server, true on the client's first render.
   That is the same mechanism that removed the login form's submit handler in an
   earlier bug, so it was a known shape rather than a new one.
+- **The cookie banner covered the booking wizard's Back button.** The banner is
+  fixed at the bottom-left at `z-[80]` and the dialog overlay was `z-[70]`, so a
+  patient who had not answered the consent prompt could not step back through
+  the wizard. `Dialog` is now `z-[100]`: above the passive widgets (push prompt,
+  cookie banner, support chat), below toasts, because a modal is the one surface
+  that may not be occluded.
+- **The date picker offered days the clinician had no slots on.** Fourteen
+  enabled chips, then "No open slots for this day" — a dead end that reads as a
+  broken schedule. `BookingModal` now derives `availableDates` from its slot
+  fetch, so only days with an open slot are selectable.
+- **Journey 10 had never worked.** Its selectors named controls that do not
+  exist — the rate button reads "Rate", the reply form is an inline panel rather
+  than a dialog, and its submit reads "Publish Reply" — it booked whichever
+  clinician happened to be second in the directory and then signed in as `dr2`,
+  it registered its `dialog` handler after the click that fires the prompt, and
+  it read `/appointments/my` as a bare array where the API returns
+  `{ data: { rows, total, page, totalPages } }`. It books doctor 2 by deep link
+  now: every seeded rating ties at zero, and MySQL gives no stable order for
+  ties, so "the second card" was not a person.
+- **A harness race that looked like a product bug.** The wizard swaps steps with
+  `AnimatePresence mode="wait"`, so a `count()` issued immediately after
+  Continue runs while the previous panel is still mounted. The date walk counted
+  zero time buttons for every date while the trace's DOM snapshots show them
+  rendered; waiting on the panel's own content — a time chip or its empty state
+  — is waiting for the swap.
 
-Nine of the twelve journeys pass. The other three fail on HTTP 429s: the API
-enforces its real production limits here, because the stack runs with
-`NODE_ENV=production` and only the *server* suite bypasses them (`skipInTest`).
-Twelve journeys from one IP each log in one to three times, which is far more
-auth traffic than a person generates in a quarter of an hour. The suite is shaped
-wrongly for the limits rather than the limits being wrong, and relaxing a
-security control so a test passes would be the wrong repair.
-
-The fix is Playwright's `storageState`: authenticate once per role in a setup
-project and reuse the session, which takes roughly thirty logins down to three.
-That is a designed change rather than more diagnosis, so it is the next piece of
-work and the promotion waits for it.
+It also confirmed the rate-limiter design. The API enforces its real production
+limits here, because the stack runs with `NODE_ENV=production` and only the
+*server* suite bypasses them (`skipInTest`). Twelve journeys from one IP each
+logging in one to three times is far more auth traffic than a person generates
+in a quarter of an hour, so the suite is shaped wrongly for the limits rather
+than the limits being wrong — and relaxing a security control so that a test
+passes would be the wrong repair. The setup project signs in once per seeded
+role and the journeys reuse the session via `storageState`; the journeys that
+register an account still create their own.
 
 ## The 40 server test files
 

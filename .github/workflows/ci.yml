@@ -574,42 +574,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      # ----------------------------------------------------------------
-      # Opt-in for the end-to-end step
-      #
-      # The Playwright suite had never been executed by any automated
-      # process: the `docker` job's first step was `docker compose build`,
-      # and it failed, so every later step was unreachable.
-      #
-      # It therefore runs now for the first time, on selectors that have
-      # never been exercised. Making that a required check on the first
-      # run would report a selector failure as though it were a
-      # regression, which is exactly the wrong signal to send. So the
-      # step runs on demand - dispatch this workflow, or label a PR `e2e` -
-      # and gets promoted to required once it is green.
-      #
-      # Everything above it (build, boot, four health checks, seed) is not
-      # gated: that is the part with a known-good expectation, and a red
-      # there is always a real defect.
-      - name: Decide whether to run end-to-end journeys
-        id: e2e
-        env:
-          # `contains(github.event.pull_request.labels.*.name, 'e2e')` is
-          # empty for a push, which `contains` would otherwise treat as a
-          # match, so the event type is checked first.
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "reason=workflow_dispatch" >> "$GITHUB_OUTPUT"
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$PR_LABELS" != "[]" ] && echo "$PR_LABELS" | grep -q '"e2e"'; then
-            echo "reason=pr-label" >> "$GITHUB_OUTPUT"
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "reason=not-requested" >> "$GITHUB_OUTPUT"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build images
         run: docker compose build
       # `build` alone never proved the stack works: the API refused to boot
@@ -667,6 +631,17 @@ jobs:
       # ----------------------------------------------------------------
       # End-to-end journeys
       #
+      # Required. The suite was opt-in when it had never been executed by any
+      # automated process - the `docker` job's first step was `docker compose
+      # build`, and it failed, so every later step was unreachable and the
+      # selector failures could never have been told apart from the plumbing
+      # failure above them.
+      #
+      # It has now been run green (15 tests: 3 cached logins, 12 journeys)
+      # against this repository's stack, and a red here is a real defect again.
+      # Everything around it - build, boot, the four health checks above, the
+      # seed below - is required for the same reason.
+      #
       # The suite requires seeded data and nothing in compose or CI ever
       # seeded the database, so the seed is closed first.
       #
@@ -689,15 +664,13 @@ jobs:
           DATABASE_URL: mysql://root:mindease_secure_root@127.0.0.1:3306/mindease_db
         run: npx prisma migrate deploy && npm run db:seed
       - name: Install Playwright browser
-        if: steps.e2e.outputs.run == 'true'
         working-directory: client
         run: npx playwright install --with-deps chromium
       - name: Run end-to-end journeys
-        if: steps.e2e.outputs.run == 'true'
         working-directory: client
         run: npx playwright test
       - name: Upload Playwright traces on failure
-        if: failure() && steps.e2e.outputs.run == 'true'
+        if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-traces

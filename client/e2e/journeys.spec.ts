@@ -20,6 +20,68 @@ async function registerUser(page: Page, role: "patient" | "doctor"): Promise<{ e
     return { email, password };
 }
 
+/**
+ * Picks the first date in the booking modal that has an open time, and that time.
+ *
+ * ## Why this walks the dates instead of computing one
+ *
+ * It used to read `/doctors/:id`, take the first free slot, and click the chip
+ * whose date that was. That endpoint is cached for two minutes, which is about
+ * the length of a suite run, so its answer goes stale: Journey 10 waited for
+ * 09:00 because the cached response still called it free, after Journey 1 had
+ * booked it.
+ *
+ * `BookingModal` now derives `DatePicker`'s `availableDates` from the slot list
+ * it fetched, so chips for days with nothing open are disabled and the walk
+ * below normally exits on its first iteration. It stays because the modal's
+ * list was fetched moments earlier and a slot can be taken in between; the walk
+ * is the cheap recovery.
+ *
+ * Only enabled chips are walked, for the same reason. The date chips render the
+ * three parts of a date concatenated - "Thu", "15", "Oct" - so their text is
+ * `Thu15Oct`.
+ */
+async function pickFirstOfferedSlot(page: Page) {
+    const goBack = page.getByRole("button", { name: /^Back$/ });
+    const proceed = page.locator("button", { hasText: /Continue/ }).first();
+    const chips = page
+        .locator("button:enabled")
+        .filter({ hasText: /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\d{2}[A-Z][a-z]{2}$/ });
+    const times = page.locator("button").filter({ hasText: /^\d{2}:\d{2}$/ });
+    const noSlots = page.getByText("No open slots for this day");
+
+    const days = await chips.count();
+    for (let i = 0; i < days; i += 1) {
+        await chips.nth(i).click();
+        await proceed.click();
+
+        // The wizard swaps steps with an exit animation (`AnimatePresence
+        // mode="wait"` in `BookingModal`), so for a beat after Continue the old
+        // panel is still mounted and none of step 2's controls exist yet.
+        // `count()` does not retry, and this walk counted in exactly that window
+        // and read zero for every date: it pressed Back through all seven
+        // enabled dates of doctor 7 while the trace's DOM snapshots show
+        // 08:00/09:00/10:00 rendered each time.
+        //
+        // Waiting on the step-2 content itself - a time chip, or the empty state
+        // the panel renders in its place - is waiting for the swap to have
+        // happened. The "Step 2 of 4 in progress" marker cannot be used for
+        // this: it lives in the static progress list and appears with the state
+        // change, before the animated panel has mounted.
+        await expect(times.first().or(noSlots)).toBeVisible({ timeout: 5_000 });
+
+        if ((await times.count()) > 0) {
+            await times.first().click();
+            await page.locator("button", { hasText: /Continue/ }).first().click();
+            return;
+        }
+
+        await goBack.click();
+    }
+
+    throw new Error("no date in the picker offered an open slot");
+}
+
 async function login(page: Page, email: string, password: string) {
     await page.goto("/login");
     await page.getByLabel("Email").fill(email);
@@ -52,32 +114,11 @@ test.describe("Journey 1: Patient registers, logs mood, books an appointment", (
         await page.goto("/appointments");
         await expect(page.getByText(/Book an/)).toBeVisible({ timeout: 15_000 });
 
-        // Pick a genuinely free slot from the API first (deterministic, no retries)
-        // Seeded doctor 2, which the seed creates with availability. Not named
-        // here because the seed's name list is shuffled — the profile is read
-        // from the API below rather than asserted against a literal.
-        const doctorId = 2;
-        const docRes = await page.request.get(`${API}/doctors/${doctorId}`);
-        const docData = (await docRes.json()).data;
-        const freeSlot = (docData.consultationSlots || []).find((s: any) => !s.isBooked);
-        expect(freeSlot).toBeTruthy();
-
-        const slotDate = new Date(freeSlot.date);
-        const chipLabel = `${slotDate.toLocaleDateString("en-US", { weekday: "short" })}${String(slotDate.getDate()).padStart(2, "0")}${slotDate.toLocaleDateString("en-US", { month: "short" })}`;
-
         await page.getByRole("button", { name: /Book Now/ }).nth(1).click();
 
         // Booking wizard: pick date → time → details → confirm
         await expect(page.getByText("Select Consultation Date")).toBeVisible({ timeout: 15_000 });
-
-        // Step 1: select the slot's date chip, then continue
-        await page.locator("button", { hasText: new RegExp(`^${chipLabel}$`) }).click();
-        await page.locator("button", { hasText: /Continue/ }).first().click();
-
-        // Step 2: select the slot's time, then continue
-        await expect(page.getByText(/Available Time Slots/)).toBeVisible({ timeout: 10_000 });
-        await page.locator("button", { hasText: new RegExp(`^${freeSlot.startTime}$`) }).click();
-        await page.locator("button", { hasText: /Continue/ }).first().click();
+        await pickFirstOfferedSlot(page);
 
         // Step 3: details
         await page.getByLabel(/Patient Full Name/).fill("E2E Patient");
@@ -99,10 +140,12 @@ test.describe("Journey 1: Patient registers, logs mood, books an appointment", (
 });
 
 test.describe("Journey 2: Admin dashboard access", () => {
-    test("admin can view stats and users", async ({ page }) => {
-        await login(page, "admin@mindease.app", "Admin@123");
-        await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
+    // Session cached by `auth.setup.ts` rather than signed in here. The journey
+    // is about the dashboard rendering for an admin, and signing in over the UI
+    // is exercised by the journeys that need a fresh account anyway.
+    test.use({ storageState: ".auth/admin.json" });
 
+    test("admin can view stats and users", async ({ page }) => {
         await page.goto("/dashboard/admin");
         await expect(page.getByText(/Admin Dashboard/)).toBeVisible({ timeout: 15_000 });
         await expect(page.getByText(/Total Patients/)).toBeVisible();
@@ -152,19 +195,25 @@ test.describe("Journey 4: Assessments + mood factors (round 3)", () => {
         await page.getByRole("button", { name: /Log Mood/ }).click();
         await expect(page.getByText(/Mood logged/)).toBeVisible({ timeout: 10_000 });
     });
+});
+
+test.describe("Journey 4b: Assessment report print view", () => {
+    // The seeded patient, from the cached session. This one lives apart from
+    // the PHQ-9 test above because that test *registers* an account, and a
+    // describe-level `storageState` would hand it a signed-in context it does
+    // not expect.
+    test.use({ storageState: ".auth/patient.json" });
 
     test("print report link opens a printable view", async ({ page }) => {
-        await login(page, "patient@mindease.app", "Patient@123");
         await page.goto("/dashboard/assessments?print=1");
         await expect(page.getByText(/MindEase Assessment Report/)).toBeVisible({ timeout: 15_000 });
     });
 });
 
 test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", () => {
-    test("doctor follow-up flow on a completed session", async ({ page }) => {
-        await login(page, "dr1@mindease.app", "Doctor@123");
-        await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
+    test.use({ storageState: ".auth/doctor.json" });
 
+    test("doctor follow-up flow on a completed session", async ({ page }) => {
         await page.goto("/dashboard/appointments");
         await expect(page.getByText(/Consultation History/)).toBeVisible({ timeout: 15_000 });
 
@@ -182,7 +231,6 @@ test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", (
     });
 
     test("doctor creates a weekly availability pattern", async ({ page }) => {
-        await login(page, "dr1@mindease.app", "Doctor@123");
         await page.goto("/dashboard/doctor/schedule");
         await expect(page.getByText(/Weekly Pattern/)).toBeVisible({ timeout: 15_000 });
 
@@ -204,47 +252,38 @@ test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", (
     });
 });
 
-test.describe("Journey 6: Review reply + report (round 3)", () => {
-    test("doctor sees reply and report actions on own profile reviews", async ({ page }) => {
-        await login(page, "dr1@mindease.app", "Doctor@123");
+test.describe("Journey 6: Reviews section smoke (round 3)", () => {
+    test.use({ storageState: ".auth/doctor.json" });
+
+    test("own profile renders the reviews section for the owning clinician", async ({ page }) => {
         await page.goto("/doctors/1");
         await expect(page.getByText(/Latest Reviews/)).toBeVisible({ timeout: 15_000 });
 
-        // Actions render for the owning doctor. Conditional because the seed
-        // deliberately creates no reviews: Phase 0 removed the fabricated
-        // ratings the seed used to invent, since a real doctor's review count
-        // must not be populated with fake entries. With an empty seed this
-        // journey asserts the page loads and passes without exercising the
-        // reply/report path.
+        // The seed deliberately creates zero reviews - it used to invent 4.2-4.9
+        // ratings for clinicians with no reviews, which made "Top Rated" rank the
+        // most-liked-looking profiles first - so the honest assertion here is the
+        // empty state. The reply and report controls render on reviews, and
+        // exercising them needs one; Journey 10 builds the whole chain (booking,
+        // completion, review) and drives reply and report for real.
         //
-        // Journey 10 at the end of this file is the real test: it builds the
-        // booking, the completion and the review itself, so the reply and report
-        // paths genuinely execute. This one is left as the cheap smoke test of
-        // the reviews section rendering.
-        const replyAction = page.getByRole("button", { name: /^Reply$/ }).first();
-        const reportAction = page.getByRole("button", { name: /Report/ }).first();
-        if (await replyAction.isVisible().catch(() => false)) {
-            await replyAction.click();
-            await expect(page.getByText(/Reply to this review/)).toBeVisible();
-        }
-        if (await reportAction.isVisible().catch(() => false)) {
-            await reportAction.click();
-            page.on("dialog", (dialog) => dialog.accept("Test report reason"));
-            await expect(page.getByText(/Review reported/)).toBeVisible({ timeout: 10_000 }).catch(() => {});
-        }
+        // This block used to click a Reply button that cannot exist against an
+        // empty seed, and registered its `dialog` handler after the click that
+        // would have fired one - so it looked like it covered reply and report
+        // while covering neither.
+        await expect(page.getByText(/No reviews yet/i)).toBeVisible();
     });
 });
 
 test.describe("Journey 7: SOS button (round 3)", () => {
-    test("patient opens the SOS modal with crisis hotlines", async ({ page }) => {
-        await login(page, "patient@mindease.app", "Patient@123");
-        await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
+    test.use({ storageState: ".auth/patient.json" });
 
-        // Patients are sent to `/dashboard/mood` after signing in, so this has to
-        // navigate explicitly. The assertion above passed on the post-login URL -
-        // the mood page is under `/dashboard` - and the SOS button only exists on
-        // the dashboard itself, which is why this looked like a missing control
-        // rather than a missing navigation.
+    test("patient opens the SOS modal with crisis hotlines", async ({ page }) => {
+        // Patients land on `/dashboard/mood` when they sign in, and the SOS
+        // button only exists on the dashboard itself, so this navigates
+        // explicitly. The original version asserted on the post-login URL -
+        // which the mood page also satisfies, since it is under `/dashboard` -
+        // and then waited for a control that was never on screen, which read
+        // like a missing SOS button rather than a missing navigation.
         await page.goto("/dashboard");
 
         await page.getByRole("button", { name: /SOS/ }).first().click();
@@ -265,8 +304,9 @@ test.describe("Journey 7: SOS button (round 3)", () => {
 });
 
 test.describe("Journey 8: Admin moderation + exports (round 3)", () => {
+    test.use({ storageState: ".auth/admin.json" });
+
     test("admin sees review reports and export buttons", async ({ page }) => {
-        await login(page, "admin@mindease.app", "Admin@123");
         await page.goto("/dashboard/admin");
         await expect(page.getByText(/Review Reports/)).toBeVisible({ timeout: 15_000 });
         await expect(page.getByText(/Revenue Trend/)).toBeVisible();
@@ -276,8 +316,9 @@ test.describe("Journey 8: Admin moderation + exports (round 3)", () => {
 });
 
 test.describe("Journey 9: Chat smoke (round 3)", () => {
+    test.use({ storageState: ".auth/patient.json" });
+
     test("messages page renders with search and attachments", async ({ page }) => {
-        await login(page, "patient@mindease.app", "Patient@123");
         await page.goto("/messages");
         await expect(page.getByText(/Messages/).first()).toBeVisible({ timeout: 15_000 });
 
@@ -319,6 +360,14 @@ test.describe("Journey 9: Chat smoke (round 3)", () => {
  * Seeded doctor 2 is `dr2@mindease.app` on a fresh seed: the seed creates users
  * in order, so doctorId 2 is the second clinician it made. It is referenced by
  * account rather than by display name, because the name list is shuffled.
+ *
+ * The booking goes through the directory's deep link (`?doctor=2`) instead of
+ * clicking "Book Now" on the second card. Positional selection made this journey
+ * depend on the admin-visible order of a list every seeded rating ties at 0, so
+ * MySQL is free to return whatever its plan produces - and it does return
+ * doctor 7 first on this database. The journey hardcodes dr2 as the clinician
+ * who accepts and completes the booking, so which card was second decided
+ * whether the rest of the journey could work at all.
  */
 test.describe("Journey 10: review lifecycle", () => {
     const DOCTOR_ID = 2;
@@ -331,33 +380,9 @@ test.describe("Journey 10: review lifecycle", () => {
         // --- Patient books -----------------------------------------------------
         const patient = await registerUser(page, "patient");
 
-        await page.goto("/appointments");
-        await expect(page.getByText(/Book an/)).toBeVisible({ timeout: 15_000 });
-
-        const docRes = await page.request.get(`${API}/doctors/${DOCTOR_ID}`);
-        expect(docRes.ok()).toBeTruthy();
-        const docData = (await docRes.json()).data;
-        const freeSlot = (docData.consultationSlots || []).find(
-            (s: { isBooked: boolean }) => !s.isBooked
-        );
-        // Journey 1 books from the same pool. 21 slots exist and the suite runs
-        // serially, so this only fires if someone starts booking them by hand.
-        expect(freeSlot).toBeTruthy();
-
-        const slotDate = new Date(freeSlot.date);
-        const chipLabel = `${slotDate.toLocaleDateString("en-US", { weekday: "short" })}${String(
-            slotDate.getDate()
-        ).padStart(2, "0")}${slotDate.toLocaleDateString("en-US", { month: "short" })}`;
-
-        await page.getByRole("button", { name: /Book Now/ }).nth(1).click();
+        await page.goto(`/appointments?doctor=${DOCTOR_ID}`);
         await expect(page.getByText("Select Consultation Date")).toBeVisible({ timeout: 15_000 });
-
-        await page.locator("button", { hasText: new RegExp(`^${chipLabel}$`) }).click();
-        await page.locator("button", { hasText: /Continue/ }).first().click();
-
-        await expect(page.getByText(/Available Time Slots/)).toBeVisible({ timeout: 10_000 });
-        await page.locator("button", { hasText: new RegExp(`^${freeSlot.startTime}$`) }).click();
-        await page.locator("button", { hasText: /Continue/ }).first().click();
+        await pickFirstOfferedSlot(page);
 
         await page.getByLabel(/Patient Full Name/).fill("E2E Reviewer");
         await page.locator("button", { hasText: /Continue/ }).first().click();
@@ -375,7 +400,13 @@ test.describe("Journey 10: review lifecycle", () => {
         const csrf = (await csrfRes.json()).data.csrfToken;
 
         const listRes = await page.request.get(`${API}/appointments/my`);
-        const mine = (await listRes.json()).data as { id: number; status: string }[];
+        // Paginated envelope: `{ data: { rows, total, page, totalPages } }`.
+        // This read `.data` as the array itself and threw `mine.find is not a
+        // function` - after the booking had already succeeded.
+        const mine = ((await listRes.json()).data?.rows ?? []) as {
+            id: number;
+            status: string;
+        }[];
         const appointment = mine.find((a) => a.status === "pending");
         expect(appointment, "the seeded clinician should have a pending booking").toBeTruthy();
 
@@ -396,15 +427,27 @@ test.describe("Journey 10: review lifecycle", () => {
         await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
 
         await page.goto("/dashboard/appointments");
-        const reviewButton = page.getByRole("button", { name: /Review|Leave.*Review/i }).first();
+        // The control is a star icon plus "Rate". This looked for
+        // `/Review|Leave.*Review/i`, which the button has never said.
+        const reviewButton = page.getByRole("button", { name: /^Rate$/ }).first();
         await expect(reviewButton).toBeVisible({ timeout: 20_000 });
         await reviewButton.click();
 
         const comment = "E2E review: the session was genuinely helpful.";
-        await page.getByRole("dialog").getByRole("radio").nth(4).click();
-        await page.getByPlaceholder(/review|comment|share/i).first().fill(comment);
-        await page.getByRole("button", { name: /Submit|Send Review|Post/i }).first().click();
-        await expect(page.getByText(/Review submitted|Thank you/i)).toBeVisible({ timeout: 15_000 });
+        // The rating is five native radios, each `sr-only` inside the label of
+        // its star. The input's 1x1 box sits underneath the visible star, so
+        // Playwright's hit-target check refuses to click the input itself -
+        // the star intercepts. Clicking the label is what a user does and is
+        // what activates the radio.
+        const fiveStars = page.getByRole("radio", { name: /5 Excellent/ });
+        await page.locator("label", { has: fiveStars }).click();
+        await expect(fiveStars).toBeChecked();
+        await page
+            .getByRole("dialog")
+            .getByPlaceholder(/Share your experience/)
+            .fill(comment);
+        await page.getByRole("dialog").getByRole("button", { name: /Submit Review/ }).click();
+        await expect(page.getByText(/Review submitted/i)).toBeVisible({ timeout: 15_000 });
 
         // --- Clinician replies and reports ------------------------------------
         await login(page, DOCTOR_EMAIL, DOCTOR_PASSWORD);
@@ -417,14 +460,24 @@ test.describe("Journey 10: review lifecycle", () => {
         await expect(reply).toBeVisible({ timeout: 20_000 });
         await reply.click();
 
-        await page.getByRole("dialog").getByPlaceholder(/reply/i).fill("Thank you for the kind words.");
-        await page.getByRole("button", { name: /Post Reply|Send Reply/i }).first().click();
+        // The reply form is an inline panel in the review card, not a dialog.
+        // The previous selectors looked for it inside `getByRole("dialog")` and
+        // clicked a "Post Reply"/"Send Reply" button; the real button reads
+        // "Publish Reply" and the placeholder is the translated
+        // "Thank the patient and address their feedback professionally...".
+        await page.getByPlaceholder(/Thank the patient/).fill("Thank you for the kind words.");
+        await page.getByRole("button", { name: /Publish Reply/ }).click();
+        // The card re-fetches the review list and renders the reply under it.
         await expect(page.getByText(/Thank you for the kind words/)).toBeVisible({ timeout: 15_000 });
 
         const report = page.getByRole("button", { name: /Report/ }).first();
         await expect(report).toBeVisible({ timeout: 10_000 });
-        await report.click();
+        // Before the click. Reporting opens a native `prompt()`, and Playwright
+        // auto-dismisses a dialog no listener is registered for - the previous
+        // order registered this after `click()` had already fired and dismissed
+        // it, so the reason was null and the request never happened.
         page.on("dialog", (dialog) => dialog.accept("E2E: exercising the moderation path."));
+        await report.click();
         await expect(page.getByText(/Review reported/i)).toBeVisible({ timeout: 15_000 });
     });
 });

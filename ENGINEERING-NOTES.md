@@ -845,3 +845,57 @@ finds the argument it is invalidating.
 
 That is the difference between the scanner and the reading: it reports syntax, and
 six of the twenty-nine were genuine.
+
+## The e2e suite ran for the first time, and it is now required
+
+The suite existed for months and had never executed anywhere: the `docker` job's
+first step was `docker compose build`, it failed, and every later step —
+including the journeys — was unreachable. Once the plumbing was repaired the
+suite was run locally, opt-in, until green. It is now a required step in that
+job, after the seed, and the record of why is worth keeping because the defects
+it found were invisible to every other suite.
+
+Product bugs, all green everywhere else:
+
+- **A cookie banner that could not be dismissed around.** The banner is fixed at
+  the bottom-left at `z-[80]`; the dialog overlay was `z-[70]`. A patient who
+  had not answered the consent prompt could not press Back in the booking
+  wizard — the banner sat over it, and Playwright reported the interception as a
+  click timeout. `Dialog` is `z-[100]` now: above the passive widgets, below
+  toasts. A modal is the one surface that may not be occluded.
+- **A date picker that offered days with no slots.** `BookingModal` never passed
+  `availableDates`, so all fourteen days were enabled for every clinician; the
+  patient picked one, pressed Continue, and read "No open slots for this day".
+  The picker now derives its enabled days from the slot fetch, falling back to
+  all-open only when there is genuinely nothing to restrict by.
+- **Journey 10, which had never worked.** Its selectors named controls that do
+  not exist — the rate button reads "Rate", the reply form is an inline panel
+  rather than a dialog, its submit reads "Publish Reply" — it booked whichever
+  clinician sorted second in a directory where every rating ties at zero, then
+  signed in as `dr2` to accept a booking that belonged to someone else, it read
+  `/appointments/my` as a bare array where the API returns
+  `{ data: { rows, total, page, totalPages } }`, and it registered its `dialog`
+  handler after the click that fires the prompt. It deep-links `?doctor=2` now,
+  because "second card" was never a person.
+- **A harness race that looked like a product bug.** After Continue, the wizard
+  swaps steps with `AnimatePresence mode="wait"`; a `count()` issued in that
+  window sees the previous panel. The date walk counted zero time buttons for
+  every date, and the trace's own DOM snapshots show them rendered. The walk
+  now waits on the panel's content — a time chip or its empty state — which is
+  the swap itself, rather than a fixed sleep. The step marker is not usable for
+  this: it lives in the static progress list and appears with the state change,
+  a beat before the animated panel mounts.
+
+One defect the suite surfaced and this pass did **not** fix: `AuthContext` seeds
+`user` from `localStorage` in a `useState` initialiser, so an authenticated
+page's server HTML has no "My History"/"Messages" items in the navbar and the
+client's first render does. React logs a hydration mismatch and re-renders the
+subtree client-side. It is the same mechanism that removed the login form's
+submit handler earlier, so it is not cosmetic noise. The fix is to hold the
+user in an external store read through `useSyncExternalStore` — server snapshot
+`null`, client snapshot from storage, which is exactly the API React provides
+for a value that legitimately differs between the two — but the auth context is
+the one place where a wrong move turns into redirect loops on every guarded
+route, so it wants its own change and its own verification rather than a ride
+along with the e2e promotion.
+

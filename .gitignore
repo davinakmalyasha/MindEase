@@ -34,6 +34,9 @@ blob-report/
 # Page snapshots and console logs written by the Playwright MCP browser tool when
 # driving the app by hand. Scratch, not fixtures.
 .playwright-mcp/
+# Playwright storage states written by `client/e2e/auth.setup.ts`. Each file is
+# a live session: cookie pair plus the cached user object. Treat as credentials.
+client/.auth/
 
 # Database and cache snapshots
 # `dump.rdb` is a Redis snapshot: it can contain cached session and PII data.

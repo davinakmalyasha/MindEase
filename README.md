@@ -378,12 +378,13 @@ hashing**. That is deliberate: a unique-constraint race and a hash round trip
 are exactly the properties that cannot be faked, and mocking either makes the
 test assert nothing. It is slow, and it wipes the database between tests.
 
-**End-to-end**: `client/e2e/journeys.spec.ts`, 12 tests in 10 journeys, run
-against the compose stack. They run on `workflow_dispatch` or on a PR labelled
-`e2e` rather than on every push — the suite had never been executed by any
-automated process, and reporting a selector failure as a required-check failure
-on the first attempt would be the wrong signal. It is promoted to a required
-check once green.
+**End-to-end**: `client/e2e/journeys.spec.ts`, 12 journeys plus three cached
+sign-ins in `client/e2e/auth.setup.ts`, run against the compose stack. They are a
+required step in the `docker` job, after the four health checks and the seed.
+They were opt-in until they had been run green — a first red would have reported
+a selector bug as a regression — and getting them there found four product bugs
+that every other suite was happy with; see
+[`docs/testing.md`](docs/testing.md#the-end-to-end-journeys).
 
 ```bash
 cd client && npx playwright test    # with the stack already running
@@ -461,11 +462,12 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 - **Two large files are deliberately not decomposed.**
   `client/app/dashboard/profile/page.tsx` and `client/components/doctors/DoctorProfile.tsx`
   are each over 600 lines. Low value relative to the regression risk.
-- **The e2e suite is opt-in.** It is wired into CI and runs on demand — dispatch
-  the workflow, or label a PR `e2e` — rather than on every push, because the
-  journeys were written against selectors nothing had ever exercised and a first
-  red run would report a selector bug as a regression. It has still never been run
-  automatically, and one journey is effectively a smoke test.
+- **The e2e suite is twelve journeys, not coverage.** It runs on every `docker`
+  job now, but several journeys are smoke tests: journey 6 asserts the reviews
+  section renders its seeded empty state, and journey 5's follow-up leg only
+  runs when a completed appointment already exists. Journey 10 builds the
+  booking, the completion and the review itself so the reply and report paths
+  execute for real.
 - **Two repo guard scripts do not work.** `server/scripts/check-operators.js`
   declares a `CODE_POSITION` regex it never uses and strips only `//` comments,
   so it reports 195 false positives — all of them prose in a doc comment, JSX
@@ -481,9 +483,9 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
 - `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 499 tests against a MySQL service container
-- `client` — lint, 46 tests, production build
+- `client` — lint, 52 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
-- `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys when requested
+- `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys
 
 `security.yml` runs weekly as well as on push: gitleaks over the full history,
 CodeQL for TypeScript and Go, Trivy on the three Dockerfiles, `npm audit

@@ -97,6 +97,27 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
         [slots, selectedDate]
     );
 
+    /**
+     * The days in the slot list that still have an open slot.
+     *
+     * `DatePicker` enables every one of the next fourteen days when it is not
+     * given `availableDates`, so a patient could select a day this clinician
+     * does not work on, press Continue, and be told "No open slots for this
+     * day" — a dead end the picker could have prevented, and one that reads as
+     * a broken schedule rather than an unavailable date.
+     *
+     * `undefined` (rather than an empty list) when nothing is open, because
+     * `DatePicker` treats an empty array as "disable every chip", which would
+     * leave a clinician with no published slots looking like a broken control.
+     * All-open is the honest fallback there: step 2 still reports the truth.
+     */
+    const availableDates = useMemo(() => {
+        const openDays = slots
+            .filter((s) => !s.isBooked && s.date)
+            .map((s) => s.date as Date);
+        return openDays.length > 0 ? openDays : undefined;
+    }, [slots]);
+
     /** The entitlement the booking will consume, or null if not using one. */
     const selectedPackage = usePackageEffective ? (myPackages[0] ?? null) : null;
 
@@ -287,7 +308,11 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
                         transition={{ duration: 0.2 }}
                     >
                         {step === 1 && (
-                            <DatePicker selectedDate={selectedDate} onChange={setSelectedDate} />
+                            <DatePicker
+                                selectedDate={selectedDate}
+                                onChange={setSelectedDate}
+                                availableDates={availableDates}
+                            />
                         )}
                         {step === 2 && (
                             <TimeSlots

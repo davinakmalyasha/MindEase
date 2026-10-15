@@ -176,24 +176,24 @@ and is ignored is worth more than no number.
 The realtime service already prints `-cover` in the `realtime` job; collecting it
 as an artifact would be a smaller version of the same step.
 
-**Also worth adding.** The e2e suite is the fourth gate and it has never run in
-automation ([`testing.md`](testing.md#why-e2e-is-not-required)). Getting it green
-and promoting it to required is worth more than any coverage number, because it
-is the only thing that exercises the three processes together.
+**Also worth adding.** The e2e suite is the fourth gate
+([`testing.md`](testing.md#the-end-to-end-journeys)). Getting it green and
+promoting it to required was worth more than any coverage number, because it is
+the only thing that exercises the three processes together.
 
-**It has now run, locally, for the first time — and it paid for itself before
-promotion.** Nine of twelve journeys pass. It found two product bugs that reading
-had not: every public page bounced a logged-out visitor to `/login?expired=1`
-(registration was unreachable), and a hydration mismatch in the push-prompt
-banner, which is the same mechanism that had removed the login form's submit
-handler earlier in this pass.
-
-The remaining three fail on the API's own rate limits: the e2e stack runs with
-`NODE_ENV=production`, twelve journeys log in from one IP, and auth is limited to
-twenty attempts per window. The suite is shaped wrongly for the limits rather than
-the other way round, so the next step is Playwright's `storageState` —
-authenticate once per role in a setup project and reuse the session, taking
-roughly thirty logins down to three. Promotion to a required check waits for that.
+**Done: it runs green and it is required.** Fifteen tests — three cached
+sign-ins and twelve journeys — run in the `docker` job after the seed, with no
+gate. It paid for itself several times before promotion, on bugs that reading had
+not found: every public page bounced a logged-out visitor to `/login?expired=1`
+(registration was unreachable), a hydration mismatch in the push-prompt banner,
+a cookie banner that covered the booking wizard's Back button, and a date picker
+that offered days the clinician had no slots on. It also showed that the review
+journey had never worked at all — its selectors named controls that do not exist
+("Rate", not "Review"; an inline reply form, not a dialog), it booked whichever
+clinician happened to sort second on a rating every seeded clinician ties at
+zero, and it read a paginated response as a bare array. The rate-limit pressure
+that shaped the suite is answered with Playwright's `storageState`: three
+sign-ins in a setup project, reused, instead of roughly thirty.
 
 ### 6. ~~Editor concurrency on the care plan and safety plan~~ — done
 
@@ -374,7 +374,7 @@ would be silent and in the dangerous direction. See
 | Crisis triage is keyword matching | Accurate, and will stay that way. Deliberate, not a gap. |
 | Clinical AI briefings are advisory | Accurate and intentional. |
 | Two large client files | Accurate. Decomposition declined on cost/benefit. |
-| e2e is opt-in and has not run in CI | Accurate. Theme 5. |
+| e2e is opt-in and has not run in CI | **Already fixed.** It runs green as a required step in the `docker` job. The README entry is stale. |
 | Two guard scripts do not work | Accurate. Theme 4. The operator count is now 195, not 190. |
 
 There is no entry here for `node-cron` not being a durable queue. It belongs in
@@ -391,8 +391,9 @@ Not a plan. An ordering, with the reasoning:
    for a data-loss bug in a patient-owned document.
 3. **Coverage reporting, non-blocking.** Without a baseline, every later
    threshold is a guess.
-4. **The guard scripts, then e2e to required.** Both are "make CI mean what it
-   claims to mean", and both are cheap once green.
+4. ~~**The guard scripts, then e2e to required.**~~ Both are "make CI mean what it
+   claims to mean", and both are done: the guard scripts are required steps and
+   the journeys run on every `docker` job, after the seed.
 5. **Durable background work.** Needs a deployment shape decision (where does the
    worker run), so it follows rather than leads.
 6. **A real payment provider**, then the race fix once the product has answered
