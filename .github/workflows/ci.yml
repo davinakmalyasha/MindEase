@@ -257,12 +257,14 @@ jobs:
         working-directory: .
         run: node scripts/check-encoding.js
 
-      # `check-dependencies.js` exits 0 without `--write`, so it reports and never
-      # fails - but it has false positives today: it does not scan
-      # `eslint.config.mjs`, so it calls `@eslint/js` and `typescript-eslint`
-      # unused, and it does not know that jsdom and testing-library are pulled in
-      # by vitest's config rather than imported. It needs fixing before it can
-      # gate anything; tracked in the README's known limitations.
+      # `check-dependencies.js` used to report and never fail: it exits 0 without
+      # `--write`, and it had false positives - it did not scan
+      # `eslint.config.mjs` (so it called `@eslint/js` and `typescript-eslint`
+      # unused) and it did not know that jsdom and `@vitest/coverage-v8` are
+      # selected by configuration value rather than imported. It now walks the
+      # whole package, matches those conventions by rule, and exits 1 on a
+      # finding, with a self-test that pins each false positive from its history.
+      # Required.
       #
       # There used to be a third guard here, `check-operators.js`, and it is gone.
       # It looked for a typographic dash sitting between two code tokens - the
@@ -291,9 +293,10 @@ jobs:
       #
       # The repo-wide encoding guard remains, and it is the one that catches
       # mojibake, which is the same incident from the other direction.
-      - name: Unused dependency check (advisory)
-        continue-on-error: true
-        run: node scripts/check-dependencies.js
+      - name: Dependency reference check
+        run: |
+          node scripts/check-dependencies.test.js
+          node scripts/check-dependencies.js
       - name: Migration table-case check
         # Not advisory, and not for style: a migration referenced
         # `moodEntry` where the table is `MoodEntry`. That resolves on
@@ -403,9 +406,10 @@ jobs:
       - name: Encoding guard (whole repo)
         working-directory: .
         run: node scripts/check-encoding.js
-      - name: Unused dependency check (advisory, known false positives)
-        continue-on-error: true
-        run: node scripts/check-dependencies.js
+      - name: Dependency reference check
+        run: |
+          node scripts/check-dependencies.test.js
+          node scripts/check-dependencies.js
       - run: npm run lint
       # The vitest suite was never run in CI, so the api-session and
       # notifications-store regression tests only ever ran locally.
@@ -658,8 +662,8 @@ jobs:
       # Note the seed creates zero reviews. It used to invent a 4.2-4.9 rating
       # for every clinician with zero reviews, which made "Top Rated" rank
       # the most-liked-looking profiles first; that data was removed because
-      # demo data should not model the bug. One journey depends on a review
-      # existing and builds its own by completing a consultation.
+      # demo data should not model the bug. One journey builds its own review,
+      # follow-up and conversation by completing a consultation.
       - name: Install server dependencies (for the seed)
         working-directory: server
         run: npm ci
