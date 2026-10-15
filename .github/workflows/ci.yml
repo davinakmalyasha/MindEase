@@ -13,7 +13,8 @@ on:
   # like a gate that has not been run in a while.
   schedule:
     - cron: "17 4 * * 1"
-  # The end-to-end step is opt-in. See the `docker` job for why.
+  # Manual runs are still allowed; the e2e journeys themselves are a required
+  # step of the `docker` job. See the comment there.
   workflow_dispatch:
 
 # Least privilege. Stated once, at the top, and narrowed per job where a job needs
