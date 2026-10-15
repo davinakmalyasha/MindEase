@@ -469,14 +469,11 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
   asserts the empty inbox. Journey 10 builds the whole chain itself (booking,
   completion, review, follow-up, conversation) so the reply, report, follow-up
   and chat paths execute for real.
-- **Two repo guard scripts do not work.** `server/scripts/check-operators.js`
-  declares a `CODE_POSITION` regex it never uses and strips only `//` comments,
-  so it reports 195 false positives — all of them prose in a doc comment, JSX
-  text, or an email template. `check-dependencies.js` does not scan
-  `eslint.config.mjs` and so calls the eslint packages unused. Both are wired
-  into CI as advisory rather than required, because a required check that fails
-  on its first run is worse than an unwired one. Only `check-encoding.js` is
-  green and gating.
+- **The UI hygiene counts are advisory, not gated.** Hardcoded UI strings (184
+  in 51 files) and locale bypasses (38 in 20 files) are counted on every run;
+  the counts are a ratchet rather than a gate, and they only fall as strings are
+  migrated to `useTranslations` and dates routed through `lib/format.ts`. A
+  required step today would block every PR on pre-existing debt.
 
 ## CI/CD
 
