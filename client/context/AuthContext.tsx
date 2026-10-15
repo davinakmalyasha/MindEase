@@ -4,10 +4,10 @@ import {
     createContext,
     useContext,
     useEffect,
-    useState,
     useCallback,
     useMemo,
     useRef,
+    useSyncExternalStore,
     type ReactNode,
 } from "react";
 import api, { onSessionExpired } from "@/lib/api";
@@ -97,14 +97,116 @@ const persistUser = (user: AuthUser | null) => {
     }
 };
 
+/**
+ * The session store the provider reads through `useSyncExternalStore`.
+ *
+ * ## Why this is not `useState`
+ *
+ * It was `useState(readStoredUser)`, which seeds the user from `localStorage`
+ * on the client and leaves it `null` on the server. The first client render
+ * therefore disagreed with the server HTML on every page that branches on
+ * `user` — the navbar's "My History" and "Messages" items, the dashboard
+ * shell, a clinician's own reply controls — and React logged a hydration
+ * mismatch and re-rendered the subtree on the client to recover. That is the
+ * same mechanism that removed the login form's submit handler earlier in this
+ * project, so it is not console noise. The e2e suite surfaced it in the navbar
+ * on the first journey that rendered an authenticated page.
+ *
+ * `useSyncExternalStore` is React's API for exactly this: it renders with
+ * `getServerSnapshot` while hydrating, so the first client render matches the
+ * server HTML, and then re-renders with `getSnapshot` without a mismatch.
+ *
+ * ## The snapshots
+ *
+ * - `user`: `null` on the server, the parsed `localStorage` value on the
+ *   client. Parsing is cached on the raw string's identity, so `getSnapshot`
+ *   returns a stable object between renders, as React requires.
+ * - `isLoading`: `true` on the server and during the hydration pass, and
+ *   "a stored session exists but has not been validated yet" on the client.
+ *   The server snapshot is deliberately `true` rather than `false`: the
+ *   dashboard shell and any route guard branch on `(isLoading || !user)`, and a
+ *   hydration pass that reports `false` while `user` is still `null` is the
+ *   half-second that redirects a signed-in user to `/login`. There is no
+ *   stored session on the server to be honest about, so "still loading" is the
+ *   only server answer that cannot eject a real session.
+ */
+let cachedRaw: string | null | undefined;
+let cachedUser: AuthUser | null = null;
+let loadingState: boolean | undefined;
+const storeListeners = new Set<() => void>();
+
+const emitAuthStore = () => {
+    for (const listener of storeListeners) listener();
+};
+
+const subscribeAuthStore = (listener: () => void) => {
+    storeListeners.add(listener);
+    return () => {
+        storeListeners.delete(listener);
+    };
+};
+
+const getUserSnapshot = (): AuthUser | null => {
+    // A fresh `getItem` on every call is cheaper than a correctness bug: the
+    // parse only reruns when the stored string actually changes, and it keeps
+    // `localStorage` the single source of truth - including for anything that
+    // writes it outside this module (another tab, a test).
+    const raw = readRawUser();
+    if (raw !== cachedRaw) {
+        cachedRaw = raw;
+        // A corrupt value reads as "no session" rather than throwing inside a
+        // render: the key is user-writable storage, and a crash loop on boot is
+        // worse than a signed-out one.
+        try {
+            cachedUser = raw ? (JSON.parse(raw) as AuthUser) : null;
+        } catch {
+            cachedUser = null;
+        }
+    }
+    return cachedUser;
+};
+
+const getLoadingSnapshot = (): boolean => {
+    if (loadingState === undefined) loadingState = readStoredUser() !== null;
+    return loadingState;
+};
+
+/** Stable identity, so React is not re-rendering because the function moved. */
+const serverUserSnapshot = (): AuthUser | null => null;
+/** See the store's comment: "still loading" is the only safe server answer. */
+const serverLoadingSnapshot = (): boolean => true;
+
+const setStoreUser = (next: AuthUser | null) => {
+    persistUser(next);
+    cachedRaw = undefined;
+    emitAuthStore();
+};
+
+const setStoreLoading = (next: boolean) => {
+    if (loadingState === next) return;
+    loadingState = next;
+    emitAuthStore();
+};
+
+/** The raw stored string, or `null`. Split out so the parse cache can watch it. */
+function readRawUser(): string | null {
+    if (typeof window === "undefined") return null;
+    try {
+        return window.localStorage.getItem(STORAGE_KEY);
+    } catch {
+        return null;
+    }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-    // Seed from storage so the first paint is not empty, but treat it as
-    // unverified until the server confirms it.
-    const [user, setUserState] = useState<AuthUser | null>(readStoredUser);
-    // Only a browser holding a stored session has anything to wait for. Without
-    // one the app is already in its final state, and starting `true` would show a
-    // spinner for a check that is about to be skipped.
-    const [isLoading, setIsLoading] = useState(() => readStoredUser() !== null);
+    // Read through the external store rather than holding state, so the server
+    // render, the hydration pass and the client all agree on who is signed in.
+    // See the store's comment above: `useState(readStoredUser)` is a hydration
+    // mismatch by construction, and the server snapshot for `isLoading` is
+    // `true` so a route guard cannot redirect before the stored session has
+    // been restored.
+    const user = useSyncExternalStore(subscribeAuthStore, getUserSnapshot, serverUserSnapshot);
+    const isLoading = useSyncExternalStore(subscribeAuthStore, getLoadingSnapshot, serverLoadingSnapshot);
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -115,8 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const setUser = useCallback((next: AuthUser | null) => {
-        setUserState(next);
-        persistUser(next);
+        setStoreUser(next);
     }, []);
 
     const refreshProfile = useCallback(async () => {
@@ -124,8 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const res = await api.get("/users/profile");
             const profile = res.data?.data?.user ?? res.data?.data;
             if (profile && mounted.current) {
-                setUserState(profile as AuthUser);
-                persistUser(profile as AuthUser);
+                setStoreUser(profile as AuthUser);
             }
         } catch {
             // Not signed in, or the request was superseded. The stored value
@@ -154,8 +254,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // A stored user is the only thing there is to re-validate. Without one,
         // the answer is already known.
         if (!readStoredUser()) {
+            // Even when there is nothing to validate, the loading flag is
+            // corrected explicitly: a stale `true` (reachable across mounts)
+            // would leave a guarded page on its spinner forever.
+            setStoreLoading(false);
             return;
         }
+
+        // A validation is in flight, so the flag is set before the request
+        // rather than after it. The lazy initial value already covers the
+        // ordinary mount; this covers the case where a previous mount left it
+        // `false` while a session was still stored.
+        setStoreLoading(true);
 
         (async () => {
             try {
@@ -163,19 +273,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (!cancelled && mounted.current) {
                     const profile = res.data?.data?.user ?? res.data?.data;
                     if (profile) {
-                        setUserState(profile as AuthUser);
-                        persistUser(profile as AuthUser);
+                        setStoreUser(profile as AuthUser);
                     }
                 }
             } catch {
                 if (!cancelled && mounted.current) {
                     // No valid session: drop the cached user rather than
                     // leaving the UI in a half-authenticated state.
-                    setUserState(null);
-                    persistUser(null);
+                    setStoreUser(null);
                 }
             } finally {
-                if (!cancelled && mounted.current) setIsLoading(false);
+                if (!cancelled && mounted.current) setStoreLoading(false);
             }
         })();
         return () => {
@@ -187,8 +295,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // owns the user-visible reaction to it.
     useEffect(() => {
         onSessionExpired(() => {
-            setUserState(null);
-            persistUser(null);
+            setStoreUser(null);
             if (typeof window === "undefined") return;
             const { pathname, search } = window.location;
 
@@ -216,8 +323,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return { requires2FA: true, twoFactorToken: String(data.twoFactorToken) };
         }
         const loggedIn = data.user as AuthUser;
-        setUserState(loggedIn);
-        persistUser(loggedIn);
+        setStoreUser(loggedIn);
         return loggedIn;
     }, []);
 
@@ -228,16 +334,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return { requires2FA: true, twoFactorToken: String(data.twoFactorToken) };
         }
         const loggedIn = data.user as AuthUser;
-        setUserState(loggedIn);
-        persistUser(loggedIn);
+        setStoreUser(loggedIn);
         return loggedIn;
     }, []);
 
     const complete2FA = useCallback(async (token: string, code: string) => {
         const res = await api.post("/account/2fa/verify", { token, code });
         const loggedIn = res.data.data.user as AuthUser;
-        setUserState(loggedIn);
-        persistUser(loggedIn);
+        setStoreUser(loggedIn);
         return loggedIn;
     }, []);
 
@@ -252,8 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }) => {
             const res = await api.post("/auth/register", data);
             const registered = res.data.data.user as AuthUser;
-            setUserState(registered);
-            persistUser(registered);
+            setStoreUser(registered);
             return registered;
         },
         []
@@ -266,8 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // The local session is cleared regardless: a failed server-side
             // logout must not leave the user apparently signed in.
         }
-        setUserState(null);
-        persistUser(null);
+        setStoreUser(null);
     }, []);
 
     /**
