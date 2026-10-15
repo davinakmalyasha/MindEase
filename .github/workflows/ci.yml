@@ -658,6 +658,15 @@ jobs:
       - name: Install server dependencies (for the seed)
         working-directory: server
         run: npm ci
+      # The client's dependencies, for Playwright itself. The `client` job
+      # installs them on its own runner; this job is a different runner with a
+      # fresh checkout, so `npx playwright test` died on
+      # "Cannot find module '@playwright/test'" on the first run of the
+      # journeys - a step that had been unreachable for as long as the suite
+      # was opt-in, which is exactly how it stayed unseen.
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
       - name: Seed the database
         working-directory: server
         env:
