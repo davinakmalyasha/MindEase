@@ -21,7 +21,20 @@ export default function PushPromptBanner() {
     }, [supported, user]);
 
     if (!user || !supported || subscribed || dismissed) return null;
-    if (Notification.permission === "granted") return null;
+    // Only a *default* permission has anything to ask.
+    //
+    // This used to return null for "granted" alone, so a user who had denied
+    // notifications kept seeing "Enable notifications?" - a prompt whose only
+    // button calls `subscribe()`, which checks for "default" and does nothing.
+    // The banner nagged about a permission the page cannot request again.
+    //
+    // It also quietly broke the end-to-end suite once the web app was served as
+    // a production build: headless Chromium reports "denied", so the banner
+    // rendered in a fixed bottom-right corner directly over the message
+    // composer's Send button, and the journey that clicks it timed out on an
+    // intercepted click. The product bug and the test failure were the same
+    // bug.
+    if (Notification.permission !== "default") return null;
 
     return (
         <motion.div

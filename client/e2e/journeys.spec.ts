@@ -510,7 +510,11 @@ test.describe("Journey 10: review lifecycle", () => {
         await page.getByPlaceholder(/Thank the patient/).fill("Thank you for the kind words.");
         await page.getByRole("button", { name: /Publish Reply/ }).click();
         // The card re-fetches the review list and renders the reply under it.
-        await expect(page.getByText(/Thank you for the kind words/)).toBeVisible({ timeout: 15_000 });
+        // `.first()`, like the chat message below: a second run without a
+        // reseed leaves an earlier review carrying the same reply text, and
+        // strict mode would fail on the duplicate rather than on anything this
+        // journey did.
+        await expect(page.getByText(/Thank you for the kind words/).first()).toBeVisible({ timeout: 15_000 });
 
         const report = page.getByRole("button", { name: /Report/ }).first();
         await expect(report).toBeVisible({ timeout: 10_000 });

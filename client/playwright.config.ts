@@ -15,13 +15,14 @@ export default defineConfig({
     use: {
         baseURL: "http://localhost:3000",
         trace: "retain-on-failure",
-        // Grant notifications so `Notification.permission` is "granted" and the
-        // "Enable notifications?" prompt never renders. That prompt is a fixed
-        // banner in the bottom-right corner and it covers the booking modal's
-        // controls; a test should not fight a modal for the corner of the page.
-        // Granting the permission is what a returning user who accepted it
-        // looks like, so this is a real user state, not a bypass.
-        permissions: ["notifications"],
+        // No `permissions: ["notifications"]` here, deliberately.
+        //
+        // It read as "the prompt never renders because the permission is
+        // granted", but in this Chromium the grant resolves to *denied* - the
+        // same value a plain headless context reports - so it changed nothing.
+        // The prompt is kept out of the way by the product rule instead: it
+        // renders only while the permission is "default", and asks for
+        // something that can still be asked. See `PushPromptBanner`.
         // Answer the cookie consent prompt before it can render. The banner is
         // fixed at the bottom-left and, at `z-[80]`, covered the booking
         // modal's Back button - which is how Journey 1 and Journey 10 timed
