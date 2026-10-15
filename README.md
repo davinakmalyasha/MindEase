@@ -99,8 +99,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **127** | API routes · **28** Prisma models · **17** migrations |
-| **500** | server tests across 40 files, against a real MySQL and real Argon2 |
+| **127** | API routes · **28** Prisma models · **18** migrations |
+| **505** | server tests across 41 files, against a real MySQL and real Argon2 |
 | **52** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
@@ -164,7 +164,7 @@ MindEase/
 │  │  ├─ schemas/       zod, and the generated OpenAPI document
 │  │  ├─ jobs/          three cron jobs, all single-runner gated
 │  │  └─ lib/           tokens, cache, storage, payments, logging
-│  └─ tests/            500 integration tests against a real database
+│  └─ tests/            505 integration tests against a real database
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -243,13 +243,13 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 500 server tests against a freshly migrated database
+make test       # 505 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
 
 The server suite is integration-only: a real MySQL, real Argon2, real cookies.
-SQLite is not an option — the provider is a literal `mysql` and all 17 migrations
+SQLite is not an option — the provider is a literal `mysql` and all 18 migrations
 are raw MySQL DDL.
 
 Coverage is available (`make -C server coverage`, `make -C client coverage`) but
@@ -368,10 +368,12 @@ secrets listed above. The workflow assumes they exist.
 - [ ] Backups: Railway MySQL plugin (managed backups) or `server/scripts/backup.ps1`
 
 The reminder and check-in jobs run on `node-cron` inside the API process. They
-claim work with a conditional update, so multiple replicas are safe — but the
-claim was only fixed to happen *after* the eligibility check, so a session whose
-date was in the horizon but whose start time was not would previously have burnt
-its own reminder slot.
+claim work with a conditional update, so multiple replicas are safe, and each
+job's eligibility is a window or a sentinel rather than the tick itself — a
+missed run is caught up by the next one, and a failed send hands its claim back
+instead of consuming it. What is not durable is the process: an outage covering
+a session's whole reminder window still loses that reminder. See
+[`docs/operations.md`](docs/operations.md#the-cron-jobs-and-what-is-durable-about-them).
 
 The server suite runs against a **real MySQL database with real Argon2
 hashing**. That is deliberate: a unique-constraint race and a hash round trip
@@ -480,7 +482,7 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 500 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 505 tests against a MySQL service container
 - `client` — lint, 52 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys

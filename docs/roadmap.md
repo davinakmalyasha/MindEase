@@ -84,32 +84,39 @@ is unclear — the mechanism is already in the codebase and tested.
 relaxes "an entitlement is legitimate only with a verified `paidAt` or an
 explicit `grantedByUserId`".
 
-### 3. Durable background work
+### 3. Durable background work — partly closed
 
 **The gap.** All three scheduled jobs are `node-cron` inside the API process
 (`reminders.ts`, `checkins.ts`). A restart, a crash, a deploy or a
-scale-to-zero during the scheduled minute means that tick does not happen, and
-there is no record that it was missed. See
-[`operations.md`](operations.md#the-cron-jobs-and-why-they-are-not-durable).
+scale-to-zero during the scheduled minute means that tick does not happen. See
+[`operations.md`](operations.md#the-cron-jobs-and-what-is-durable-about-them).
 
-**Why it has not been urgent.** The jobs send reminders and nudges. A missed
-reminder is embarrassing; a missed *risk escalation* would not be. Today the two
-are separate — `raiseRiskAlert` runs synchronously inside a request — which is
-the correct design and is the main reason this is a Tier 2 item rather than
-Tier 1. It becomes Tier 1 the moment anything safety-relevant is moved off the
+**What is closed.** A lost tick is now a delay rather than a loss, because every
+job's eligibility is a window or a sentinel instead of the tick itself:
+reminders re-check the 0–24h window on every run, the check-in nudges and the
+post-session check-in are sentinel-based, and the weekly report moved from
+`0 7 * * 1` with one six-hour lock to a **daily check claimed per patient**
+through `User.lastWeeklyReportAt` — so a Monday lost to a deploy goes out the
+next morning, and a crash halfway through the loop retries the remainder without
+re-mailing anyone it already reached. A failed send now hands its claim back in
+all three jobs; previously the sentinel stayed set and the nudge disappeared
+until the next period, or forever for a post-session check-in. The
+`acquireLock` fallback no longer "reads as a lock and is not": without Redis it
+is a `JobLock` row, and the documentation claiming otherwise is corrected.
+Every run logs what it sent, because a silent zero is the signature of a broken
+job.
+
+**What remains.** A process that is not the HTTP handler. The jobs still stop
+when the API does, and an outage covering a session's entire reminder window
+still loses that reminder. The direction is unchanged — the sentinel columns
+already are a durable job table, so the work is a `SELECT ... FOR UPDATE SKIP
+LOCKED` loop over the same rows from a worker, with the API calling a webhook
+instead of owning the timer. That needs the deployment-shape decision, which is
+why it follows rather than leads. It also stays Tier 2 rather than Tier 1 for a
+reason that must survive any refactor: nothing safety-relevant runs on this
+schedule — `raiseRiskAlert` is synchronous inside the request that observes the
+risk — and it becomes Tier 1 the moment anything safety-relevant moves off the
 request path.
-
-**The direction.** A real queue. `Appointment.reminderSentAt` and friends already
-work as a durable job table — a `SELECT ... FOR UPDATE SKIP LOCKED` loop over
-rows whose sentinel is `NULL` is the standard MySQL 8 pattern and needs no new
-infrastructure, only a process that is not the HTTP handler. The trigger would be
-a webhook the API calls instead of a timer it owns.
-
-**Also worth doing while in there.** The `acquireLock` `GET_LOCK` fallback in
-`lib/cache.ts` cannot work as written, so the single-runner optimisation is
-best-effort and silently stops working when Redis is down. It is documented as
-such and the claims carry correctness, but it is the kind of thing that reads as
-a lock and is not.
 
 ### 4. ~~Advisory guard scripts~~ — done
 
@@ -385,9 +392,10 @@ would be silent and in the dangerous direction. See
 | e2e is opt-in and has not run in CI | **Already fixed.** It runs green as a required step in the `docker` job. The README entry is stale. |
 | Two guard scripts do not work | **Already fixed.** `check-operators.js` is deleted (the compiler and `prisma validate` catch what it looked for) and `check-dependencies.js` is required. The README entry is stale. |
 
-There is no entry here for `node-cron` not being a durable queue. It belongs in
-the README's known limitations, because it is a real operational gap with a
-known failure mode rather than a deferred feature — see theme 3.
+There is no entry here for `node-cron` not being a durable queue, because it is
+no longer simply true: a lost tick is caught up rather than lost, and what
+remains — the API process owning the schedule — is described in the README's
+deploying section and in [`operations.md`](operations.md#the-cron-jobs-and-what-is-durable-about-them).
 
 ## Sequencing, roughly
 
