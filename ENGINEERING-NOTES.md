@@ -853,7 +853,11 @@ first step was `docker compose build`, it failed, and every later step —
 including the journeys — was unreachable. Once the plumbing was repaired the
 suite was run locally, opt-in, until green. It is now a required step in that
 job, after the seed, and the record of why is worth keeping because the defects
-it found were invisible to every other suite.
+it found were invisible to every other suite. Its first execution as a required
+step failed for the same reason it had never run before — the job installs the
+server's dependencies for the seed and never the client's, so `npx playwright
+test` died on `Cannot find module '@playwright/test'`. Then it passed 15/15 in
+the Docker stack, in 42 seconds.
 
 Product bugs, all green everywhere else:
 

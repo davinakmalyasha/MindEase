@@ -346,7 +346,12 @@ should cost ten seconds rather than a full three-job test run.
 Once the plumbing was repaired, the journeys ran on `workflow_dispatch` or an
 `e2e` label while their selectors were being exercised for the first time — a
 required-check failure then would have been indistinguishable from a
-regression. They were promoted to required after a green run.
+regression. They were promoted to required after a green run, and the first
+execution of the required step in CI failed on `Cannot find module
+'@playwright/test'`: the job installs the server's dependencies for the seed
+and never the client's. That is the same shape again — a step that had been
+unreachable for as long as the suite was opt-in, and therefore never examined.
+Fifteen tests now pass in the Docker stack, in 42 seconds.
 
 ### What running them actually found
 
