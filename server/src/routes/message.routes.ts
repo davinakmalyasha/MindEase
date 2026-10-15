@@ -53,6 +53,9 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/conversations", MessageController.getConversations);
+// Who the caller may start a conversation with. `/conversations` is message
+// history; this is the appointment relationship the gate is actually made of.
+router.get("/contacts", MessageController.getContacts);
 router.post("/upload", upload.single("file"), MessageController.uploadAttachment);
 router.get("/:userId/messages", validate(GetMessagesSchema), MessageController.getMessages);
 router.post("/:userId/typing", validate(TypingSchema), MessageController.typingIndicator);

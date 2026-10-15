@@ -15,6 +15,17 @@ export class MessageController {
         }
     }
 
+    static async getContacts(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const contacts = await MessageService.getChatContacts(userId);
+            res.json({ status: "success", data: contacts });
+        } catch (error: unknown) {
+            const { message, status } = publicMessageFor(error) ?? { message: "Failed to fetch contacts.", status: 500 };
+            res.status(status).json({ status: "error", message });
+        }
+    }
+
     static async getMessages(req: Request, res: Response) {
         try {
             const userId = req.user!.id;

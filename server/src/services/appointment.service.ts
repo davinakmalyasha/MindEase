@@ -440,6 +440,13 @@ export class AppointmentService {
                             awayUntil: true,
                             user: {
                                 select: {
+                                    // The `id` is what the appointments page's
+                                    // "Chat" button deep-links with
+                                    // (`/messages?with=<doctor user id>`), and
+                                    // the button is disabled without it - so the
+                                    // allowlist being missing this one field
+                                    // made the control dead for every patient.
+                                    id: true,
                                     name: true,
                                     avatar: true,
                                     phone_number: true,

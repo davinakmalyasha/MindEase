@@ -169,6 +169,7 @@ registerGet("/api/wellness/assessments", "Assessment history", "wellness");
 
 // Messages
 registerGet("/api/messages/conversations", "Conversation list", "messages");
+registerGet("/api/messages/contacts", "Contacts you can message", "messages");
 registerGet("/api/messages/{userId}/messages", "Message thread with a user", "messages");
 registerBody("/api/messages/{userId}", "post", SendMessageSchema.shape.body, "Send a message (optionally with attachment)");
 registerBody("/api/messages/{userId}/typing", "post", TypingSchema.shape.body, "Send a typing indicator");

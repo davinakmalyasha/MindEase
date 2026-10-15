@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toast";
 
 export const messageKeys = {
     conversations: ["messages", "conversations"] as const,
+    contacts: ["messages", "contacts"] as const,
     thread: (userId: number) => ["messages", "thread", userId] as const,
 };
 
@@ -17,6 +18,29 @@ export const useConversations = (refetchInterval = 30000) =>
             return (res.data?.data || []) as any[];
         },
         refetchInterval,
+    });
+
+/**
+ * Users the caller may message but has no messages with yet.
+ *
+ * `useConversations` is message history, so without this the thread with a
+ * clinician the user has a confirmed appointment with could not be opened at
+ * all: the list was empty, and the appointments page's "Chat" button deep-links
+ * into a thread that resolves against that same list. The gate for messaging is
+ * the appointment; this is the appointment side of it.
+ */
+export const useChatContacts = () =>
+    useQuery({
+        queryKey: messageKeys.contacts,
+        queryFn: async () => {
+            const res = await api.get("/messages/contacts");
+            return (res.data?.data || []) as {
+                id: number;
+                name: string;
+                avatar: string | null;
+                role: string;
+            }[];
+        },
     });
 
 export const useMessageThread = (otherUserId: number | null, refetchInterval = 5000) =>

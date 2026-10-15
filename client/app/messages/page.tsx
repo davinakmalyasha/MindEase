@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import {
     useConversations,
+    useChatContacts,
     useMessageThread,
     useSendMessage,
     useSendTyping,
@@ -73,6 +74,20 @@ function MessagesContent() {
         isError: isConversationsError,
         refetch: refetchConversations,
     } = useConversations();
+
+    // People the appointment relationship allows, with no message history yet.
+    //
+    // `useConversations` is message history, and this page was built from it
+    // alone - so a patient with a confirmed appointment saw "No conversations
+    // yet", the appointments page's "Chat" button deep-linked into a thread that
+    // resolves against that same list and reported "No conversation with that
+    // person", and the first message was unreachable from the UI even though the
+    // API has always allowed it. The gate for messaging is the appointment;
+    // these are rendered as startable threads so the gate is visible.
+    const { data: contacts = [] } = useChatContacts();
+    const startable = contacts.filter(
+        (contact) => !conversations.some((conv: any) => conv.user.id === contact.id)
+    );
     const {
         data: messages = [],
         isLoading: isLoadingMsgs,
@@ -105,19 +120,33 @@ function MessagesContent() {
             setUnmatchedId(null);
             return;
         }
-        if (conversations.length === 0) return;
+        if (conversations.length === 0 && contacts.length === 0) return;
         const conv = conversations.find((c: any) => String(c.user.id) === id);
+        const contact = conv ? null : contacts.find((c) => String(c.id) === id);
         if (conv) {
             setActiveUser(conv.user);
+            setShowMobileThread(true);
+            setUnmatchedId(null);
+        } else if (contact) {
+            // A startable contact: the appointment exists, the first message
+            // does not. Opening the thread here is what makes the appointments
+            // page's "Chat" button work on a patient's very first visit.
+            setActiveUser(contact);
             setShowMobileThread(true);
             setUnmatchedId(null);
         } else {
             setUnmatchedId(id);
         }
-    }, [searchParams, conversations]);
+    }, [searchParams, conversations, contacts]);
 
     const openConversation = (conv: any) => {
         setActiveUser(conv.user);
+        setShowMobileThread(true);
+        router.replace("/messages", { scroll: false });
+    };
+
+    const openContact = (contact: { id: number; name: string; avatar: string | null; role: string }) => {
+        setActiveUser(contact);
         setShowMobileThread(true);
         router.replace("/messages", { scroll: false });
     };
@@ -329,41 +358,71 @@ function MessagesContent() {
                                         Messaging opens once an appointment is confirmed. Pick a conversation below to get started.
                                     </p>
                                 </div>
-                            ) : conversations.length === 0 ? (
+                            ) : conversations.length === 0 && startable.length === 0 ? (
                                 <div className="p-8 text-center">
                                     <MessageCircle className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                                     <p className="text-sm font-semibold text-gray-500">No conversations yet</p>
                                     <p className="text-xs text-gray-400 mt-1">Chat becomes available after an appointment is confirmed.</p>
                                 </div>
                             ) : (
-                                conversations.map((conv) => (
-                                    <button
-                                        key={conv.user.id}
-                                        onClick={() => openConversation(conv)}
-                                        className={cn(
-                                            "w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors border-b border-gray-50 hover:bg-indigo-50/40",
-                                            activeUser?.id === conv.user.id && "bg-indigo-50/60"
-                                        )}
-                                    >
-                                        <div className="relative">
-                                            <Avatar src={conv.user.avatar} name={conv.user.name} size="md" />
-                                            {conv.unreadCount > 0 && (
-                                                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
-                                                    {conv.unreadCount}
-                                                </span>
+                                <>
+                                    {conversations.map((conv) => (
+                                        <button
+                                            key={conv.user.id}
+                                            onClick={() => openConversation(conv)}
+                                            className={cn(
+                                                "w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors border-b border-gray-50 hover:bg-indigo-50/40",
+                                                activeUser?.id === conv.user.id && "bg-indigo-50/60"
                                             )}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <p className="font-bold text-gray-900 text-sm truncate">{conv.user.name}</p>
-                                                <p className="text-[10px] text-gray-400 font-semibold shrink-0">{formatTime(conv.lastMessageAt)}</p>
+                                        >
+                                            <div className="relative">
+                                                <Avatar src={conv.user.avatar} name={conv.user.name} size="md" />
+                                                {conv.unreadCount > 0 && (
+                                                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                                                        {conv.unreadCount}
+                                                    </span>
+                                                )}
                                             </div>
-                                            <p className="text-xs text-gray-400 truncate mt-0.5">
-                                                {conv.lastMessageFromMe ? "You: " : ""}{conv.lastMessage}
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className="font-bold text-gray-900 text-sm truncate">{conv.user.name}</p>
+                                                    <p className="text-[10px] text-gray-400 font-semibold shrink-0">{formatTime(conv.lastMessageAt)}</p>
+                                                </div>
+                                                <p className="text-xs text-gray-400 truncate mt-0.5">
+                                                    {conv.lastMessageFromMe ? "You: " : ""}{conv.lastMessage}
+                                                </p>
+                                            </div>
+                                        </button>
+                                    ))}
+
+                                    {startable.length > 0 && (
+                                        <>
+                                            <p className="px-4 pt-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                                                Start a conversation
                                             </p>
-                                        </div>
-                                    </button>
-                                ))
+                                            {startable.map((contact) => (
+                                                <button
+                                                    key={contact.id}
+                                                    onClick={() => openContact(contact)}
+                                                    className={cn(
+                                                        "w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors border-b border-gray-50 hover:bg-indigo-50/40",
+                                                        activeUser?.id === contact.id && "bg-indigo-50/60"
+                                                    )}
+                                                >
+                                                    <Avatar src={contact.avatar} name={contact.name} size="md" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <p className="font-bold text-gray-900 text-sm truncate">{contact.name}</p>
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 truncate mt-0.5">
+                                                            No messages yet — say hello
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
+                                </>
                             )}
                         </div>
                     </aside>
