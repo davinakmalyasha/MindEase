@@ -890,16 +890,51 @@ Product bugs, all green everywhere else:
   this: it lives in the static progress list and appears with the state change,
   a beat before the animated panel mounts.
 
-One defect the suite surfaced and this pass did **not** fix: `AuthContext` seeds
-`user` from `localStorage` in a `useState` initialiser, so an authenticated
-page's server HTML has no "My History"/"Messages" items in the navbar and the
-client's first render does. React logs a hydration mismatch and re-renders the
-subtree client-side. It is the same mechanism that removed the login form's
-submit handler earlier, so it is not cosmetic noise. The fix is to hold the
-user in an external store read through `useSyncExternalStore` — server snapshot
-`null`, client snapshot from storage, which is exactly the API React provides
-for a value that legitimately differs between the two — but the auth context is
-the one place where a wrong move turns into redirect loops on every guarded
-route, so it wants its own change and its own verification rather than a ride
-along with the e2e promotion.
+That section listed the hydration mismatch as documented-not-fixed. It is fixed
+now, and the fixing is worth recording because it was harder to see than to
+fix.
+
+`AuthContext` seeded `user` from `localStorage` in a `useState` initialiser, so
+an authenticated page's server HTML had no "My History"/"Messages" items in the
+navbar and the client's first render did. React logged a hydration mismatch and
+regenerated the subtree. It is the same mechanism that removed the login form's
+submit handler earlier, so it is not console noise. The user now lives in an
+external store read through `useSyncExternalStore`: the server snapshot is
+`null`, the client snapshot is the stored user, and React swaps between them
+*after* hydration by design. `isLoading`'s server snapshot is deliberately
+`true` rather than `false` — a hydration pass that reports "not loading" while
+`user` is still `null` is the half-second in which a route guard redirects a
+signed-in user to `/login`.
+
+The hard part was proving it. The first verification pass showed the mismatch
+still there, and it kept showing it after every fix, including one that
+introduced a duplicate `const isLoading` and served a 500. The browser was not
+running the code: a **service worker from an earlier development session** was
+answering `/_next/static` from its cache. The worker's cache name is derived
+from the worker's own source — correct in production, where chunk URLs are
+content-addressed, and exactly wrong under Turbopack, where the same chunk
+filename is rewritten on every edit. Development no longer registers the worker
+and removes any left behind; the cache-first rule that made this possible was
+never wrong for production, only for the environment whose URLs do not behave
+the way it assumes. The lesson is cheaper to state than to learn: when a fix
+"does not work" twice in a row, verify the running artifact before the running
+theory.
+
+Two more product gaps came out of extending the journeys to the paths their
+smoke-test versions could not reach:
+
+- **The first chat message was impossible from the UI.** The messages page was
+  built from message *history*, so a patient with a confirmed appointment saw
+  "No conversations yet"; the appointments page's "Chat" button deep-linked to
+  `?with=<id>`, which resolved against that same history and reported "No
+  conversation with that person". The gate for messaging has always been the
+  appointment — `canChat` checks exactly that — so the contacts endpoint now
+  reads the same rows the gate does, the list renders startable threads, the
+  deep link resolves against them, and the composer sends the first message.
+- **The same button was disabled for every patient.** The doctor-side select on
+  the patient's appointment list omitted `user.id`, which is the value the
+  button deep-links with — so `disabled={... !app.doctor?.user?.id}` was always
+  true. An allowlist that is right about privacy can still be wrong about the
+  one field a control needs, and nothing else was reading it.
+
 

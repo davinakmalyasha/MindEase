@@ -398,8 +398,8 @@ product. Moving to a durable queue is the obvious fix and it is written up in
 | Avatars fine until the next deploy, then all gone | Same cause — no `VOLUME` on `public/uploads` | Same |
 | Emails "sent" but nothing arrives | SMTP unset; in non-production they are printed to the console | In production the boot **throws** instead, so this means you are not in production |
 | Consent OTP silently cancels a password reset | Old build; the two flows used to share one OTP slot | `resetOtp*` and `verifyOtp*` are now separate columns |
-| `node scripts/check-operators.js` exits 1 with ~195 findings | Known-broken guard, advisory in CI | See [`roadmap.md`](roadmap.md) |
-| `node scripts/check-dependencies.js` calls eslint packages unused | The script does not scan `eslint.config.mjs` | Known; advisory in CI |
+| `node scripts/check-dependencies.js` reports an unused package | Either it really is unused, or it is referenced in a way the scanner does not match (a config value, a peer dependency) | Remove it, or reference it, or add a reason to `INDIRECT` in the script; the self-test holds each case |
+| A dev browser keeps running an old bundle after an edit | A service worker registered by an earlier dev session is serving its cached chunks | The worker is no longer registered outside production and existing ones are removed on load; a profile loaded before that change needs one manual unregister |
 | Risk alert exists but is not in the clinician's queue | The assignment lapsed with the appointment | `assignedDoctorUserId` keeps it visible; unassigned alerts need a live relationship |
 | Nothing arrived for a risk alert | A realtime event was dropped for a slow consumer, or all channels failed | The row is still there and the queue is polled as well as pushed |
 

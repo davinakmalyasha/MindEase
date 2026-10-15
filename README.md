@@ -99,8 +99,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **126** | API routes · **28** Prisma models · **17** migrations |
-| **499** | server tests across 40 files, against a real MySQL and real Argon2 |
+| **127** | API routes · **28** Prisma models · **17** migrations |
+| **500** | server tests across 40 files, against a real MySQL and real Argon2 |
 | **52** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
@@ -157,14 +157,14 @@ MindEase/
 │  │  ├─ schema.prisma  28 models, no enums — every status is a String
 │  │  └─ migrations/    17 hand-written MySQL migrations, all backticked
 │  ├─ src/
-│  │  ├─ routes/        126 router registrations across 17 files
+│  │  ├─ routes/        127 router registrations across 17 files
 │  │  ├─ services/      the domain; the only layer that touches Prisma
 │  │  ├─ controllers/   HTTP shape only
 │  │  ├─ middleware/    auth, roles, CSRF, rate limits
 │  │  ├─ schemas/       zod, and the generated OpenAPI document
 │  │  ├─ jobs/          three cron jobs, all single-runner gated
 │  │  └─ lib/           tokens, cache, storage, payments, logging
-│  └─ tests/            499 integration tests against a real database
+│  └─ tests/            500 integration tests against a real database
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -243,7 +243,7 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 499 server tests against a freshly migrated database
+make test       # 500 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
@@ -411,7 +411,7 @@ document the shape of every response.
 | Clinical safety | `/api/wellness/risk-alerts`, `/api/wellness/risk-alerts/{id}/{acknowledge,resolve}` |
 | Care & safety plan | `/api/care-plan*`, `/api/safety-plan`, `/api/safety-plan/patient/{id}*` |
 | Support | `/api/support/chat` (AI assistant with crisis routing), `/api/support/sos` (panic button) |
-| Messaging | `/api/messages/*` (REST: thread, typing, attachments, delete, reactions) + WebSocket push (typing, read receipts, deleted/reacted) |
+| Messaging | `/api/messages/*` (REST: conversations, contacts, thread, typing, attachments, delete, reactions) + WebSocket push (typing, read receipts, deleted/reacted) |
 | Reviews | `/api/reviews`, `/api/reviews/doctor/{id}`, `/api/reviews/{id}/{reply,report}` |
 | Growth | `/api/doctors/{id}/waitlist*`, `/api/doctors/packages/*`, `/api/doctors/packages/{id}/purchase`, `/api/payments/*` |
 | Push | `/api/push/{public-key,subscribe,unsubscribe}` |
@@ -463,11 +463,12 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
   `client/app/dashboard/profile/page.tsx` and `client/components/doctors/DoctorProfile.tsx`
   are each over 600 lines. Low value relative to the regression risk.
 - **The e2e suite is twelve journeys, not coverage.** It runs on every `docker`
-  job now, but several journeys are smoke tests: journey 6 asserts the reviews
-  section renders its seeded empty state, and journey 5's follow-up leg only
-  runs when a completed appointment already exists. Journey 10 builds the
-  booking, the completion and the review itself so the reply and report paths
-  execute for real.
+  job now, but three journeys are smoke tests of what the seed produces —
+  journey 5 asserts a clinician with no history has no follow-up controls,
+  journey 6 asserts the reviews section renders its empty state, and journey 9
+  asserts the empty inbox. Journey 10 builds the whole chain itself (booking,
+  completion, review, follow-up, conversation) so the reply, report, follow-up
+  and chat paths execute for real.
 - **Two repo guard scripts do not work.** `server/scripts/check-operators.js`
   declares a `CODE_POSITION` regex it never uses and strips only `//` comments,
   so it reports 195 false positives — all of them prose in a doc comment, JSX
@@ -482,7 +483,7 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 499 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 500 tests against a MySQL service container
 - `client` — lint, 52 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys
