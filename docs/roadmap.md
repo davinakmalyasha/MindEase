@@ -111,33 +111,41 @@ best-effort and silently stops working when Redis is down. It is documented as
 such and the claims carry correctness, but it is the kind of thing that reads as
 a lock and is not.
 
-### 4. Advisory guard scripts
+### 4. ~~Advisory guard scripts~~ — done
 
-**The gap.** Two repo guards are wired into CI with `continue-on-error: true`
-and neither works.
+**The gap.** Two repo guards were wired into CI with `continue-on-error: true`
+and neither worked.
 
-`check-operators.js` reports **195** findings, all of them false positives. It
-declares a `CODE_POSITION` regex and never uses it; what it actually checks is
-"does any typographic dash survive stripping", and it strips only `//` comments,
-not `/* */` block comments. Every finding is prose in a doc comment, JSX text, or
-an email template.
+`check-operators.js` looked for a typographic dash between two code tokens. It
+declared a `CODE_POSITION` regex and never used it; what it actually checked was
+"does any typographic dash survive stripping", and it stripped only `//`
+comments, not `/* */` block comments — so every finding was prose in a doc
+comment, JSX text, or an email template.
 
-`check-dependencies.js` reports `@eslint/js` and `typescript-eslint` as unused
-because it does not scan `eslint.config.mjs`, where they are used. It also does
-not know that jsdom and testing-library arrive via Vitest's config rather than an
+`check-dependencies.js` reported `@eslint/js` and `typescript-eslint` as unused
+because it did not scan `eslint.config.mjs`, where they are used, and it did not
+know that jsdom and testing-library arrive via Vitest's config rather than an
 import.
 
-**Why they are not simply fixed.** A required check that fails on its first run
-is worse than an unwired one — it reddens `main` for no real finding and trains
-everyone to ignore red. Both need real work (strip block comments and use
-`CODE_POSITION`; scan config files and resolve framework-injected packages), and
-until then advisory is the honest setting. `check-encoding.js` is green and
-gating, and is the only one of the three that can be.
+**What was done.** `check-operators.js` was **deleted rather than fixed**,
+because the thing it looked for is already caught, better, by two gates that
+were already required: an em dash in a TypeScript expression is `TS1127: Invalid
+character` from `tsc --noEmit` — which is how all three historical incidents
+were actually found — and the one that landed in `schema.prisma` is caught by
+`prisma validate`. In `const x = a — b` and in the JSX text `most people wait
+months — or years`, nothing distinguishes prose from code except meaning, which
+is what the compiler has and a regex does not.
 
-**The direction.** Fix the two scripts, run them, land whatever real findings
-exist, then promote them. Worth doing properly because the *category* is right —
-a platform holding mental-health data should not be able to accumulate an
-unenumerated dependency or a typographic operator silently.
+`check-dependencies.js` was **fixed and promoted**. It now walks the whole
+package, which brings `eslint.config.mjs` and `tests/` into scope — the two
+blind spots that produced every false positive — matches configuration
+conventions by rule (`environment: "jsdom"`, `coverage: { provider: "v8" }`
+resolves `@vitest/coverage-v8`), keeps a short `INDIRECT` list with a reason per
+entry for runtime-only packages (Prisma's `mysql2` driver, `@testing-library/dom`
+as RTL's peer), exits non-zero on a finding, and carries a self-test in each
+package pinning every case from its own history. Both steps are required now and
+both packages report clean. `check-encoding.js` was the only green guard of the
+three and is no longer the only one.
 
 ### 5. Coverage reporting
 
@@ -375,7 +383,7 @@ would be silent and in the dangerous direction. See
 | Clinical AI briefings are advisory | Accurate and intentional. |
 | Two large client files | Accurate. Decomposition declined on cost/benefit. |
 | e2e is opt-in and has not run in CI | **Already fixed.** It runs green as a required step in the `docker` job. The README entry is stale. |
-| Two guard scripts do not work | Accurate. Theme 4. The operator count is now 195, not 190. |
+| Two guard scripts do not work | **Already fixed.** `check-operators.js` is deleted (the compiler and `prisma validate` catch what it looked for) and `check-dependencies.js` is required. The README entry is stale. |
 
 There is no entry here for `node-cron` not being a durable queue. It belongs in
 the README's known limitations, because it is a real operational gap with a

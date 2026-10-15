@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 499 tests, 40 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 500 tests, 40 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -323,8 +323,9 @@ for exactly this reason.
 the full patient flow, admin dashboard, forgot-password, assessments and mood
 factors, the printable assessment report, the doctor follow-up and availability
 pattern, the reviews section, the SOS modal, admin moderation and exports, a
-chat smoke test, and a review lifecycle. Plus three cached sign-ins in
-`client/e2e/auth.setup.ts`, for fifteen tests in total.
+chat smoke test, and the full lifecycle — booking, completion, review, follow-up
+and conversation. Plus three cached sign-ins in `client/e2e/auth.setup.ts`, for
+fifteen tests in total.
 
 ```bash
 cd client && npx playwright test     # with the stack already running and seeded
@@ -393,6 +394,25 @@ Everything below was found by the suite's first runs, and none of it by reading
   zero time buttons for every date while the trace's DOM snapshots show them
   rendered; waiting on the panel's own content — a time chip or its empty state
   — is waiting for the swap.
+- **A hydration mismatch in the navbar.** `AuthContext` seeded `user` from
+  `localStorage` in a `useState` initialiser, so the first client render
+  disagreed with the server HTML on every authenticated page. It now lives in an
+  external store read through `useSyncExternalStore`; the server snapshot for
+  `isLoading` is `true` so a route guard cannot redirect before the stored
+  session is restored. Verifying it also exposed a **development service worker
+  serving stale chunks** — its cache name changes with the worker's own source
+  and its `/_next/static` rule is cache-first, which is right for production's
+  content-addressed URLs and wrong for Turbopack's stable ones. Development no
+  longer registers the worker.
+- **The first chat message was impossible from the UI.** The inbox was built
+  from message history, so a patient with a confirmed appointment saw "No
+  conversations yet", and the appointments page's "Chat" button deep-linked into
+  a thread that resolved against that same history. Messaging is gated on the
+  appointment (`canChat`), so a contacts endpoint now reads those same rows, the
+  inbox lists startable threads and the deep link resolves against them.
+- **That same Chat button was disabled for every patient.** The allowlist select
+  behind the patient's appointment list omitted the doctor's `user.id` — the
+  exact value the button deep-links with — so the control could never be enabled.
 
 It also confirmed the rate-limiter design. The API enforces its real production
 limits here, because the stack runs with `NODE_ENV=production` and only the
@@ -420,7 +440,7 @@ register an account still create their own.
 | `crisis-triage.test.ts` | 17 | `detectFreeTextRisk` pattern behaviour, the third-party mention that informs an alert without suppressing it, `lastIndex` safety, patient-only gating, the message path end to end, markup stripping |
 | `doctor-directory.test.ts` | 8 | Public directory filtering, pagination, `/specialties` derived from data |
 | `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
-| `features.test.ts` | 54 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms (including two participants joining at once), weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
+| `features.test.ts` | 55 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms (including two participants joining at once), weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
 | `hardening.test.ts` | 15 | Booking integrity, referral credits, package reservation integrity (a cancellation refunded twice; two follow-ups spending one session; accept and decline crossing), 2FA backup codes (two simultaneous spends of one code), journal ownership, waitlist maintenance |
 | `health-schema.test.ts` | 2 | `/api/health/db` reports the table count when the schema matches, and 503 with a drift status — but no table names — when a table is missing. Drops the real table rather than mocking the check, then re-applies the migration's own DDL so the file leaves the schema as it found it |
 | `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |
@@ -449,7 +469,7 @@ register an account still create their own.
 | `wave0-regressions.test.ts` | 41 | Token purpose separation, 2FA enforcement, credential lifecycle, clinical data lifecycle, slot and availability integrity, public data exposure, input validation, error disclosure, timezone-correct day boundaries, mood logging invariants |
 | `wellness.test.ts` | 10 | Mood logging and stats, range rejection, a repeated same-day log as an update rather than a duplicate, streak calculation and breakage, day-window averaging, ownership, unbounded history rejection |
 
-Total: 427.
+Total: 500.
 
 `care-plan.test.ts` and `wave0-regressions.test.ts` are the two largest files
 because they encode the two most expensive regressions this codebase has had —
