@@ -213,21 +213,20 @@ test.describe("Journey 4b: Assessment report print view", () => {
 test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", () => {
     test.use({ storageState: ".auth/doctor.json" });
 
-    test("doctor follow-up flow on a completed session", async ({ page }) => {
+    test("doctor sees the appointments screen with no seeded bookings", async ({ page }) => {
         await page.goto("/dashboard/appointments");
         await expect(page.getByText(/Consultation History/)).toBeVisible({ timeout: 15_000 });
 
-        // If a completed appointment exists, the follow-up button is available
-        const followUpButton = page.getByRole("button", { name: /Suggest Follow-up/ }).first();
-        if (await followUpButton.isVisible().catch(() => false)) {
-            await followUpButton.click();
-            await expect(page.getByText(/Suggest a follow-up/)).toBeVisible();
-            const date = new Date();
-            date.setDate(date.getDate() + 3);
-            await page.locator('input[type="date"]').fill(date.toISOString().split("T")[0]);
-            await page.getByRole("button", { name: /Send follow-up suggestion/ }).click();
-            await expect(page.getByText(/Follow-up suggested/)).toBeVisible({ timeout: 10_000 });
-        }
+        // A smoke test, and it says so, like Journey 6.
+        //
+        // The follow-up control only renders on a completed appointment and the
+        // seed creates none, so the conditional block this replaces could never
+        // run against a freshly seeded database: dead code that read like
+        // coverage. Journey 10 builds a booking, has the clinician complete it
+        // and exercises the follow-up suggestion for real; this one asserts what
+        // the seed actually produces - a clinician with no history and therefore
+        // no follow-up controls.
+        await expect(page.getByRole("button", { name: /Suggest Follow-up/ })).toHaveCount(0);
     });
 
     test("doctor creates a weekly availability pattern", async ({ page }) => {
@@ -330,9 +329,9 @@ test.describe("Journey 9: Chat smoke (round 3)", () => {
         // either.
         //
         // So this asserts the empty state, which is what the seed actually
-        // produces. Exercising the composer needs a journey that builds the
-        // appointment and the message first, the way Journey 10 builds the review
-        // it needs rather than assuming one exists.
+        // produces. The composer is exercised for real in Journey 10, which
+        // builds the confirmed appointment the gate (`canChat`) requires and
+        // sends a message through the thread.
         await expect(page.getByText(/No conversations yet/i)).toBeVisible();
     });
 });
@@ -346,16 +345,21 @@ test.describe("Journey 9: Chat smoke (round 3)", () => {
  * "Top Rated" rank the most-liked-looking profiles first), and so the reply and
  * report paths never executed.
  *
- * This journey creates the whole chain itself. The split between UI and API is
- * deliberate and worth stating:
+ * This journey creates the whole chain itself, and three other journeys depend
+ * on it for their real coverage: the review reply and report (Journey 6 only
+ * sees the seeded empty state), the follow-up suggestion on a completed
+ * appointment (Journey 5), and the chat composer (Journey 9). Those three stay
+ * as cheap smoke tests of what the seed produces; this one builds what they
+ * cannot. The split between UI and API is deliberate and worth stating:
  *
- *  - **UI** for booking, writing the review, replying, and reporting - that is
- *    the surface under test, and it is what would break on a refactor.
+ *  - **UI** for booking, writing the review, replying, reporting, suggesting the
+ *    follow-up, and sending the message - that is the surface under test, and it
+ *    is what would break on a refactor.
  *  - **API** for the clinician accepting and completing the appointment. Those
  *    are two state transitions that are already covered by the server suite,
  *    they need three more unverified selectors, and they are not what this
- *    journey is about. Driving them over HTTP keeps the test about reviews and
- *    makes it far likelier to pass on a first run.
+ *    journey is about. Driving them over HTTP keeps the test about the lifecycle
+ *    and makes it far likelier to pass on a first run.
  *
  * Seeded doctor 2 is `dr2@mindease.app` on a fresh seed: the seed creates users
  * in order, so doctorId 2 is the second clinician it made. It is referenced by
@@ -374,7 +378,7 @@ test.describe("Journey 10: review lifecycle", () => {
     const DOCTOR_EMAIL = "dr2@mindease.app";
     const DOCTOR_PASSWORD = "Doctor@123";
 
-    test("a completed session produces a review the clinician can reply to and report", async ({
+    test("a completed session produces a review, a follow-up and a conversation", async ({
         page,
     }) => {
         // --- Patient books -----------------------------------------------------
@@ -416,11 +420,49 @@ test.describe("Journey 10: review lifecycle", () => {
         });
         expect(confirm.status()).toBeLessThan(300);
 
+        // --- The clinician starts the conversation, from the appointment card -
+        // "Chat" renders on a confirmed appointment and deep-links to
+        // `/messages?with=<counterpart user id>`. Both halves were broken: the
+        // per-appointment allowlist for the doctor's user omitted `id`, so the
+        // patient's copy of this button was disabled forever, and the thread
+        // list was message history only, so the deep link reported "No
+        // conversation with that person" for a first-time thread. This drives
+        // the button, the deep link and the first message, while the
+        // appointment is confirmed - which is when the button renders.
+        await page.goto("/dashboard/appointments");
+        const chatButton = page.getByRole("button", { name: /^Chat$/ }).first();
+        await expect(chatButton).toBeVisible({ timeout: 20_000 });
+        await expect(chatButton).toBeEnabled();
+        await chatButton.click();
+        await expect(page).toHaveURL(/\/messages\?with=\d+/);
+
+        const openingMessage = "See you at the session.";
+        await page.getByPlaceholder("Type a message...").fill(openingMessage);
+        await page.getByRole("button", { name: /Send/i }).first().click();
+        await expect(page.getByText(openingMessage).first()).toBeVisible({ timeout: 15_000 });
+
         const complete = await page.request.put(`${API}/appointments/${appointment!.id}/status`, {
             headers: { "X-CSRF-Token": csrf },
             data: { status: "completed" },
         });
         expect(complete.status()).toBeLessThan(300);
+
+        // --- Clinician suggests a follow-up -----------------------------------
+        // The second gap this journey closes (the first is the review). The
+        // follow-up control only renders on a completed appointment, so
+        // Journey 5 cannot reach it against a seeded database - it asserts the
+        // empty state instead. This runs the real UI path on the appointment
+        // that was just completed, still logged in as its clinician.
+        await page.goto("/dashboard/appointments");
+        const followUp = page.getByRole("button", { name: /Suggest Follow-up/ }).first();
+        await expect(followUp).toBeVisible({ timeout: 20_000 });
+        await followUp.click();
+        await expect(page.getByText(/Suggest a follow-up/)).toBeVisible();
+        const followUpDate = new Date();
+        followUpDate.setDate(followUpDate.getDate() + 3);
+        await page.locator('input[type="date"]').fill(followUpDate.toISOString().split("T")[0]);
+        await page.getByRole("button", { name: /Send follow-up suggestion/ }).click();
+        await expect(page.getByText(/Follow-up suggested/)).toBeVisible({ timeout: 15_000 });
 
         // --- Patient reviews --------------------------------------------------
         await login(page, patient.email, patient.password);
@@ -479,5 +521,24 @@ test.describe("Journey 10: review lifecycle", () => {
         page.on("dialog", (dialog) => dialog.accept("E2E: exercising the moderation path."));
         await report.click();
         await expect(page.getByText(/Review reported/i)).toBeVisible({ timeout: 15_000 });
+
+        // --- Patient replies in the conversation ------------------------------
+        // The other half of the chat lifecycle. The clinician's message above
+        // created the history, so the thread appears in the patient's list -
+        // the path Journey 9 can only assert the empty state of, because chat
+        // is gated on a confirmed or completed appointment (`canChat`) and the
+        // seed creates none.
+        await login(page, patient.email, patient.password);
+        await page.goto("/messages");
+        const conversation = page.getByRole("button", { name: /Dr\./ }).first();
+        await expect(conversation).toBeVisible({ timeout: 20_000 });
+        await conversation.click();
+
+        const chatMessage = "Thank you for the follow-up note.";
+        await page.getByPlaceholder("Type a message...").fill(chatMessage);
+        await page.getByRole("button", { name: /Send/i }).first().click();
+        // `.first()` because a message can be rendered by the optimistic update
+        // and again by the refetch; strict mode would fail on the duplicate.
+        await expect(page.getByText(chatMessage).first()).toBeVisible({ timeout: 15_000 });
     });
 });

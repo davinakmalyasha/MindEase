@@ -1037,6 +1037,30 @@ describe("Round 3: referrals", () => {
 });
 
 describe("Round 3: chat upgrades", () => {
+    it("lists exactly the contacts the appointment relationship allows", async () => {
+        const patient = await createUser("patient");
+        const doctor = await createDoctor();
+        const stranger = await createUser("patient");
+
+        // No relationship yet: nobody is reachable, and the request succeeds.
+        const before = await patient.agent.get("/api/messages/contacts");
+        expect(before.status).toBe(200);
+        expect(before.body.data).toHaveLength(0);
+
+        const book = await bookFor(patient, doctor);
+        await confirmAppointment(book.body.data.id, doctor);
+
+        const after = await patient.agent.get("/api/messages/contacts");
+        const ids = after.body.data.map((c: any) => c.id);
+        expect(ids).toContain(doctor.id);
+        expect(ids).not.toContain(stranger.id);
+
+        // The same relationship reads in the other direction - this is the
+        // clinician's side of the same gate.
+        const fromDoctor = await doctor.agent.get("/api/messages/contacts");
+        expect(fromDoctor.body.data.map((c: any) => c.id)).toContain(patient.id);
+    });
+
     it("sender can soft-delete a message", async () => {
         const patient = await createUser("patient");
         const doctor = await createDoctor();

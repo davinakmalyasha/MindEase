@@ -64,6 +64,44 @@ export class MessageService {
         );
     }
 
+    /**
+     * The users the caller may message, from the appointments that grant that
+     * right.
+     *
+     * `getConversations` is built from message history, which means someone who
+     * has a confirmed appointment with a clinician and has never written to them
+     * sees "No conversations yet" - and the appointments page's "Chat" button
+     * deep-links to `/messages?with=<id>`, which only resolves against that
+     * same history. So the first message was impossible from the UI even though
+     * the API has always allowed it: the gate is the appointment, not a prior
+     * message. This is that gate, read from the same rows `canChat` checks.
+     *
+     * Deduplicated by counterpart, most recently created relationship first.
+     */
+    static async getChatContacts(userId: number) {
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                status: { in: ["confirmed", "completed"] },
+                OR: [{ userId }, { doctor: { userId } }],
+            },
+            select: {
+                user: { select: { id: true, name: true, avatar: true, role: true } },
+                doctor: { select: { user: { select: { id: true, name: true, avatar: true, role: true } } } },
+            },
+            orderBy: { id: "desc" },
+        });
+
+        const contacts = new Map<number, { id: number; name: string; avatar: string | null; role: string }>();
+        for (const appointment of appointments) {
+            // The counterpart: the patient side unless the caller *is* the patient.
+            const other = appointment.user.id === userId ? appointment.doctor.user : appointment.user;
+            if (other.id === userId || contacts.has(other.id)) continue;
+            // `name` is nullable in the schema; the contacts payload is not.
+            contacts.set(other.id, { ...other, name: other.name ?? "" });
+        }
+        return Array.from(contacts.values());
+    }
+
     static async getMessages(userId: number, otherUserId: number, limit = 50, before?: number) {
         const chatAllowed = await this.canChat(userId, otherUserId);
         if (!chatAllowed) {
