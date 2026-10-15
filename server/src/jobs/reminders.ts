@@ -4,7 +4,7 @@ import { MailerService } from "../services/mailer.service";
 import { AIService } from "../services/ai.service";
 import { WellnessService } from "../services/wellness.service";
 import { WhatsAppService } from "../services/wa.service";
-import { acquireLock } from "../lib/cache";
+import { acquireLock, releaseLock } from "../lib/cache";
 import { logger } from "../utils/logger";
 
 const formatDate = (d: Date) =>
@@ -140,69 +140,142 @@ export const runReminders = async () => {
 };
 
 /**
- * Weekly wellness report: emailed every Monday to opted-in patients with a
- * mood summary and AI journal reflection.
+ * The start of the current week in the product timezone: Monday 00:00 WIB.
+ *
+ * WIB is UTC+7 with no daylight saving, so a fixed offset is exact and no
+ * timezone database is involved. The cron fires in Asia/Jakarta; the report's
+ * "week" has to be the same calendar its recipients live in, or a Monday-morning
+ * tick could put the boundary a day off for everyone.
+ */
+const startOfWeekWib = (now: Date = new Date()) => {
+    const wib = new Date(now.getTime() + 7 * 3_600_000);
+    const sinceMonday = (wib.getUTCDay() + 6) % 7;
+    wib.setUTCDate(wib.getUTCDate() - sinceMonday);
+    wib.setUTCHours(0, 0, 0, 0);
+    return new Date(wib.getTime() - 7 * 3_600_000);
+};
+
+/**
+ * Weekly wellness report: emailed to opted-in patients with a mood summary and
+ * AI journal reflection.
+ *
+ * Runs daily, not on Mondays, and each patient is claimed for the week before
+ * their report is built. Both halves are the fix for the same fragility:
+ *
+ *  - **A missed Monday lost the week.** The old schedule was `0 7 * * 1`, so an
+ *    outage, a deploy or a crash at 07:00 meant nobody received anything until
+ *    the following Monday, and nothing recorded that the week had been skipped.
+ *  - **A crash mid-loop re-mailed or dropped people.** The only safety was a
+ *    six-hour lock for the whole blast, so a run that died after twenty emails
+ *    either blocked the retry for hours or (after expiry) sent those twenty
+ *    again. There was no per-patient record of who had been reached.
+ *
+ * `lastWeeklyReportAt` is that record: the claim is one conditional update per
+ * patient, the due check is "older than this week's Monday", and a failed send
+ * hands the claim back. A run that dies halfway resumes on the next daily tick
+ * with the remainder, and nobody is mailed twice.
  */
 export const runWeeklyReports = async () => {
-    try {
-        // Replica-safe: only one instance runs the Monday blast (Redis lock;
-        // no-op fail-open when Redis is down).
-        if (!(await acquireLock("weekly-reports", 6 * 3600))) return;
+    // Scan gate only - the per-patient claim below is the correctness
+    // guarantee, exactly as in the check-in job.
+    if (!(await acquireLock("weekly-reports", 3600))) return;
 
+    try {
+        const weekStart = startOfWeekWib();
         const users = await prisma.user.findMany({
-            where: { weeklyReportEnabled: true, role: "patient" },
-            select: { id: true, name: true, email: true },
+            where: {
+                weeklyReportEnabled: true,
+                role: "patient",
+                // A suspended account is not mailed; the check-in nudges made
+                // the same decision and this query was the one that ignored it.
+                isBanned: false,
+                OR: [{ lastWeeklyReportAt: null }, { lastWeeklyReportAt: { lt: weekStart } }],
+            },
+            select: { id: true, name: true, email: true, lastWeeklyReportAt: true },
         });
+
+        let sent = 0;
+        let failed = 0;
 
         for (const user of users) {
             if (!user.email) continue;
-            const [stats, journal] = await Promise.all([
-                WellnessService.getMoodStats(user.id),
-                WellnessService.getJournalEntries(user.id, 7),
-            ]);
 
-            let summary: string | null = null;
-            if (journal.length > 0) {
-                const generated = await AIService.summarizeJournal(
-                    journal.map((j) => j.content),
-                    new Date(journal[journal.length - 1].createdAt),
-                    new Date(journal[0].createdAt)
-                );
-                summary = generated.data;
-                // An emailed report is the one place the reader cannot inspect a
-                // response body, so a fallback has to be visible in the prose
-                // itself — otherwise "your week in reflection" reads as a
-                // considered personal synthesis when it was a fixed paragraph.
-                if (generated.source === "fallback") {
-                    summary = `${generated.data}\n\n(Automated — our AI reflection was unavailable, so this is a standard note rather than a personal summary.)`;
-                }
-            }
-
-            const { subject, html } = MailerService.buildWeeklyReportEmail({
-                name: user.name || "there",
-                averageMood: stats.average,
-                streak: stats.streak,
-                trend: stats.trend,
-                journalCount: journal.length,
-                aiSummary: summary,
+            const claimedAt = new Date();
+            const claim = await prisma.user.updateMany({
+                where: { id: user.id, lastWeeklyReportAt: user.lastWeeklyReportAt },
+                data: { lastWeeklyReportAt: claimedAt },
             });
-            await MailerService.send(user.email, subject, html).catch((err) =>
-                logger.error({ err: err.message, userId: user.id }, "Weekly report email failed")
-            );
+            if (claim.count !== 1) continue;
+
+            // Hand the week back if anything below fails, so the loss is a
+            // delay rather than a disappearance.
+            const releaseClaim = () =>
+                prisma.user
+                    .updateMany({
+                        where: { id: user.id, lastWeeklyReportAt: claimedAt },
+                        data: { lastWeeklyReportAt: user.lastWeeklyReportAt },
+                    })
+                    .catch(() => undefined);
+
+            try {
+                const [stats, journal] = await Promise.all([
+                    WellnessService.getMoodStats(user.id),
+                    WellnessService.getJournalEntries(user.id, 7),
+                ]);
+
+                let summary: string | null = null;
+                if (journal.length > 0) {
+                    const generated = await AIService.summarizeJournal(
+                        journal.map((j) => j.content),
+                        new Date(journal[journal.length - 1].createdAt),
+                        new Date(journal[0].createdAt)
+                    );
+                    summary = generated.data;
+                    // An emailed report is the one place the reader cannot inspect a
+                    // response body, so a fallback has to be visible in the prose
+                    // itself — otherwise "your week in reflection" reads as a
+                    // considered personal synthesis when it was a fixed paragraph.
+                    if (generated.source === "fallback") {
+                        summary = `${generated.data}\n\n(Automated — our AI reflection was unavailable, so this is a standard note rather than a personal summary.)`;
+                    }
+                }
+
+                const { subject, html } = MailerService.buildWeeklyReportEmail({
+                    name: user.name || "there",
+                    averageMood: stats.average,
+                    streak: stats.streak,
+                    trend: stats.trend,
+                    journalCount: journal.length,
+                    aiSummary: summary,
+                });
+                await MailerService.send(user.email, subject, html);
+                sent += 1;
+            } catch (err: any) {
+                failed += 1;
+                await releaseClaim();
+                logger.error({ err: err.message, userId: user.id }, "Weekly report failed; claim released for retry");
+            }
+        }
+
+        if (sent > 0 || failed > 0) {
+            logger.info({ sent, failed, weekStart }, "Weekly reports run complete");
         }
     } catch (err: any) {
         logger.error({ err: err.message }, "Weekly report job failed");
+    } finally {
+        await releaseLock("weekly-reports");
     }
 };
 
 /**
- * Starts the in-process appointment reminder job (every 10 minutes).
+ * Starts the in-process appointment reminder job (every 10 minutes) and the
+ * weekly report check (daily; the per-patient claim enforces "weekly").
  * Emails patients and doctors 0–24h before a confirmed session, once per
  * appointment. No-op in test mode.
  */
 export const startReminderJob = () => {
     if (process.env.NODE_ENV === "test") return;
     cron.schedule("*/10 * * * *", runReminders, { timezone: "Asia/Jakarta" });
-    cron.schedule("0 7 * * 1", runWeeklyReports, { timezone: "Asia/Jakarta" });
+    cron.schedule("0 7 * * *", runWeeklyReports, { timezone: "Asia/Jakarta" });
     logger.info("Reminder + weekly report jobs scheduled (Asia/Jakarta)");
 };

@@ -9,6 +9,36 @@ import { acquireLock, releaseLock } from "../lib/cache";
 const DAY_MS = 24 * 3600 * 1000;
 
 /**
+ * Sends a nudge and, if it fails, hands the claim back.
+ *
+ * All three blocks below claim their sentinel *before* sending, which is what
+ * makes them replica-safe - and is also why a failed send used to lose the
+ * nudge silently: the sentinel stayed claimed, the `.catch(() => undefined)`
+ * hid the error, and the patient was not nudged again until the next period
+ * (three days for the mood nudge, a week for the decline nudge, never for a
+ * post-session check-in). The reminder job already releases its claim when
+ * every delivery fails; this is the same trade in the same shape - claim first
+ * for correctness, release on failure so the loss is a delay rather than a
+ * disappearance.
+ */
+const notifyOrRelease = async (
+    payload: Parameters<typeof NotificationService.create>[0],
+    release: () => Promise<unknown>
+): Promise<boolean> => {
+    try {
+        await NotificationService.create(payload);
+        return true;
+    } catch (err: unknown) {
+        await release().catch(() => undefined);
+        logger.error(
+            { err: err instanceof Error ? err.message : String(err), userId: payload.userId },
+            "Care check-in notification failed; claim released for retry"
+        );
+        return false;
+    }
+};
+
+/**
  * Upper bound on candidates read per block per run.
  *
  * The job runs daily, so a platform-wide gap in logging is worked through over
@@ -36,14 +66,19 @@ export const runCareCheckins = async () => {
     // multiplied by the replica count, to produce the same notifications.
     //
     // `runWeeklyReports` already takes this lock; this job did not. The lock is
-    // best-effort — `cache.ts` documents that its `GET_LOCK` fallback cannot work
-    // as written — so the claims remain the correctness guarantee and this is
-    // only an optimisation.
+    // a scan optimisation rather than the guarantee - the claims are - but it is
+    // a real lock now: `cache.ts` falls back to a `JobLock` row when Redis is
+    // unavailable, so single-runner behaviour no longer depends on Redis being
+    // up. (The comment here used to say the opposite, describing the `GET_LOCK`
+    // fallback that could not work as written.)
     const locked = await acquireLock("care-checkins", 3600);
     if (!locked) return;
 
     try {
         const now = new Date();
+        let moodNudges = 0;
+        let declineNudges = 0;
+        let sessionCheckins = 0;
 
         // 1. Mood-logging nudge (max once per 3 days per user)
         const moodNudgeCandidates = await prisma.user.findMany({
@@ -77,13 +112,24 @@ export const runCareCheckins = async () => {
             });
             if (claim.count !== 1) continue;
 
-            await NotificationService.create({
-                userId: user.id,
-                title: "We miss your daily check-in",
-                message: "You haven't logged your mood in a few days. A 10-second log helps you spot patterns — and it only takes a tap.",
-                type: "system",
-                email: true,
-            }).catch(() => undefined);
+            if (
+                await notifyOrRelease(
+                    {
+                        userId: user.id,
+                        title: "We miss your daily check-in",
+                        message: "You haven't logged your mood in a few days. A 10-second log helps you spot patterns — and it only takes a tap.",
+                        type: "system",
+                        email: true,
+                    },
+                    () =>
+                        prisma.user.updateMany({
+                            where: { id: user.id, lastMoodNudgeAt: now },
+                            data: { lastMoodNudgeAt: user.lastMoodNudgeAt },
+                        })
+                )
+            ) {
+                moodNudges += 1;
+            }
         }
 
         // 2. Mood-decline nudge (max once per week per user)
@@ -130,13 +176,24 @@ export const runCareCheckins = async () => {
             });
             if (claim.count !== 1) continue;
 
-            await NotificationService.create({
-                userId: user.id,
-                title: "We noticed things feel heavier lately",
-                message: "Your recent mood logs are lower than usual. It's okay to ask for support — booking a session with your psychologist can help. You're not alone.",
-                type: "system",
-                email: true,
-            }).catch(() => undefined);
+            if (
+                await notifyOrRelease(
+                    {
+                        userId: user.id,
+                        title: "We noticed things feel heavier lately",
+                        message: "Your recent mood logs are lower than usual. It's okay to ask for support — booking a session with your psychologist can help. You're not alone.",
+                        type: "system",
+                        email: true,
+                    },
+                    () =>
+                        prisma.user.updateMany({
+                            where: { id: user.id, lastDeclineNudgeAt: now },
+                            data: { lastDeclineNudgeAt: user.lastDeclineNudgeAt },
+                        })
+                )
+            ) {
+                declineNudges += 1;
+            }
 
             // ...and the clinician hears about it too.
             //
@@ -194,13 +251,24 @@ export const runCareCheckins = async () => {
             });
             if (claim.count !== 1) continue;
 
-            await NotificationService.create({
-                userId: app.userId,
-                title: "How did your session go?",
-                message: "We'd love your feedback. Leaving a review helps your psychologist grow and helps others choose with confidence.",
-                type: "appointment",
-                email: true,
-            }).catch(() => undefined);
+            if (
+                await notifyOrRelease(
+                    {
+                        userId: app.userId,
+                        title: "How did your session go?",
+                        message: "We'd love your feedback. Leaving a review helps your psychologist grow and helps others choose with confidence.",
+                        type: "appointment",
+                        email: true,
+                    },
+                    () =>
+                        prisma.appointment.updateMany({
+                            where: { id: app.id, checkinSentAt: now },
+                            data: { checkinSentAt: null },
+                        })
+                )
+            ) {
+                sessionCheckins += 1;
+            }
         }
 
         // 4. Waitlist hygiene: re-queue stale notifications, expire old entries
@@ -212,6 +280,14 @@ export const runCareCheckins = async () => {
         } catch (err: any) {
             logger.error({ err: err.message }, "Waitlist maintenance failed");
         }
+
+        // One line per run, with what actually went out. A silent zero is the
+        // shape a broken job takes, and this is the cheapest way to make it
+        // visible in the logs.
+        logger.info(
+            { moodNudges, declineNudges, sessionCheckins },
+            "Care check-ins complete"
+        );
     } catch (err: any) {
         logger.error({ err: err.message }, "Care check-in job failed");
     } finally {

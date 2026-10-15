@@ -1,7 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createUser, createDoctor } from "./helpers";
 import { prisma } from "../src/app";
-import { runReminders } from "../src/jobs/reminders";
+import { runReminders, runWeeklyReports } from "../src/jobs/reminders";
+import { MailerService } from "../src/services/mailer.service";
+
+/**
+ * Clears the lock `acquireLock` would have taken, whichever backend it chose.
+ *
+ * With Redis running, the Redis key is released at the end of a run and this is
+ * a no-op. Without Redis (CI), the lock is a `JobLock` row whose TTL outlives
+ * the run by design - correct for a daily cron, but it would silently gate the
+ * second run of a test. Deleting the row is how a test simulates "an hour
+ * later".
+ */
+const clearLock = async (key: string) => {
+    await prisma.jobLock.deleteMany({ where: { key } });
+};
 
 /**
  * A confirmed session that starts `hours` from now.
@@ -104,5 +118,88 @@ describe("Appointment reminder job", () => {
         await runReminders();
         const final = await prisma.appointment.findUnique({ where: { id: appointment.id } });
         expect(final?.reminderSentAt?.getTime()).toBe(after?.reminderSentAt?.getTime());
+    });
+});
+
+describe("Weekly wellness report job", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    /**
+     * The old schedule was `0 7 * * 1` with one six-hour lock for the whole
+     * blast: a missed Monday lost the week, and a crash mid-loop either
+     * re-mailed everyone already reached or blocked the retry. The claim is
+     * `lastWeeklyReportAt`, checked against this week's Monday.
+     */
+    it("sends once per week, skips the same week, and catches up a missed one", async () => {
+        const send = vi.spyOn(MailerService, "send").mockResolvedValue({ devFallback: true } as any);
+
+        const optedIn = await createUser("patient");
+        await prisma.user.update({ where: { id: optedIn.id }, data: { weeklyReportEnabled: true } });
+        // Default is opted out; the send count below pins that they stay out.
+        await createUser("patient");
+
+        await clearLock("weekly-reports");
+        await runWeeklyReports();
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(send.mock.calls[0][0]).toBe(optedIn.email);
+
+        const afterFirst = await prisma.user.findUnique({ where: { id: optedIn.id } });
+        expect(afterFirst?.lastWeeklyReportAt).toBeTruthy();
+
+        // Same week: the claim holds, and no second email goes out.
+        await clearLock("weekly-reports");
+        await runWeeklyReports();
+        expect(send).toHaveBeenCalledTimes(1);
+
+        // A week the patient missed: the timestamp predates this week's Monday,
+        // so the very next daily run catches it up rather than waiting.
+        const eightDaysAgo = new Date(Date.now() - 8 * 24 * 3_600_000);
+        await prisma.user.update({
+            where: { id: optedIn.id },
+            data: { lastWeeklyReportAt: eightDaysAgo },
+        });
+        await clearLock("weekly-reports");
+        await runWeeklyReports();
+        expect(send).toHaveBeenCalledTimes(2);
+
+        const afterCatchUp = await prisma.user.findUnique({ where: { id: optedIn.id } });
+        expect(afterCatchUp?.lastWeeklyReportAt?.getTime()).toBeGreaterThan(eightDaysAgo.getTime());
+    });
+
+    it("hands the week back when the send fails, so the next run retries", async () => {
+        const send = vi.spyOn(MailerService, "send").mockResolvedValue({ devFallback: true } as any);
+
+        const patient = await createUser("patient");
+        await prisma.user.update({ where: { id: patient.id }, data: { weeklyReportEnabled: true } });
+
+        send.mockRejectedValueOnce(new Error("SMTP down"));
+
+        await clearLock("weekly-reports");
+        await runWeeklyReports();
+        expect(send).toHaveBeenCalledTimes(1);
+
+        const afterFailure = await prisma.user.findUnique({ where: { id: patient.id } });
+        expect(afterFailure?.lastWeeklyReportAt).toBeNull();
+
+        // The retry succeeds and takes the week.
+        await clearLock("weekly-reports");
+        await runWeeklyReports();
+        expect(send).toHaveBeenCalledTimes(2);
+
+        const afterRetry = await prisma.user.findUnique({ where: { id: patient.id } });
+        expect(afterRetry?.lastWeeklyReportAt).toBeTruthy();
+    });
+
+    it("sends once when two runners race (multi-replica safety)", async () => {
+        const send = vi.spyOn(MailerService, "send").mockResolvedValue({ devFallback: true } as any);
+
+        const patient = await createUser("patient");
+        await prisma.user.update({ where: { id: patient.id }, data: { weeklyReportEnabled: true } });
+
+        await clearLock("weekly-reports");
+        await Promise.all([runWeeklyReports(), runWeeklyReports()]);
+        expect(send).toHaveBeenCalledTimes(1);
     });
 });
