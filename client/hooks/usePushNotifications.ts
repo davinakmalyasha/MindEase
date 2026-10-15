@@ -9,8 +9,20 @@ const VAPID_KEY_URL = "/push/public-key";
 // Snapshots for `useSyncExternalStore`. Module-level so their identities are
 // stable across renders; an inline arrow would make React resubscribe every time.
 const subscribeToNothing = () => () => {};
+// Whether this browser can do web push at all.
+//
+// This is also the gate that keeps the worker out of development. The subscribe
+// path registers `/sw.js` before it can know whether VAPID is configured, and a
+// development worker caches Turbopack's *stable* chunk URLs cache-first - so it
+// pins stale modules in front of the code being edited (see
+// `ServiceWorkerRegistration`). Development therefore reports "no push
+// support": the prompt never renders, and no worker is registered by this
+// path either.
 const getPushSupport = () =>
-    typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+    process.env.NODE_ENV === "production" &&
+    typeof window !== "undefined" &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window;
 const serverSnapshot = () => false;
 
 /**
