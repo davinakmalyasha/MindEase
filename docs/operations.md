@@ -321,25 +321,39 @@ migration, not a rollback.
 **Rolling back the web app** is `vercel deploy --prebuilt` from an older commit,
 or the Vercel dashboard's promote-to-production on a previous deployment.
 
-## The cron jobs, and why they are not durable
+## The cron jobs, and what is durable about them
 
 **All three scheduled jobs run inside the API process, via `node-cron`.** There
-is no queue, no worker process, no persisted schedule.
+is no queue and no worker process. What there is: each job's work is defined by
+rows and sentinels rather than by the tick that notices them, so a lost tick
+costs a delay, not the work.
 
 | Job | Schedule | Timezone | File |
 |---|---|---|---|
 | Appointment reminders | `*/10 * * * *` | `Asia/Jakarta` | `src/jobs/reminders.ts` |
-| Weekly report | `0 7 * * 1` | `Asia/Jakarta` | `src/jobs/reminders.ts` |
+| Weekly report check | `0 7 * * *` | `Asia/Jakarta` | `src/jobs/reminders.ts` |
 | Care check-ins + waitlist maintenance | `0 9 * * *` | `Asia/Jakarta` | `src/jobs/checkins.ts` |
 
 All three are gated on `NODE_ENV !== "test"`, and all three run **on every
 replica**.
 
-What that costs:
+**A missed tick is caught up by the next one.** Every job's eligibility is a
+window or a sentinel, not "is it exactly this minute":
 
-**Missed runs are not retried.** `node-cron` schedules in-process. A restart, a
-crash, a deploy or a scale-to-zero during the scheduled minute means that tick
-does not happen. There is no catch-up and no "missed" record.
+- reminders: `reminderSentAt IS NULL` and the session still 0–24h ahead, so a
+  restart at 09:55 reminds for everything the 09:50 tick would have
+- check-ins: `User.lastMoodNudgeAt` / `lastDeclineNudgeAt` and
+  `Appointment.checkinSentAt` null-or-older-than-the-period
+- the weekly report: `User.lastWeeklyReportAt` older than this week's Monday, so
+  a Monday lost to a deploy goes out on the next daily check instead of waiting
+  a week. The run is daily and the **claim** is what makes it weekly.
+
+The residual gap is a process that is down for the *entire* window: a session
+that starts during the outage is never reminded, because once it has started
+there is nothing left to catch up to. That direction is deliberate — a missed
+reminder is embarrassing, a missed **risk escalation** would not be, and
+escalations do not run here at all: `raiseRiskAlert` is synchronous inside the
+request that observes the risk.
 
 **Every replica scans, and only the claim prevents a duplicate send.** Correctness
 comes from a conditional `updateMany`, not from the schedule:
@@ -347,29 +361,41 @@ comes from a conditional `updateMany`, not from the schedule:
 - reminders claim on `Appointment.reminderSentAt IS NULL`
 - check-ins claim on `User.lastMoodNudgeAt` / `lastDeclineNudgeAt` and
   `Appointment.checkinSentAt IS NULL`
+- the weekly report claims on `User.lastWeeklyReportAt`
 
 Those columns are indexes in their own right, added precisely because each claim
-was a full table scan on every replica every ten minutes.
+was a full table scan on every replica.
 
-**The claim is taken *after* the eligibility check, and that ordering is
+**A failed send hands its claim back.** The claim is taken *before* the send, so
+something has to undo it when the send fails — otherwise the sentinel stays set
+and the patient is never nudged again until the next period (three days for the
+mood nudge, never for a post-session check-in). Reminders release when every
+delivery failed; the check-in nudges and the weekly report release on any
+failure. The tests for that behaviour fail against the code that swallowed the
+error, which is how it is held in place.
+
+**The claim is taken after the eligibility check, and that ordering is
 load-bearing.** It used to be the other way round, so a session whose calendar
 *date* fell inside the 24-hour horizon but whose *start time* did not — a
 late-evening session the next morning — burned `reminderSentAt` and was then
 skipped on every future run. The patient was never reminded and nothing reported
-the loss. `reminders.ts:32` says so at length.
+the loss. `reminders.ts` says so at length where the check lives.
 
-**Distributed locks are best-effort and are not the correctness mechanism.**
+**The locks are a scan optimisation and they no longer depend on Redis.**
 `runCareCheckins` takes an `acquireLock("care-checkins", 3600)` before reading
-anything, which saves ~120k queries per run at 10k patients. `cache.ts` documents
-that its `GET_LOCK` fallback cannot work as written, so if Redis is down the lock
-is not held and the job runs on every replica — the claims still make the
-*sends* correct, the queries are just duplicated.
+anything, which saves roughly 120k queries per run at 10k patients. `cache.ts`
+falls back to a `JobLock` row when Redis cannot be reached, so the single-runner
+property survives a Redis outage; the claims remain the correctness mechanism
+either way.
 
-**The practical consequence.** A deploy at 08:55 WIB skips Thursday's 09:00 care
-check-ins. A replica that is asleep at 08:59 does not run them. The guarantee is
-"at most once", not "at least once", and neither is claimed anywhere in the
-product. Moving to a durable queue is the obvious fix and it is written up in
-[`roadmap.md`](roadmap.md).
+**Every run logs what it sent** (`{ moodNudges, declineNudges, sessionCheckins }`
+and `{ sent, failed }`). A broken job's signature is a silent zero, and one line
+per run is the cheapest way to make that visible.
+
+**What remains** is the deployment shape: these jobs stop running when the
+process does, and a worker (or a webhook the API calls) is written up in
+[`roadmap.md`](roadmap.md). Nothing safety-relevant runs on this schedule, which
+is what keeps that a Tier 2 item.
 
 ## Troubleshooting
 

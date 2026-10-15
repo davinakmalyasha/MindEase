@@ -938,3 +938,34 @@ smoke-test versions could not reach:
   one field a control needs, and nothing else was reading it.
 
 
+
+## The nudge that was claimed and then swallowed
+
+The pass that fixed the reminder job's "claim first, release when every
+delivery failed" left the mirror defect alive one file over. All three
+check-in nudges claimed their sentinel and then sent through
+`NotificationService.create(...).catch(() => undefined)` - the error vanished,
+the sentinel stayed set, and the nudge was consumed without being delivered.
+The clock made the three cases different in severity and the same in kind:
+three days for the mood nudge, a week for the decline nudge, and never for the
+post-session check-in, because `checkinSentAt` has no second chance.
+
+They now go through `notifyOrRelease`, which hands the claim back to *exactly*
+the value it had - a compare-and-swap on the shipped timestamp, not a blind
+`null` - so the period clock resumes where it stopped. The two tests that pin
+this fail against the previous code; they were run that way before being kept.
+
+The weekly report had the same disease at a different scale. One six-hour lock
+guarded the whole Monday blast and nothing recorded who had been reached: a
+crash after twenty emails either blocked the retry for hours or, once the lock
+expired, mailed those twenty again, and an outage at 07:00 on Monday lost the
+week outright. `User.lastWeeklyReportAt` makes the claim per patient, moves the
+schedule to a daily check, and defines due as "older than this week's Monday".
+The property the feature always meant - exactly once per patient per week,
+eventually - is now the property the code has.
+
+One more honesty fix in the same neighbourhood: `operations.md` described
+`acquireLock`'s no-Redis fallback as unable to work, and `cache.ts` had already
+replaced it with a `JobLock` row. The doc was describing a defect that no
+longer existed and `checkins.ts` repeated it in a comment. Both corrected - a
+stale warning about a fixed bug is its own kind of wrong.
