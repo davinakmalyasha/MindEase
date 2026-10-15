@@ -358,6 +358,14 @@ jobs:
           # Matches ci.yml and the `go` directive in go.mod. A mismatch makes
           # the analysis describe a toolchain the service is not built with.
           go-version: "1.26"
+          # `1.26` alone resolves against the runner's *cached* toolchain, so it
+          # stops at whichever patch that image happens to carry. Seven
+          # standard-library advisories (GO-2026-6603 through GO-2026-6617)
+          # were reported against `net/http@go1.26.8` on one runner and not
+          # another after the 1.26.9 fix was published: the fix existed, and a
+          # cached 1.26.8 hid it. The job that exists to see new advisories is
+          # the one that must not cache its way past the fix.
+          check-latest: true
       - run: go mod download
       # `./...` rather than `.`: the hub package is where the WebSocket and
       # JWT handling lives, and auditing only the root would miss it.

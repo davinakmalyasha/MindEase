@@ -443,6 +443,11 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26"
+          # The same reason as `govulncheck` in security.yml: `1.26` resolves to
+          # the runner image's cached patch unless the action is told to check
+          # for the newest one, so a new standard-library advisory keeps
+          # failing until the image happens to update.
+          check-latest: true
       - name: Lint (golangci-lint)
         # v9, not v6. v6 resolves its own binary version and picked
         # v1.64.8, which is built with go1.24 and refuses to load a module
