@@ -1,100 +1,152 @@
 /**
- * Reports whether each declared dependency is actually imported.
+ * Reports whether each declared dependency is actually referenced.
  *
  * An unused dependency is not only bytes: it is unreviewed third-party code in
  * the runtime path. For a platform holding mental-health data, every
  * unnecessary package widens the supply-chain surface and the bundle.
  *
- * Run with `--write` to strip the unused ones from `package.json`.
+ * ## What counts as "referenced"
+ *
+ * The whole package is walked, minus build output and installed packages - not
+ * a hand-listed set of source directories. The previous list omitted `tests/`
+ * and `vitest.config.ts`, so it reported `@testing-library/react`, `jsdom` and
+ * `@vitest/coverage-v8` as unused. A guard that fails on its own blind spots
+ * teaches people to ignore it, which is how this one stayed advisory.
+ *
+ * Two things are legitimately used without an `import`, and both are handled by
+ * rule rather than by an allowlist entry that would hide the next instance:
+ *
+ *   - a test environment or coverage provider selected *by name* in a config -
+ *     `environment: "jsdom"`, `coverage: { provider: "v8" }` resolves
+ *     `@vitest/coverage-v8`. See `CONFIGURED`.
+ *   - peers installed for another package's runtime (`@testing-library/react`
+ *     needs `@testing-library/dom`) and toolchain packages npm scripts invoke.
+ *     See `INDIRECT`, which carries a reason per entry.
+ *
+ * `@types/*` packages are exempt: they are consumed by the TypeScript compiler
+ * and by editors, never imported.
+ *
+ * Exit code is 1 when anything is unused, so this can gate. `--write` strips
+ * them from `package.json` (and exits 1, because the lockfile then needs
+ * regenerating).
  */
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
+
 const SKIP = new Set([
     "node_modules", ".next", ".git", "test-results", "coverage", "playwright-report", "out",
+    ".auth", ".playwright-mcp",
 ]);
 
-const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs"];
+const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs"]);
 
-const walk = (dir, out = []) => {
-    if (!fs.existsSync(dir)) return out;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (SKIP.has(entry.name)) continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full, out);
-        else if (EXTENSIONS.includes(path.extname(entry.name))) out.push(full);
-    }
-    return out;
+/** Every scannable file under `root`, as texts. */
+const collectCorpus = (root) => {
+    const texts = [];
+    const walk = (dir) => {
+        if (!fs.existsSync(dir)) return;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (SKIP.has(entry.name)) continue;
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) walk(full);
+            else if (EXTENSIONS.has(path.extname(entry.name))) {
+                texts.push(fs.readFileSync(full, "utf8"));
+            }
+        }
+    };
+    walk(root);
+    return texts;
 };
 
-const SOURCE_DIRS = [
-    "app", "components", "lib", "hooks", "context", "i18n", "e2e", "public",
-    "proxy.ts", "next.config.mjs", "playwright.config.ts", "eslint.config.mjs",
-    "tailwind.config.js", "postcss.config.js",
-];
-
-const collect = (target) => {
-    const full = path.join(ROOT, target);
-    if (!fs.existsSync(full)) return [];
-    // A source entry may be a single file (a config) rather than a directory.
-    if (fs.statSync(full).isFile()) {
-        return EXTENSIONS.includes(path.extname(full)) ? [full] : [];
-    }
-    return walk(full);
-};
-
-const corpus = SOURCE_DIRS.flatMap(collect).map((f) => fs.readFileSync(f, "utf8"));
-
-const isImported = (name) => {
-    const escaped = name.replace(/\//g, "\\/");
-    // Match a bare import and any subpath import, e.g. `@hookform/resolvers/zod`.
-    const re = new RegExp(`(?:from\\s*|require\\(\\s*)["']${escaped}(?:/[^"']*)?["']`);
+/**
+ * Matches a bare or subpath import/require of `name`, e.g.
+ * `@hookform/resolvers/zod` for `@hookform/resolvers`.
+ */
+const isImported = (name, corpus) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?:from\\s*|require\\(\\s*|import\\(\\s*)["']${escaped}(?:/[^"']*)?["']`);
     return corpus.some((text) => re.test(text));
 };
 
 /**
+ * Packages selected by configuration value rather than imported.
+ *
+ * Each rule is a convention, not a package name: the next test environment or
+ * coverage provider is matched without touching this file.
+ */
+const CONFIGURED = [
+    (name, corpus) =>
+        ["jsdom", "happy-dom"].includes(name) &&
+        corpus.some((text) => new RegExp(`environment\\s*:\\s*["']${name}["']`).test(text)),
+    (name, corpus) => {
+        const match = /^@vitest\/coverage-(.+)$/.exec(name);
+        return (
+            Boolean(match) &&
+            corpus.some((text) => new RegExp(`provider\\s*:\\s*["']${match[1]}["']`).test(text))
+        );
+    },
+];
+
+const isConfiguredUse = (name, corpus) => CONFIGURED.some((rule) => rule(name, corpus));
+
+/**
  * Packages required without being imported.
  *
- * `react-dom` is Next.js's own peer: the App Router renders through it, but no
- * source file imports it directly.
+ * `react-dom` is Next.js's own peer: the App Router renders through it, and the
+ * eslint plugins are loaded by name from `eslint.config.mjs`. The toolchain
+ * packages are invoked from npm scripts or npx.
  */
 const INDIRECT = new Set([
     "typescript", "tailwindcss", "postcss", "autoprefixer", "eslint",
-    "eslint-config-next", "tsx", "ts-node", "dotenv", "react", "react-dom",
-    "@types/node", "@types/react", "@types/react-dom",
+    "eslint-config-next",
+    "react", "react-dom",
+    // Peer of `@testing-library/react`, which imports it at runtime; npm
+    // requires it to be installed explicitly.
+    "@testing-library/dom",
 ]);
 
-const pkgPath = path.join(ROOT, "package.json");
-const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-const scriptText = Object.values(pkg.scripts || {}).join("\n");
-
-const unused = [];
-for (const section of ["dependencies", "devDependencies"]) {
-    for (const name of Object.keys(pkg[section] || {})) {
-        if (INDIRECT.has(name) || scriptText.includes(name)) continue;
-        if (name.startsWith("@types/")) {
-            if (isImported(name.replace(/^@[^/]+\//, ""))) continue;
-        } else if (!isImported(name)) {
+/** @returns {{ section: string, name: string }[]} */
+const findUnused = (pkg, corpus) => {
+    const scriptText = Object.values(pkg.scripts || {}).join("\n");
+    const unused = [];
+    for (const section of ["dependencies", "devDependencies"]) {
+        for (const name of Object.keys(pkg[section] || {})) {
+            if (name.startsWith("@types/")) continue;
+            if (INDIRECT.has(name) || scriptText.includes(name)) continue;
+            if (isImported(name, corpus) || isConfiguredUse(name, corpus)) continue;
             unused.push({ section, name });
         }
     }
-}
+    return unused;
+};
 
-if (unused.length === 0) {
-    console.log("dependency check passed: every declared package is imported");
-} else {
-    console.log("Unused dependencies:\n");
-    for (const { section, name } of unused) {
-        console.log(`  ${section.padEnd(15)} ${name}`);
-    }
-}
+module.exports = { findUnused, isImported, isConfiguredUse, collectCorpus };
 
-if (process.argv.includes("--write") && unused.length > 0) {
-    for (const { section, name } of unused) {
-        delete pkg[section][name];
-        console.log(`removed ${name} from ${section}`);
+if (require.main === module) {
+    const pkgPath = path.join(ROOT, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    const unused = findUnused(pkg, collectCorpus(ROOT));
+
+    if (unused.length > 0) {
+        console.log("Unused dependencies:\n");
+        for (const { section, name } of unused) {
+            console.log(`  ${section.padEnd(15)} ${name}`);
+        }
+        console.log("\nRemove them, or reference them, or add a reason to INDIRECT.");
+    } else {
+        console.log("dependency check passed: every declared package is referenced");
     }
-    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-    process.exitCode = 1; // the lockfile now needs regenerating
+
+    if (process.argv.includes("--write") && unused.length > 0) {
+        for (const { section, name } of unused) {
+            delete pkg[section][name];
+            console.log(`removed ${name} from ${section}`);
+        }
+        fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+        console.log("package-lock.json is now stale - run npm install.");
+    }
+
+    process.exitCode = unused.length > 0 ? 1 : 0;
 }
