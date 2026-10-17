@@ -99,8 +99,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **128** | API routes · **28** Prisma models · **19** migrations |
-| **516** | server tests across 42 files, against a real MySQL and real Argon2 |
+| **128** | API routes · **28** Prisma models · **20** migrations |
+| **519** | server tests across 43 files, against a real MySQL and real Argon2 |
 | **52** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
@@ -164,7 +164,7 @@ MindEase/
 │  │  ├─ schemas/       zod, and the generated OpenAPI document
 │  │  ├─ jobs/          three cron jobs, all single-runner gated
 │  │  └─ lib/           tokens, cache, storage, payments, logging
-│  └─ tests/            516 integration tests against a real database
+│  └─ tests/            519 integration tests against a real database
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -243,13 +243,13 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 516 server tests against a freshly migrated database
+make test       # 519 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
 
 The server suite is integration-only: a real MySQL, real Argon2, real cookies.
-SQLite is not an option — the provider is a literal `mysql` and all 19 migrations
+SQLite is not an option — the provider is a literal `mysql` and all 20 migrations
 are raw MySQL DDL.
 
 Coverage is measured (`make -C server coverage`, `make -C client coverage`) and
@@ -442,9 +442,6 @@ the user is anonymised.
 
 Stated rather than hidden. Each of these is a decision or a gap, not an accident.
 
-- **Sequential integer ids are exposed in API responses.** `prd.md` requires
-  UUIDv7 in every external identifier. That is not met; retrofitting it across 27
-  models, every route, every cache key and every export is a rewrite.
 - **No live payment gateway is configured.** The provider interface and a
   Midtrans implementation are complete and `getPaymentProvider()` selects between
   them, but nothing in this repository carries gateway credentials, so the
@@ -480,7 +477,7 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 516 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 519 tests against a MySQL service container
 - `client` — lint, 52 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys

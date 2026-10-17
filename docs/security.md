@@ -496,13 +496,13 @@ An exemption removes a ceiling rather than adding one.
 
 Stated plainly, because a threat model that lists only defences is marketing.
 
-**Sequential integer ids are exposed in every API response.** `prd.md` requires
-UUIDv7 in every external identifier and prohibits leaking internal ids. Neither
-is met. Anyone who can read their own record learns the primary-key sequence and
-can enumerate. Every id-accepting route is individually authorised, so this is
-an information-disclosure and enumeration problem rather than a direct read
-bypass — but it is the largest single gap in the model. See
-[`roadmap.md`](roadmap.md).
+**Identifiers are UUIDv7 now, so the old enumeration gap is closed.** Every
+model's primary key is a UUIDv7 string, no integer id appears in any response,
+and route parameters are validated as version 7 - a numeric id is rejected
+rather than looked up. The previous limitation (read your own record, learn the
+sequence, walk it) no longer has a sequence to walk. Every id-accepting route
+remains individually authorised; the identifier change removed the disclosure,
+not the need for the authorisation checks.
 
 **Authenticated free text is not semantically understood.** The crisis matcher
 over-matches and does not handle negation or euphemisms, on purpose. A patient
