@@ -16,7 +16,7 @@ code.
 | [`operations.md`](operations.md) | Local setup, deploys, backups, rotation, rollback, and the cron jobs that are not durable | On call, or standing up a new environment |
 | [`glossary.md`](glossary.md) | The domain vocabulary this codebase uses without defining | Reading any of the above cold |
 | [`roadmap.md`](roadmap.md) | Where the remaining known limitations are going, and what is deliberately not being built | Deciding what to work on |
-| [`go-migration.md`](go-migration.md) | The plan for porting the Node API to Go: what carries over, the parity strategy, phases and open decisions | Before deciding whether the migration is worth its cost |
+| [`go-migration.md`](go-migration.md) | The plan for porting the Node API to Go: what carries over, the locked toolchain and stack, the parity strategy, phases and decisions | Before starting any phase of the port |
 | [`adr/`](adr/) | Architecture decision records — context, decision, rejected alternatives, consequences | Before changing anything that was decided on purpose |
 
 ## The ADRs
