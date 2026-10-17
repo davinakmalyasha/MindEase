@@ -37,6 +37,19 @@ const makeStore = (prefix: string, warnOnMiss: boolean): Store => {
     const keyFor = (key: string) => `rl:${prefix}:${key}`;
 
     return {
+        // The prefix the library's double-count check keys on.
+        //
+        // Without it, every store here is a structural object whose constructor
+        // name is `Object` and whose prefix is empty - so the check saw the same
+        // `(store-key, client-key)` pair twice whenever two limiters legitimately
+        // stacked on one request, which is the normal shape of this codebase
+        // (the general limiter wraps all of `/api` above the credential
+        // limiters). Every login and registration logged
+        // `ERR_ERL_DOUBLE_COUNT` on a correctly configured stack. The value
+        // mirrors `keyFor`, so what the check sees is what Redis stores, and the
+        // validation still catches a limiter applied twice by accident.
+        prefix: `rl:${prefix}:`,
+
         init(options: Options) {
             windowMs = options.windowMs;
         },
