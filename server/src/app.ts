@@ -34,6 +34,7 @@ import pushRoutes from "./routes/push.routes";
 import realtimeRoutes from "./routes/realtime.routes";
 import paymentRoutes from "./routes/payment.routes";
 import carePlanRoutes from "./routes/carePlan.routes";
+import internalRoutes from "./routes/internal.routes";
 import { csrfProtect, csrfTokenHandler } from "./middleware/csrf.middleware";
 import { openApiDocument } from "./docs/openapi";
 import { captureError } from "./utils/sentry";
@@ -174,7 +175,14 @@ export const createApp = () => {
             // Health checks and CSRF bootstrap are exempt (monitoring must always
             // work). `/docs` is no longer exempt: it now has its own limiter
             // rather than none at all.
-            if (req.path.startsWith("/health") || req.path === "/csrf-token") {
+            // Health checks and CSRF bootstrap are exempt (monitoring must always
+            // work). `/internal` is the worker trigger: one caller, and a shared
+            // budget with public traffic could throttle the scheduler.
+            if (
+                req.path.startsWith("/health") ||
+                req.path === "/csrf-token" ||
+                req.path.startsWith("/internal")
+            ) {
                 return next();
             }
             return generalLimiter(req, res, next);
@@ -190,6 +198,9 @@ export const createApp = () => {
     // signature, verified in the provider implementation.
     app.use("/api", (req, res, next) => {
         if (req.path === "/payments/notification") return next();
+        // The worker trigger authenticates with a shared secret and has no
+        // browser cookie to protect; CSRF needs a victim browser to exist.
+        if (req.path.startsWith("/internal")) return next();
         return csrfProtect(req, res, next);
     });
     app.get("/api/csrf-token", csrfTokenHandler);
@@ -310,6 +321,7 @@ export const createApp = () => {
     });
 
     // Routes
+    app.use("/api/internal", internalRoutes);
     app.use("/api/auth", authRoutes);
     app.use("/api/account", accountRoutes);
     app.use("/api/doctors", doctorRoutes);

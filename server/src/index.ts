@@ -7,8 +7,8 @@ import { logger } from "./utils/logger";
 import { checkMailerStatus } from "./services/mailer.service";
 import { env } from "./config/env";
 import { initSentry } from "./utils/sentry";
-import { startReminderJob } from "./jobs/reminders";
-import { startCareCheckinJob } from "./jobs/checkins";
+import { startJobs } from "./jobs/scheduler";
+import { dispatchJob } from "./jobs/dispatch";
 
 initSentry();
 
@@ -23,8 +23,7 @@ const server = app.listen(PORT, () => {
     if (env.isProd && !env.googleClientId) {
         logger.warn("GOOGLE_CLIENT_ID is not set — Google sign-in is disabled");
     }
-    startReminderJob();
-    startCareCheckinJob();
+    startJobs({ run: dispatchJob });
 });
 
 // Graceful shutdown

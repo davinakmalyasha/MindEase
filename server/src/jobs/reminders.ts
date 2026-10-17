@@ -1,4 +1,3 @@
-import cron from "node-cron";
 import { prisma } from "../lib/prisma";
 import { MailerService } from "../services/mailer.service";
 import { AIService } from "../services/ai.service";
@@ -111,7 +110,8 @@ const sendReminder = async (appointmentId: number) => {
     }
 };
 
-// Exported for integration tests (the cron wrapper itself is skipped in tests).
+// Exported for integration tests and the job registry; the scheduler that calls
+// it is skipped in tests.
 export const runReminders = async () => {
     try {
         const now = new Date();
@@ -265,17 +265,4 @@ export const runWeeklyReports = async () => {
     } finally {
         await releaseLock("weekly-reports");
     }
-};
-
-/**
- * Starts the in-process appointment reminder job (every 10 minutes) and the
- * weekly report check (daily; the per-patient claim enforces "weekly").
- * Emails patients and doctors 0–24h before a confirmed session, once per
- * appointment. No-op in test mode.
- */
-export const startReminderJob = () => {
-    if (process.env.NODE_ENV === "test") return;
-    cron.schedule("*/10 * * * *", runReminders, { timezone: "Asia/Jakarta" });
-    cron.schedule("0 7 * * *", runWeeklyReports, { timezone: "Asia/Jakarta" });
-    logger.info("Reminder + weekly report jobs scheduled (Asia/Jakarta)");
 };
