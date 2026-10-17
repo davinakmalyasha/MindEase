@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 506 tests, 41 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 516 tests, 42 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -424,7 +424,7 @@ passes would be the wrong repair. The setup project signs in once per seeded
 role and the journeys reuse the session via `storageState`; the journeys that
 register an account still create their own.
 
-## The 41 server test files
+## The 42 server test files
 
 | File | Tests | What it covers |
 |---|---|---|
@@ -443,11 +443,12 @@ register an account still create their own.
 | `features.test.ts` | 55 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms (including two participants joining at once), weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
 | `hardening.test.ts` | 15 | Booking integrity, referral credits, package reservation integrity (a cancellation refunded twice; two follow-ups spending one session; accept and decline crossing), 2FA backup codes (two simultaneous spends of one code), journal ownership, waitlist maintenance |
 | `health-schema.test.ts` | 2 | `/api/health/db` reports the table count when the schema matches, and 503 with a drift status — but no table names — when a table is missing. Drops the real table rather than mocking the check, then re-applies the migration's own DDL so the file leaves the schema as it found it |
+| `internal-jobs.test.ts` | 7 | **The worker trigger.** Disabled without `JOBS_SECRET`, rejects a missing or wrong secret without running anything, runs exactly the named job, rejects an unknown name; and the dispatch seam runs locally without `JOBS_WEBHOOK_URL`, posts with the secret when configured, and refuses to call the worker unauthenticated |
 | `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |
 | `openapi.test.ts` | 7 | **Meta-test.** Spec matches registered routes; multipart uploads; webhook security model |
 | `payment-config.test.ts` | 11 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |
 | `mood-decline.test.ts` | 6 | The mood-decline rule as a matched pair — six entries decline, three entries have nothing to compare against — and the escalation it now performs: an elevated `RiskAlert` addressed to the treating clinician, at most once a week |
-| `payments.test.ts` | 18 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
+| `payments.test.ts` | 21 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
 | `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
 | `plan-concurrency.test.ts` | 9 | Two editors on one plan: a stale save is refused and does not write, a current save is accepted, and exactly one of two *simultaneous* saves wins — the case a check-then-write passes serially and fails under a real race. Also that goals and `lastReviewedAt` deliberately do not move the plan version, and that the partial-save merge survived replacing the upsert |
 | `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |
@@ -470,7 +471,7 @@ register an account still create their own.
 | `wave0-regressions.test.ts` | 41 | Token purpose separation, 2FA enforcement, credential lifecycle, clinical data lifecycle, slot and availability integrity, public data exposure, input validation, error disclosure, timezone-correct day boundaries, mood logging invariants |
 | `wellness.test.ts` | 10 | Mood logging and stats, range rejection, a repeated same-day log as an update rather than a duplicate, streak calculation and breakage, day-window averaging, ownership, unbounded history rejection |
 
-Total: 506.
+Total: 516.
 
 `care-plan.test.ts` and `wave0-regressions.test.ts` are the two largest files
 because they encode the two most expensive regressions this codebase has had —

@@ -99,8 +99,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **127** | API routes · **28** Prisma models · **18** migrations |
-| **506** | server tests across 41 files, against a real MySQL and real Argon2 |
+| **128** | API routes · **28** Prisma models · **19** migrations |
+| **516** | server tests across 42 files, against a real MySQL and real Argon2 |
 | **52** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
@@ -157,14 +157,14 @@ MindEase/
 │  │  ├─ schema.prisma  28 models, no enums — every status is a String
 │  │  └─ migrations/    17 hand-written MySQL migrations, all backticked
 │  ├─ src/
-│  │  ├─ routes/        127 router registrations across 17 files
+│  │  ├─ routes/        128 router registrations across 17 files
 │  │  ├─ services/      the domain; the only layer that touches Prisma
 │  │  ├─ controllers/   HTTP shape only
 │  │  ├─ middleware/    auth, roles, CSRF, rate limits
 │  │  ├─ schemas/       zod, and the generated OpenAPI document
 │  │  ├─ jobs/          three cron jobs, all single-runner gated
 │  │  └─ lib/           tokens, cache, storage, payments, logging
-│  └─ tests/            506 integration tests against a real database
+│  └─ tests/            516 integration tests against a real database
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -243,21 +243,22 @@ lifecycle is genuinely tested rather than seeded.
 
 ```bash
 make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 506 server tests against a freshly migrated database
+make test       # 516 server tests against a freshly migrated database
 make test-all   # server, client and Go
 make verify     # everything above plus the drift gate, in the order CI runs it
 ```
 
 The server suite is integration-only: a real MySQL, real Argon2, real cookies.
-SQLite is not an option — the provider is a literal `mysql` and all 18 migrations
+SQLite is not an option — the provider is a literal `mysql` and all 19 migrations
 are raw MySQL DDL.
 
-Coverage is available (`make -C server coverage`, `make -C client coverage`) but
-**not enforced**, and the number is low: the client sits at 2% of statements with
-77% branch coverage, because four test files cover `lib/` and 91 app and
-component files are untested. That gap is tracked in
-[docs/roadmap.md](docs/roadmap.md) rather than hidden behind a threshold nobody
-has read.
+Coverage is measured (`make -C server coverage`, `make -C client coverage`) and
+**enforced** with floors just under the read baseline: the server sits at
+73.99% statements / 55.64% branches / 76.55% functions / 76.8% lines, and the
+client at 2.75 / 75.77 / 69.51 / 2.75. The client's statement figure is diluted
+by counting every app file while a handful have unit tests; the branch and
+function numbers are the ones that move with the suite. The floors live in each
+`vitest.config.ts` and may only rise.
 
 ## Documentation
 
@@ -366,6 +367,7 @@ secrets listed above. The workflow assumes they exist.
 - [ ] Google OAuth client configured with the production domain
 - [ ] `VIDEO_PROVIDER=livekit` with all three `LIVEKIT_*` set. On the jitsi fallback a room is an unguessable but unauthenticated URL, and the consultation screen says so before the session starts
 - [ ] Backups: Railway MySQL plugin (managed backups) or `server/scripts/backup.ps1`
+- [ ] Optional: a worker service (`npm run worker`) with `JOBS_WEBHOOK_URL` and `JOBS_SECRET` on the API, if the reminder/check-in schedule should outlive API deploys
 
 The reminder and check-in jobs run on `node-cron` inside the API process. They
 claim work with a conditional update, so multiple replicas are safe, and each
@@ -440,11 +442,6 @@ the user is anonymised.
 
 Stated rather than hidden. Each of these is a decision or a gap, not an accident.
 
-- **Checkout is read-before-create.** Two concurrent checkouts for the same
-  package create two orders, and a callback for both grants twice. The fix is a
-  unique constraint on in-flight orders, which means a patient cannot buy the
-  same package twice until the first settles — a product decision, not a
-  technical one. See [ADR-0003](docs/adr/0003-payment-abstraction.md).
 - **Sequential integer ids are exposed in API responses.** `prd.md` requires
   UUIDv7 in every external identifier. That is not met; retrofitting it across 27
   models, every route, every cache key and every export is a rewrite.
@@ -471,18 +468,19 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
   asserts the empty inbox. Journey 10 builds the whole chain itself (booking,
   completion, review, follow-up, conversation) so the reply, report, follow-up
   and chat paths execute for real.
-- **The UI hygiene counts are advisory, not gated.** Hardcoded UI strings (184
-  in 51 files) and locale bypasses (38 in 20 files) are counted on every run;
-  the counts are a ratchet rather than a gate, and they only fall as strings are
-  migrated to `useTranslations` and dates routed through `lib/format.ts`. A
-  required step today would block every PR on pre-existing debt.
+- **The UI hygiene ratchet is at its ceiling.** Hardcoded UI strings (184 in 51
+  files) and locale bypasses (38 in 20 files) are gated at the counts the debt
+  stood at when the check was promoted. They may fall but not rise, and the gate
+  also fails if the counters collapse below their floors - that is the walker
+  breaking, not the debt being paid. Lowering a budget belongs in the change
+  that migrates the strings.
 
 ## CI/CD
 
 `.github/workflows/ci.yml`, five jobs:
 
 - `compose` — validates `docker-compose.yml` (~10s, first, and deliberately so)
-- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 506 tests against a MySQL service container
+- `server` — lint, typecheck, `migrate deploy`, **schema-drift gate**, 516 tests against a MySQL service container
 - `client` — lint, 52 tests, production build
 - `realtime` — golangci-lint, `go vet`, build, `go test -race -cover`
 - `docker` — builds the images, boots the stack, health-checks all five services, seeds, then runs the Playwright journeys

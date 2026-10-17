@@ -52,7 +52,7 @@ gets it, and it is a two-way mapping that must be correct in the API layer for
 every route. It is the right change and it should be a deliberate piece of work
 with its own branch, not a side-effect of a feature.
 
-### 2. The payment race
+### 2. ~~The payment race~~ — done
 
 **The gap.** Checkout is read-before-create. `PaymentService.createCheckout`
 does a `findFirst` for an existing pending purchase, then a `create`. Two
@@ -60,25 +60,22 @@ concurrent requests both pass the check and both create, and a callback that
 lands for both grants twice. Real, known, and documented in
 [ADR-0003](adr/0003-payment-abstraction.md).
 
-**Why it is still open.** The fix is not purely technical. A unique constraint on
-in-flight orders means a patient who genuinely wants to buy the same package
-twice cannot until the first order settles — arguably correct, and
-nonetheless a product decision rather than an engineering one. That is why it was
-documented rather than fixed in the same change as the rest of the payment work.
+**What was done.** Option 1, atomically: `PackagePurchase.liveKey` holds
+`userId:packageId` while the purchase is pending and unpaid, and the unique index
+over it is the claim. Two concurrent creates cannot both succeed; the service
+maps the constraint violation to the same 409 the old pre-check returned, and
+settlement clears the key so the patient may buy the same package again later.
+A single nullable column rather than a partial unique index, because MySQL has
+no partial unique index and a generated column would be invisible to Prisma.
 
-**The direction.** The options in order of preference:
+The old guard was a `findFirst` followed by a `create`, which is the race: both
+requests read "none" and both inserted. The new test pins the constraint
+directly — two inserts with the same key, one P2002 — because a serialized HTTP
+sequence would satisfy the read-before-create version too.
 
-1. **A unique constraint on `(userId, packageId)` for in-flight orders**, released
-   once settled. Correct, cheap, and needs a product answer to the "buying three
-   sessions twice by accident" support burden.
-2. **Client-supplied idempotency keys**, the standard answer.
-   `Appointment.idempotencyKey` already exists and works; the client does not
-   generate one, and `PaymentOrder` has no equivalent column.
-3. **`SELECT ... FOR UPDATE` on the package row.** Correct, most contention, for
-   a case that is rare.
-
-Option 2 is the one with the best cost/benefit if the product answer to option 1
-is unclear — the mechanism is already in the codebase and tested.
+The migration backfills the claim for the newest live checkout per (user,
+package); older duplicates from the race keep a NULL key and cannot block a
+legitimate checkout.
 
 **What does not change.** The `paidAt` invariant. Nothing about fixing the race
 relaxes "an entitlement is legitimate only with a verified `paidAt` or an
@@ -106,17 +103,19 @@ is a `JobLock` row, and the documentation claiming otherwise is corrected.
 Every run logs what it sent, because a silent zero is the signature of a broken
 job.
 
-**What remains.** A process that is not the HTTP handler. The jobs still stop
-when the API does, and an outage covering a session's entire reminder window
-still loses that reminder. The direction is unchanged — the sentinel columns
-already are a durable job table, so the work is a `SELECT ... FOR UPDATE SKIP
-LOCKED` loop over the same rows from a worker, with the API calling a webhook
-instead of owning the timer. That needs the deployment-shape decision, which is
-why it follows rather than leads. It also stays Tier 2 rather than Tier 1 for a
-reason that must survive any refactor: nothing safety-relevant runs on this
-schedule — `raiseRiskAlert` is synchronous inside the request that observes the
-risk — and it becomes Tier 1 the moment anything safety-relevant moves off the
-request path.
+**What remains is deployment, not code.** `src/worker.ts` now runs the same
+registry on the same schedules (`npm run worker`), and the API forwards its cron
+ticks to it when `JOBS_WEBHOOK_URL`/`JOBS_SECRET` are set - so the schedule can
+outlive an API deploy without another line of code. What is not done is running
+it: that is a second service and a deploy-shape decision, carried as an optional
+item in the README's deploying checklist. The sentinel columns already are the
+durable job table; a `SELECT ... FOR UPDATE SKIP LOCKED` loop inside the jobs
+remains a possible later refinement, not a prerequisite.
+
+It also stays Tier 2 rather than Tier 1 for a reason that must survive any
+refactor: nothing safety-relevant runs on this schedule - `raiseRiskAlert` is
+synchronous inside the request that observes the risk - and it becomes Tier 1
+the moment anything safety-relevant moves off the request path.
 
 ### 4. ~~Advisory guard scripts~~ — done
 
@@ -166,30 +165,31 @@ service that gates a disclosure queue is untested. The `db push` versus
 is the same problem in a different form: the suite passed and the thing it did
 not exercise was invisible.
 
-**What was done.** Both vitest configs now produce coverage (`npm run coverage`
-writes an HTML report), with no thresholds, and CI collects it:
+**What was done.** Both vitest configs produce coverage (`npm run coverage`
+writes an HTML report) and CI collects it:
 
 - **client** — a step in the existing `client` job, on every run. The suite is
-  seconds, so the instrumentation is free. Baseline: **1.94% statements, 77%
-  branches**, which is itself the argument against a threshold — the branch
-  figure is high because it only counts loaded modules, while the statement
-  figure counts everything, and neither has been read by anyone yet.
-- **server** — its own advisory job, gated to `main` and the weekly run rather
-  than to pull requests, because v8 instrumentation on top of the whole suite is
-  not something to pay on every push. Both upload their report as a build
-  artifact with a 14-day retention, so a weekly number can be compared with the
-  previous one.
+  seconds, so the instrumentation is free. Baseline read: **2.75% statements,
+  75.77% branches, 69.51% functions, 2.75% lines**. The statement figure is
+  diluted by `all: true` counting every app file while a handful have unit
+  tests; branches and functions are the numbers that move with the suite.
+- **server** — its own job on `main` and the weekly run rather than on pull
+  requests, because v8 instrumentation on top of the whole suite is not
+  something to pay on every push. Baseline read: **73.99% statements, 55.64%
+  branches, 76.55% functions, 76.8% lines**.
+- both upload their report as a build artifact with a 14-day retention, so a
+  weekly number can be compared with the previous one.
 
-**Why it still cannot fail.** There are no thresholds, and the steps are
-`continue-on-error`, so a coverage-tool regression cannot redden `main` either. A
-threshold introduced at the same moment as the first measurement is a number
-nobody has read yet, and this codebase would fail it by a wide margin — which
-would then be "fixed" by adding exclusions until it passed. A number that appears
-and is ignored is worth more than no number.
+**Done: it is a gate.** The baselines above were read and floors set just under
+them in each `vitest.config.ts`; the CI steps no longer pass
+`continue-on-error`. A regression below a floor is a merge-time failure on
+`main`; only the artifact upload stays best-effort, because an artifact-store
+hiccup is not a coverage finding. The floors are floors, not targets — raise
+them when the number is earned, never lower them to make a run pass.
 
-**Still open.** Promoting coverage to a gate, once someone has read the baseline.
-The realtime service already prints `-cover` in the `realtime` job; collecting it
-as an artifact would be a smaller version of the same step.
+**Still open.** The realtime service prints `-cover` in the `realtime` job but
+collects nothing; piping that into the same artifact treatment is this step at a
+smaller scale.
 
 **Also worth adding.** The e2e suite is the fourth gate
 ([`testing.md`](testing.md#the-end-to-end-journeys)). Getting it green and
@@ -382,7 +382,7 @@ would be silent and in the dangerous direction. See
 
 | README says | Status |
 |---|---|
-| Checkout is read-before-create | Open. Theme 2. Needs a product decision, not an engineering one. |
+| Checkout is read-before-create | **Already fixed.** The live-checkout claim is a unique `liveKey`, cleared on settlement. The README entry is stale. |
 | Sequential integer ids exposed | Open. Theme 1. The largest security gap in the system. |
 | Specialty filter taxonomy mismatch | **Already fixed.** The list is now derived from the server. The README entry is stale. |
 | No payment gateway wired | Accurate and intentional. The interface and its invariants are complete; `getPaymentProvider` returns a stub. |
@@ -405,8 +405,8 @@ Not a plan. An ordering, with the reasoning:
    clinical consequence, and it needs no schema work.
 2. **Concurrency on the plan editors.** Twenty lines of server-side versioning
    for a data-loss bug in a patient-owned document.
-3. **Coverage reporting, non-blocking.** Without a baseline, every later
-   threshold is a guess.
+3. ~~**Coverage reporting, non-blocking.**~~ Done: both baselines were read and
+   the thresholds are gated, just below the measurements.
 4. ~~**The guard scripts, then e2e to required.**~~ Both are "make CI mean what it
    claims to mean", and both are done: the guard scripts are required steps and
    the journeys run on every `docker` job, after the seed.
