@@ -18,7 +18,7 @@ const sessionStart = (appointmentDate: Date, startTime: string | null) => {
 
 const REMINDER_WINDOW_HOURS = 24;
 
-const sendReminder = async (appointmentId: number) => {
+const sendReminder = async (appointmentId: string) => {
     const appointment = await prisma.appointment.findUnique({
         where: { id: appointmentId },
         include: {

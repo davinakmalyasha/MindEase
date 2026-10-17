@@ -9,7 +9,7 @@ datasource db {
 
 // Basic User Model with Auth fields
 model User {
-  id            Int            @id @default(autoincrement())
+  id            String            @id            @default(uuid(7)) @db.Char(36)
   email         String         @unique
   password      String? // Nullable for Google Auth users
   name          String?
@@ -98,8 +98,8 @@ model User {
 }
 
 model Doctor {
-  id               Int                @id @default(autoincrement())
-  userId           Int                @unique
+  id               String               @id               @default(uuid(7)) @db.Char(36)
+  userId           String @db.Char(36)                @unique
   user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   specialty        String
   bio              String             @db.Text
@@ -141,12 +141,12 @@ model Doctor {
 }
 
 model Appointment {
-  id              Int      @id @default(autoincrement())
-  userId          Int
+  id              String              @id              @default(uuid(7)) @db.Char(36)
+  userId          String @db.Char(36)
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  doctorId        Int
+  doctorId        String @db.Char(36)
   doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  slotId          Int?     @unique
+  slotId          String? @db.Char(36)     @unique
   slot            ConsultationSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
   appointmentDate DateTime
   startTime       String?
@@ -163,7 +163,7 @@ model Appointment {
   idempotencyKey  String?  @unique
   reminderSentAt  DateTime?
   checkinSentAt   DateTime?
-  packagePurchaseId Int?
+  packagePurchaseId String? @db.Char(36)
   packagePurchase PackagePurchase? @relation(fields: [packagePurchaseId], references: [id], onDelete: SetNull)
   creditApplied  Boolean @default(false) // session paid with a referral credit
   preSessionData  PreSessionData?
@@ -193,14 +193,14 @@ model Appointment {
 }
 
 model Review {
-  id            Int      @id @default(autoincrement())
+  id            String            @id            @default(uuid(7)) @db.Char(36)
   rating        Int
   comment       String   @db.Text
-  userId        Int
+  userId        String @db.Char(36)
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  doctorId      Int
+  doctorId      String @db.Char(36)
   doctor        Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  appointmentId Int?     @unique
+  appointmentId String? @db.Char(36)     @unique
   appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   reply         String?  @db.Text
   repliedAt     DateTime?
@@ -213,10 +213,10 @@ model Review {
 }
 
 model ReviewReport {
-  id         Int      @id @default(autoincrement())
-  reviewId   Int
+  id         String         @id         @default(uuid(7)) @db.Char(36)
+  reviewId   String @db.Char(36)
   review     Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  reporterId Int
+  reporterId String @db.Char(36)
   reporter   User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
   reason     String   @db.Text
   status     String   @default("open") // open, resolved, dismissed
@@ -227,11 +227,11 @@ model ReviewReport {
 }
 
 model Message {
-  id         Int      @id @default(autoincrement())
+  id         String         @id         @default(uuid(7)) @db.Char(36)
   content    String   @db.Text
-  senderId   Int
+  senderId   String @db.Char(36)
   sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  receiverId Int
+  receiverId String @db.Char(36)
   receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
   isRead     Boolean  @default(false)
   readAt     DateTime?
@@ -256,8 +256,8 @@ model Message {
 }
 
 model Notification {
-  id        Int      @id @default(autoincrement())
-  userId    Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  userId    String @db.Char(36)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   message   String   @db.Text
@@ -273,8 +273,8 @@ model Notification {
 }
 
 model ConsultationSlot {
-  id        Int      @id @default(autoincrement())
-  doctorId  Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  doctorId  String @db.Char(36)
   doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   date      DateTime
   startTime String
@@ -289,8 +289,8 @@ model ConsultationSlot {
 }
 
 model AvailabilityPattern {
-  id         Int      @id @default(autoincrement())
-  doctorId   Int
+  id         String         @id         @default(uuid(7)) @db.Char(36)
+  doctorId   String @db.Char(36)
   doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   weekday    Int // 0 (Monday) - 6 (Sunday)
   startTime  String
@@ -304,8 +304,8 @@ model AvailabilityPattern {
 }
 
 model PreSessionData {
-  id            Int      @id @default(autoincrement())
-  appointmentId Int      @unique
+  id            String            @id            @default(uuid(7)) @db.Char(36)
+  appointmentId String @db.Char(36)      @unique
   appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   questionsJson String?  @db.Text
   answersJson   String?  @db.Text
@@ -337,36 +337,36 @@ model PreSessionData {
  * raised and by whom it was acknowledged.
  */
 model RiskAlert {
-  id        Int      @id @default(autoincrement())
-  userId    Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  userId    String @db.Char(36)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   level     String   // "elevated" | "urgent"
   reason    String   @db.Text
   sourceType String  // "phq9" | "gad7" | "sos" | "message" | "mood"
-  sourceId  Int?
+  sourceId  String? @db.Char(36)
   // Set once a clinician has seen and accepted the alert. "Seen" and
   // "dealt with" are different acts: an alert can be acknowledged on a
   // Monday and still need follow-up on Friday, and collapsing the two into
   // one timestamp is what made the queue unable to express a backlog.
   acknowledgedAt   DateTime?
-  acknowledgedById Int?
+  acknowledgedById String? @db.Char(36)
   // Set when the clinician has finished with it. A resolved alert stays in
   // the table because "we raised this and dealt with it" is the record a
   // clinician needs when a patient returns; deleting it would erase the fact
   // that a disclosure happened.
   resolvedAt   DateTime?
-  resolvedById Int?
+  resolvedById String? @db.Char(36)
   // What was actually done. Optional, because sometimes the right note is
   // "spoke to them on the phone"; it is recorded rather than inferred.
   resolutionNote String? @db.Text
   // Who was told. Several channels fire at once, so this is not the same as
   // who owns the work.
-  notifiedDoctorUserId Int?
+  notifiedDoctorUserId String? @db.Char(36)
   // Whose queue this sits in. Distinct from notifiedDoctorUserId: an alert
   // raised at 23:00 may page the on-call admin, but it belongs to the
   // clinician who is actually treating the patient, and that clinician is who
   // works the list.
-  assignedDoctorUserId Int?
+  assignedDoctorUserId String? @db.Char(36)
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
@@ -379,11 +379,11 @@ model RiskAlert {
 }
 
 model RefreshToken {
-  id        Int      @id @default(autoincrement())
+  id        String        @id        @default(uuid(7)) @db.Char(36)
   // SHA-256 digest of the refresh token, never the token itself, so a leaked
   // database read cannot be replayed as a live session.
   tokenHash String   @unique @db.VarChar(64)
-  userId    Int
+  userId    String @db.Char(36)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
@@ -393,8 +393,8 @@ model RefreshToken {
 }
 
 model MoodEntry {
-  id        Int      @id @default(autoincrement())
-  userId    Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  userId    String @db.Char(36)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   mood      Int
   notes     String?  @db.Text
@@ -410,8 +410,8 @@ model MoodEntry {
 }
 
 model JournalEntry {
-  id        Int      @id @default(autoincrement())
-  userId    Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  userId    String @db.Char(36)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   content   String   @db.Text
   aiSummary String?  @db.Text
@@ -421,8 +421,8 @@ model JournalEntry {
 }
 
 model Assessment {
-  id         Int      @id @default(autoincrement())
-  userId     Int
+  id         String         @id         @default(uuid(7)) @db.Char(36)
+  userId     String @db.Char(36)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   type       String // phq9, gad7
   answersJson String  @db.Text
@@ -454,12 +454,12 @@ model Assessment {
  * of goals is a clinical judgement made with the person in front of you.
  */
 model CarePlan {
-  id     Int  @id @default(autoincrement())
-  userId Int
+  id     String     @id     @default(uuid(7)) @db.Char(36)
+  userId String @db.Char(36)
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
   // The clinician currently responsible. Null while unassigned: a patient can
   // start a plan before they have ever booked.
-  doctorUserId Int?
+  doctorUserId String? @db.Char(36)
   title  String @default("My care plan") @db.VarChar(160)
   // active | completed | paused
   status String @default("active")
@@ -496,8 +496,8 @@ model CarePlan {
 }
 
 model CareGoal {
-  id         Int      @id @default(autoincrement())
-  carePlanId Int
+  id         String         @id         @default(uuid(7)) @db.Char(36)
+  carePlanId String @db.Char(36)
   carePlan   CarePlan @relation(fields: [carePlanId], references: [id], onDelete: Cascade)
   title      String   @db.VarChar(200)
   detail     String?  @db.Text
@@ -517,8 +517,8 @@ model CareGoal {
 }
 
 model CareStep {
-  id         Int      @id @default(autoincrement())
-  careGoalId Int
+  id         String         @id         @default(uuid(7)) @db.Char(36)
+  careGoalId String @db.Char(36)
   careGoal   CareGoal @relation(fields: [careGoalId], references: [id], onDelete: Cascade)
   title      String   @db.VarChar(200)
   done       Boolean  @default(false)
@@ -542,8 +542,8 @@ model CareStep {
  * thing anyone needs is to choose the current version.
  */
 model SafetyPlan {
-  id     Int  @id @default(autoincrement())
-  userId Int  @unique
+  id     String     @id     @default(uuid(7)) @db.Char(36)
+  userId String @db.Char(36)  @unique
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
   // The things a person notices in themselves before a crisis, in their words.
   // Clinical language here is worse than useless: a checklist of symptoms is
@@ -587,12 +587,12 @@ model SafetyPlan {
 }
 
 model AuditLog {
-  id        Int      @id @default(autoincrement())
-  actorId   Int?
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  actorId   String? @db.Char(36)
   actor     User?    @relation("ActorLogs", fields: [actorId], references: [id], onDelete: SetNull)
   action    String
   targetType String?
-  targetId  Int?
+  targetId  String? @db.Char(36)
   meta      String?  @db.Text
   createdAt DateTime @default(now())
 
@@ -627,10 +627,10 @@ model JobLock {
 }
 
 model FollowUp {
-  id              Int      @id @default(autoincrement())
-  appointmentId   Int      @unique
+  id              String              @id              @default(uuid(7)) @db.Char(36)
+  appointmentId   String @db.Char(36)      @unique
   appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  doctorId        Int
+  doctorId        String @db.Char(36)
   doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   suggestedDate   DateTime
   startTime       String
@@ -647,10 +647,10 @@ model FollowUp {
 }
 
 model WaitlistEntry {
-  id        Int      @id @default(autoincrement())
-  doctorId  Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  doctorId  String @db.Char(36)
   doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  patientId Int
+  patientId String @db.Char(36)
   patient   User     @relation(fields: [patientId], references: [id], onDelete: Cascade)
   status    String   @default("waiting") // waiting, notified, booked, expired
   // Notified at, so a stale notification can expire without a full scan.
@@ -666,8 +666,8 @@ model WaitlistEntry {
 }
 
 model Package {
-  id           Int      @id @default(autoincrement())
-  doctorId     Int
+  id           String           @id           @default(uuid(7)) @db.Char(36)
+  doctorId     String @db.Char(36)
   doctor       Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   name         String
   description  String?  @db.Text
@@ -681,17 +681,17 @@ model Package {
 }
 
 model PackagePurchase {
-  id           Int      @id @default(autoincrement())
-  packageId    Int
+  id           String           @id           @default(uuid(7)) @db.Char(36)
+  packageId    String @db.Char(36)
   package      Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  userId       Int
+  userId       String @db.Char(36)
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
     sessionsLeft Int
     status       String   @default("active") // pending, active, completed
     // Set when a payment has been verified. A grant with no `paidAt` and no
     // `grantedByUserId` is not a legitimate entitlement.
     paidAt           DateTime?
-    grantedByUserId  Int?
+    grantedByUserId  String? @db.Char(36)
     // Price snapshot, so a later edit to `Package.totalPrice` cannot change what
     // a patient is credited against, and so a callback's amount can be re-checked
     // against what was actually ordered.
@@ -728,9 +728,9 @@ model PackagePurchase {
    * reconciliation.
    */
 model PaymentOrder {
-    id         Int      @id @default(autoincrement())
+    id         String         @id         @default(uuid(7)) @db.Char(36)
     orderId    String   @unique @db.VarChar(64)
-    purchaseId Int      @unique
+    purchaseId String @db.Char(36)      @unique
     purchase   PackagePurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
     amount     Int
     currency   String   @default("IDR")
@@ -748,8 +748,8 @@ model PaymentOrder {
   }
 
 model PushSubscription {
-  id        Int      @id @default(autoincrement())
-  userId    Int
+  id        String        @id        @default(uuid(7)) @db.Char(36)
+  userId    String @db.Char(36)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Unique per (user, endpoint), not globally unique. A globally unique
   // endpoint with an upsert that never wrote `userId` let a second user on a
@@ -767,10 +767,10 @@ model PushSubscription {
 }
 
 model Referral {
-  id         Int      @id @default(autoincrement())
-  referrerId Int
+  id         String         @id         @default(uuid(7)) @db.Char(36)
+  referrerId String @db.Char(36)
   referrer   User     @relation("ReferralsMade", fields: [referrerId], references: [id], onDelete: Cascade)
-  referredId Int      @unique
+  referredId String @db.Char(36)      @unique
   referred   User     @relation("ReferralReceived", fields: [referredId], references: [id], onDelete: Cascade)
   code       String
   status     String   @default("pending") // pending, credited

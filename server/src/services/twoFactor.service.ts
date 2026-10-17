@@ -27,7 +27,7 @@ export class TwoFactorService {
      * requires a password, changing a password requires one, deleting an account
      * requires one. Enrolling was the only one that did not.
      */
-    static async generateSecret(user: { id: number; email: string }, password?: string) {
+    static async generateSecret(user: { id: string; email: string }, password?: string) {
         const existing = await prisma.user.findUnique({
             where: { id: user.id },
             select: { totpEnabled: true, password: true, provider: true },
@@ -73,7 +73,7 @@ export class TwoFactorService {
         return { secret: secret.base32, otpauthUrl, qrDataUrl };
     }
 
-    static async enable(userId: number, code: string) {
+    static async enable(userId: string, code: string) {
         const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user?.totpSecret) throw badRequest("Generate a secret first");
         if (!this.verifyCode(user.totpSecret, code)) {
@@ -93,7 +93,7 @@ export class TwoFactorService {
     }
 
     // 10 one-time recovery codes (argon2-hashed at rest, dash-separated pairs)
-    static async generateBackupCodes(userId: number): Promise<string[]> {
+    static async generateBackupCodes(userId: string): Promise<string[]> {
         const codes = Array.from({ length: 10 }, () => {
             const raw = crypto.randomBytes(6).toString("hex").toUpperCase();
             return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
@@ -132,7 +132,7 @@ export class TwoFactorService {
      * `backupCodes` is a JSON string column, so comparing it whole is a valid CAS
      * on the entire set - there is no partial-match subtlety to get wrong.
      */
-    static async consumeBackupCode(userId: number, code: string): Promise<boolean> {
+    static async consumeBackupCode(userId: string, code: string): Promise<boolean> {
         const candidate = code.trim().toUpperCase();
 
         // Bounded, because each attempt costs an argon2 verify. Three is enough
@@ -182,7 +182,7 @@ export class TwoFactorService {
         return false;
     }
 
-    static async disable(userId: number, code: string, password?: string) {
+    static async disable(userId: string, code: string, password?: string) {
         const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user?.totpSecret || !user.totpEnabled) throw badRequest("2FA is not enabled");
         if (!this.verifyCode(user.totpSecret, code)) {
@@ -254,7 +254,7 @@ export class TwoFactorService {
      * roughly 90 seconds, so without this a captured code could be replayed
      * repeatedly to mint additional sessions.
      */
-    static async consumeTotpStep(userId: number, secret: string, code: string): Promise<boolean> {
+    static async consumeTotpStep(userId: string, secret: string, code: string): Promise<boolean> {
         if (!this.verifyCode(secret, code)) return false;
 
         const step = this.currentStep();
@@ -274,13 +274,13 @@ export class TwoFactorService {
      * signed with a purpose-scoped secret, so it cannot be presented as an
      * access token to any authenticated route.
      */
-    static issuePendingToken(userId: number) {
+    static issuePendingToken(userId: string) {
         return signTwoFactorPendingToken(userId);
     }
 
-    static verifyPendingToken(token: string): number {
-        const decoded = verifyToken<{ userId: number }>(token, "2fa-pending");
-        if (typeof decoded.userId !== "number") throw badRequest("Invalid token");
+    static verifyPendingToken(token: string): string {
+        const decoded = verifyToken<{ userId: string }>(token, "2fa-pending");
+        if (typeof decoded.userId !== "string") throw badRequest("Invalid token");
         return decoded.userId;
     }
 }

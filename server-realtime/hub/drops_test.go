@@ -11,8 +11,8 @@ func TestDropStatsCountSeparatesClinicalFromCosmetic(t *testing.T) {
 	// Unbuffered and never drained: the send is never ready, so every publish
 	// takes the drop path. That is the slow-consumer case by construction, and it
 	// is what the counters exist to make visible.
-	stalled := &Client{ID: 1, Send: make(chan Event)}
-	if err := h.Register(1, stalled); err != nil {
+	stalled := &Client{ID: "1", Send: make(chan Event)}
+	if err := h.Register("1", stalled); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -21,10 +21,10 @@ func TestDropStatsCountSeparatesClinicalFromCosmetic(t *testing.T) {
 	// and this assertion is what would have caught the map being wrong in the other
 	// direction - if the classification were ever narrowed, the drop would stop being
 	// counted as critical and this test would say so.
-	h.PublishToUser(1, Event{Type: "message:new"})
-	h.PublishToUser(1, Event{Type: "sos:alert"})
-	h.PublishToUser(1, Event{Type: "typing:start"})
-	h.PublishToUser(1, Event{Type: "typing:stop"})
+	h.PublishToUser("1", Event{Type: "message:new"})
+	h.PublishToUser("1", Event{Type: "sos:alert"})
+	h.PublishToUser("1", Event{Type: "typing:start"})
+	h.PublishToUser("1", Event{Type: "typing:stop"})
 
 	drops := h.DropStats()
 	if drops.Critical != 2 {
@@ -37,13 +37,13 @@ func TestDropStatsCountSeparatesClinicalFromCosmetic(t *testing.T) {
 
 func TestDropStatsZeroWhenEveryConsumerKeepsUp(t *testing.T) {
 	h := New(DefaultLimits())
-	c := &Client{ID: 7, Send: make(chan Event, 8)}
+	c := &Client{ID: "7", Send: make(chan Event, 8)}
 
-	if err := h.Register(7, c); err != nil {
+	if err := h.Register("7", c); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	for i := 0; i < 4; i++ {
-		h.PublishToUser(7, Event{Type: "message:new"})
+		h.PublishToUser("7", Event{Type: "message:new"})
 	}
 
 	drops := h.DropStats()
@@ -65,17 +65,17 @@ func TestDropStatsCountedPerConnection(t *testing.T) {
 	// is the case a single global counter would get wrong - it would look like the
 	// whole user is affected when only one socket is.
 	h := New(Limits{MaxPerUser: 5, MaxTotal: 100})
-	healthy := &Client{ID: 1, Send: make(chan Event, 4)}
-	stalled := &Client{ID: 1, Send: make(chan Event)}
-	if err := h.Register(1, healthy); err != nil {
+	healthy := &Client{ID: "1", Send: make(chan Event, 4)}
+	stalled := &Client{ID: "1", Send: make(chan Event)}
+	if err := h.Register("1", healthy); err != nil {
 		t.Fatalf("register healthy: %v", err)
 	}
-	if err := h.Register(1, stalled); err != nil {
+	if err := h.Register("1", stalled); err != nil {
 		t.Fatalf("register stalled: %v", err)
 	}
 
 	// A risk disclosure: the event whose loss is the reason the counters exist.
-	h.PublishToUser(1, Event{Type: "risk:alert"})
+	h.PublishToUser("1", Event{Type: "risk:alert"})
 
 	if got := len(healthy.Send); got != 1 {
 		t.Fatalf("healthy connection should have received the event, buffer=%d", got)
@@ -103,8 +103,8 @@ func TestDropCountersUnderConcurrentPublishers(t *testing.T) {
 	h := New(DefaultLimits())
 	// Unbuffered and never drained, so every publish takes the drop path - the
 	// slow-consumer case by construction rather than by timing.
-	stalled := &Client{ID: 1, Send: make(chan Event)}
-	if err := h.Register(1, stalled); err != nil {
+	stalled := &Client{ID: "1", Send: make(chan Event)}
+	if err := h.Register("1", stalled); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -119,9 +119,9 @@ func TestDropCountersUnderConcurrentPublishers(t *testing.T) {
 			for j := 0; j < each; j++ {
 				// A mix, so both counters are exercised concurrently.
 				if j%2 == 0 {
-					h.PublishToUser(1, Event{Type: "risk:alert"})
+					h.PublishToUser("1", Event{Type: "risk:alert"})
 				} else {
-					h.PublishToUser(1, Event{Type: "typing:start"})
+					h.PublishToUser("1", Event{Type: "typing:start"})
 				}
 			}
 		}()

@@ -129,7 +129,7 @@ export class SupportController {
         // Raised as a RiskAlert first, so the queue is the single place work is
         // tracked. The four channels below still fire; this is additive, not a
         // replacement, and a failure to record must not suppress the paging.
-        let sosAlertId: number | null = null;
+        let sosAlertId: string | null = null;
         try {
             const alert = await prisma.riskAlert.create({
                 data: {

@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import Image from "next/image";
 
 interface Review {
-    id: number;
+    id: string;
     name: string;
     avatar: string;
     rating: number;

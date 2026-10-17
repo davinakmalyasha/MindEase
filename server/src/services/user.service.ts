@@ -7,7 +7,7 @@ import { sanitize } from "../utils/sanitize";
 
 
 export class UserService {
-    static async getProfile(userId: number) {
+    static async getProfile(userId: string) {
         const profile = await prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -45,7 +45,7 @@ export class UserService {
         return profile;
     }
 
-    static async updateProfile(userId: number, data: any, avatarPath?: string) {
+    static async updateProfile(userId: string, data: any, avatarPath?: string) {
         if (!data) throw badRequest("Data is undefined");
         const {
             name,

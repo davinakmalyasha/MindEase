@@ -16,7 +16,7 @@ const parseJson = <T>(raw: string | null, fallback: T): T => {
 };
 
 export class PreSessionService {
-    private static async getAppointment(appointmentId: number) {
+    private static async getAppointment(appointmentId: string) {
         return await prisma.appointment.findUnique({
             where: { id: appointmentId },
             include: {
@@ -26,7 +26,7 @@ export class PreSessionService {
         });
     }
 
-    private static assertPatient(appointment: any, userId: number, status = "confirmed") {
+    private static assertPatient(appointment: any, userId: string, status = "confirmed") {
         if (!appointment || appointment.userId !== userId) {
             throw notFound("Appointment not found");
         }
@@ -36,7 +36,7 @@ export class PreSessionService {
         return appointment;
     }
 
-    static async getQuestionsForPatient(appointmentId: number, userId: number) {
+    static async getQuestionsForPatient(appointmentId: string, userId: string) {
         const appointment = this.assertPatient(await this.getAppointment(appointmentId), userId, "confirmed");
 
         const existing = await prisma.preSessionData.findUnique({
@@ -81,7 +81,7 @@ export class PreSessionService {
      *      reach Gemini both did. A doctor could therefore read a patient's
      *      pre-session answers for a `pending` or `cancelled` appointment.
      */
-    static async getData(appointmentId: number, user: { id: number; role: string }) {
+    static async getData(appointmentId: string, user: { id: string; role: string }) {
         const appointment = await this.getAppointment(appointmentId);
         if (!appointment) throw notFound("Appointment not found");
 
@@ -112,7 +112,7 @@ export class PreSessionService {
         };
     }
 
-    static async submitAnswers(appointmentId: number, userId: number, answers: { question: string; answer: string }[]) {
+    static async submitAnswers(appointmentId: string, userId: string, answers: { question: string; answer: string }[]) {
         this.assertPatient(await this.getAppointment(appointmentId), userId, "confirmed");
 
         const data = await prisma.preSessionData.findUnique({ where: { appointmentId } });
@@ -141,7 +141,7 @@ export class PreSessionService {
         return { success: true };
     }
 
-    static async getBriefing(appointmentId: number, userId: number) {
+    static async getBriefing(appointmentId: string, userId: string) {
         const appointment = await this.getAppointment(appointmentId);
         if (!appointment) throw notFound("Appointment not found");
         if (appointment.doctor.userId !== userId) {

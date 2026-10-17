@@ -34,7 +34,7 @@ export class ClinicalSafetyController {
 
     static async acknowledge(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             const updated = await RiskQueueService.acknowledge(req.user!, id);
             res.json({ status: "success", data: updated });
         } catch (error: unknown) {
@@ -48,7 +48,7 @@ export class ClinicalSafetyController {
 
     static async resolve(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             const note = typeof req.body?.note === "string" ? req.body.note.trim() : null;
             const updated = await RiskQueueService.resolve(req.user!, id, note);
             res.json({ status: "success", data: updated });

@@ -12,7 +12,7 @@ import { AuditService } from "./audit.service";
 
 export class MessageService {
     // Participants must share a confirmed or completed appointment
-    static async canChat(actorId: number, otherUserId: number) {
+    static async canChat(actorId: string, otherUserId: string) {
         const appointment = await prisma.appointment.findFirst({
             where: {
                 status: { in: ["confirmed", "completed"] },
@@ -25,7 +25,7 @@ export class MessageService {
         return !!appointment;
     }
 
-    static async getConversations(userId: number) {
+    static async getConversations(userId: string) {
         const messages = await prisma.message.findMany({
             where: {
                 OR: [{ senderId: userId }, { receiverId: userId }],
@@ -38,7 +38,7 @@ export class MessageService {
             take: 500,
         });
 
-        const map = new Map<number, any>();
+        const map = new Map<string, any>();
         for (const msg of messages) {
             const otherId = msg.senderId === userId ? msg.receiverId : msg.senderId;
             const other = msg.senderId === userId ? msg.receiver : msg.sender;
@@ -78,7 +78,7 @@ export class MessageService {
      *
      * Deduplicated by counterpart, most recently created relationship first.
      */
-    static async getChatContacts(userId: number) {
+    static async getChatContacts(userId: string) {
         const appointments = await prisma.appointment.findMany({
             where: {
                 status: { in: ["confirmed", "completed"] },
@@ -91,7 +91,7 @@ export class MessageService {
             orderBy: { id: "desc" },
         });
 
-        const contacts = new Map<number, { id: number; name: string; avatar: string | null; role: string }>();
+        const contacts = new Map<string, { id: string; name: string; avatar: string | null; role: string }>();
         for (const appointment of appointments) {
             // The counterpart: the patient side unless the caller *is* the patient.
             const other = appointment.user.id === userId ? appointment.doctor.user : appointment.user;
@@ -102,7 +102,7 @@ export class MessageService {
         return Array.from(contacts.values());
     }
 
-    static async getMessages(userId: number, otherUserId: number, limit = 50, before?: number) {
+    static async getMessages(userId: string, otherUserId: string, limit = 50, before?: string) {
         const chatAllowed = await this.canChat(userId, otherUserId);
         if (!chatAllowed) {
             throw badRequest("You can only chat with users you share a confirmed or completed appointment with");
@@ -164,8 +164,8 @@ export class MessageService {
     }
 
     static async sendMessage(
-        senderId: number,
-        receiverId: number,
+        senderId: string,
+        receiverId: string,
         content: string,
         attachment?: { url: string; type: string }
     ) {
@@ -249,8 +249,8 @@ export class MessageService {
      * the exact message rather than guess which one it was.
      */
     private static async raiseMessageRisk(message: {
-        id: number;
-        senderId: number;
+        id: string;
+        senderId: string;
         content: string;
     }) {
         const sender = await prisma.user.findUnique({
@@ -273,7 +273,7 @@ export class MessageService {
     }
 
     // Typing indicator: transient event (not persisted), pushed via realtime
-    static async sendTypingEvent(senderId: number, receiverId: number, isTyping: boolean) {
+    static async sendTypingEvent(senderId: string, receiverId: string, isTyping: boolean) {
         if (senderId === receiverId) throw badRequest("Cannot message yourself");
         const chatAllowed = await this.canChat(senderId, receiverId);
         if (!chatAllowed) {
@@ -288,7 +288,7 @@ export class MessageService {
     }
 
     // Soft-delete: only the sender may delete; renders as "Message deleted"
-    static async deleteMessage(messageId: number, actorId: number) {
+    static async deleteMessage(messageId: string, actorId: string) {
         const message = await prisma.message.findUnique({ where: { id: messageId } });
         if (!message) throw notFound("Message not found");
         if (message.senderId !== actorId) throw forbidden("you can only delete your own messages");
@@ -306,7 +306,7 @@ export class MessageService {
     }
 
     // Reactions: single emoji per message, set by either participant
-    static async setReaction(messageId: number, actorId: number, reaction: string | null) {
+    static async setReaction(messageId: string, actorId: string, reaction: string | null) {
         const message = await prisma.message.findUnique({ where: { id: messageId } });
         if (!message || message.deletedAt) throw notFound("Message not found");
         if (message.senderId !== actorId && message.receiverId !== actorId) {

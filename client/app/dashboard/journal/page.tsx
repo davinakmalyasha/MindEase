@@ -25,7 +25,7 @@ export default function JournalPage() {
     const [content, setContent] = useState("");
     const [aiSummary, setAiSummary] = useState<string | null>(null);
     const [aiSummarySource, setAiSummarySource] = useState<"model" | "fallback" | undefined>(undefined);
-    const [editingId, setEditingId] = useState<number | null>(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [editText, setEditText] = useState("");
 
     const { data: entries = [], isLoading } = useJournalEntries(20);
@@ -42,7 +42,7 @@ export default function JournalPage() {
         });
     };
 
-    const startEdit = (id: number, text: string) => {
+    const startEdit = (id: string, text: string) => {
         setEditingId(id);
         setEditText(text);
     };

@@ -61,7 +61,7 @@ export interface RiskSignal {
      */
     recorded: boolean;
     /** Id of the `RiskAlert` row, or null when it could not be written. */
-    alertId: number | null;
+    alertId: string | null;
 }
 
 /**
@@ -92,12 +92,12 @@ export const detectAssessmentRisk = (
  * cannot swallow the escalation.
  */
 export const raiseRiskAlert = async (input: {
-    userId: number;
+    userId: string;
     userName?: string | null;
     level: RiskLevel;
     reason: string;
     sourceType: string;
-    sourceId?: number | null;
+    sourceId?: string | null;
 }): Promise<RiskSignal> => {
     // `clinicianNotified`, `recorded` and `alertId` are all resolved below. The
     // base is the part that is true the moment the disclosure is recognised.
@@ -124,7 +124,7 @@ export const raiseRiskAlert = async (input: {
 
     const assignedDoctorUserId = appointment?.doctor.userId ?? null;
 
-    let alertId: number | null = null;
+    let alertId: string | null = null;
     try {
         const alert = await prisma.riskAlert.create({
             data: {
@@ -215,13 +215,13 @@ export const raiseRiskAlert = async (input: {
             action: "risk.raised",
             actorId: input.userId,
             targetType: "RiskAlert",
-            targetId: alertId ?? 0,
+            targetId: alertId ?? null,
             meta: { level: input.level, sourceType: input.sourceType, doctorUserId },
         })
     );
 
     // `alertId !== null` rather than `recorded`, because TypeScript narrows the
-    // null away and the `where` clause needs a `number`. The two are equivalent
+    // null away and the `where` clause needs a `string`. The two are equivalent
     // by construction - `recorded` is defined as that comparison - and the
     // narrowing is worth more than the readability of reusing the flag.
     if (clinicianReached && alertId !== null) {

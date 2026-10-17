@@ -5,7 +5,7 @@ import { publicMessageFor } from "../utils/appError";
 export class FollowUpController {
     static async suggest(req: Request, res: Response) {
         try {
-            const appointmentId = parseInt(req.params.id as string);
+            const appointmentId = req.params.id as string;
             const followUp = await FollowUpService.suggest(appointmentId, req.user!.id, {
                 suggestedDate: req.body.suggestedDate,
                 startTime: req.body.startTime,
@@ -22,7 +22,7 @@ export class FollowUpController {
 
     static async get(req: Request, res: Response) {
         try {
-            const appointmentId = parseInt(req.params.id as string);
+            const appointmentId = req.params.id as string;
             const followUp = await FollowUpService.get(appointmentId, req.user!);
             res.json({ status: "success", data: followUp });
         } catch (error: unknown) {
@@ -33,7 +33,7 @@ export class FollowUpController {
 
     static async accept(req: Request, res: Response) {
         try {
-            const followUpId = parseInt(req.params.id as string);
+            const followUpId = req.params.id as string;
             const result = await FollowUpService.respond(followUpId, req.user!.id, true);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
@@ -44,7 +44,7 @@ export class FollowUpController {
 
     static async decline(req: Request, res: Response) {
         try {
-            const followUpId = parseInt(req.params.id as string);
+            const followUpId = req.params.id as string;
             const result = await FollowUpService.respond(followUpId, req.user!.id, false);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {

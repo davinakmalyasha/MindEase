@@ -34,12 +34,12 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 interface DoctorProfileProps {
-    doctor: Doctor & { userId?: number; consultationSlots?: any[] };
+    doctor: Doctor & { userId?: string; consultationSlots?: any[] };
     reviews: any[];
     canReply?: boolean;
 }
 
-function ReviewReplyForm({ reviewId, onDone }: { reviewId: number; onDone: () => void }) {
+function ReviewReplyForm({ reviewId, onDone }: { reviewId: string; onDone: () => void }) {
     const t = useTranslations("features.reviewReply");
     const [reply, setReply] = useState("");
     const [saving, setSaving] = useState(false);
@@ -101,7 +101,7 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
     const [waitlistState, setWaitlistState] = useState<"idle" | "checking" | "on" | "off">("idle");
     const [waitlistBusy, setWaitlistBusy] = useState(false);
     const [showAllReviews, setShowAllReviews] = useState(false);
-    const [replyingTo, setReplyingTo] = useState<number | null>(null);
+    const [replyingTo, setReplyingTo] = useState<string | null>(null);
     const [reviewsState, setReviewsState] = useState(reviews);
     const visibleReviews = showAllReviews ? reviewsState : reviewsState.slice(0, 4);
 
@@ -126,7 +126,7 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
         }
     };
 
-    const reportReview = async (reviewId: number) => {
+    const reportReview = async (reviewId: string) => {
         const reason = prompt("Describe why this review should be reviewed by our team (min. 5 characters):");
         if (!reason || reason.trim().length < 5) return;
         try {
@@ -215,7 +215,7 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
         }
     };
 
-    const deletePackage = async (pkgId: number) => {
+    const deletePackage = async (pkgId: string) => {
         try {
             await api.delete(`/doctors/packages/${pkgId}`);
             toast("Package removed", "success");

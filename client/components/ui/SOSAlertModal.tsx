@@ -7,7 +7,7 @@ import Dialog from "@/components/ui/Dialog";
 
 interface SOSAlert {
     patientName?: string;
-    patientId?: number;
+    patientId?: string;
 }
 
 /** How many alerts to hold before dropping the oldest. */

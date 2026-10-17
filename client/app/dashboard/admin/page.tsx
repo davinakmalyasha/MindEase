@@ -45,7 +45,7 @@ export default function AdminDashboard() {
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState("");
     const [page, setPage] = useState(1);
-    const [actionLoading, setActionLoading] = useState<number | null>(null);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
 
     const fetchAdminData = useCallback(async () => {
         try {
@@ -86,7 +86,7 @@ export default function AdminDashboard() {
         if (user?.role === "admin") fetchAuditLogs();
     }, [user, fetchAdminData, fetchReviewReports, fetchAuditLogs]);
 
-    const changeRole = async (userId: number, currentRole: string) => {
+    const changeRole = async (userId: string, currentRole: string) => {
         const next = currentRole === "patient" ? "doctor" : currentRole === "doctor" ? "admin" : "patient";
         setActionLoading(userId);
         try {

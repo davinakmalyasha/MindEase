@@ -68,9 +68,9 @@ export interface VideoGrant {
 }
 
 export interface MintInput {
-    appointmentId: number;
+    appointmentId: string;
     /** The user id of the participant. */
-    userId: number;
+    userId: string;
     displayName: string;
     /** The room name derived from the appointment. */
     roomName: string;
@@ -92,7 +92,7 @@ export type GrantInput = Omit<MintInput, "roomName"> & { roomSeed: string };
  * The random component is generated once and reused for the life of the
  * appointment, so both participants joining independently land in the same room.
  */
-const roomNameFor = (appointmentId: number, seed: string) => `mindease-${appointmentId}-${seed}`;
+const roomNameFor = (appointmentId: string, seed: string) => `mindease-${appointmentId}-${seed}`;
 
 /** Exported for tests. Derives the room name from a fixed seed. */
 export const roomNameForTest = roomNameFor;

@@ -20,23 +20,23 @@ const formatDate = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short"
 
 
 
-const generateMeetingLink = (appointmentId: number) =>
+const generateMeetingLink = (appointmentId: string) =>
     // `crypto`, not `Math.random`: this string is the only thing standing between
     // a leaked link and an uninvited third party joining a therapy session.
     `https://meet.jit.si/MindEase-${appointmentId}-${crypto.randomBytes(8).toString("hex")}`;
 
 export class AppointmentService {
     static async createAppointment(data: {
-        userId: number;
-        doctorId: number;
+        userId: string;
+        doctorId: string;
         appointmentDate: Date;
         startTime: string;
         endTime: string;
         consultationType: string;
         notes?: string;
-        slotId?: number;
+        slotId?: string;
         idempotencyKey?: string;
-        packagePurchaseId?: number;
+        packagePurchaseId?: string;
     }) {
         // Idempotency: replay-safe bookings. The stored result may only be
         // returned to its owner — never leak another user's appointment.
@@ -63,8 +63,8 @@ export class AppointmentService {
         // The session itself is RESERVED atomically right before booking
         // (prevents unlimited future bookings against one package) and
         // refunded on cancellation or any downstream failure.
-        let packagePurchaseId: number | undefined;
-        let packageReservationId: number | undefined;
+        let packagePurchaseId: string | undefined;
+        let packageReservationId: string | undefined;
         if (data.packagePurchaseId) {
             const purchase = await prisma.packagePurchase.findUnique({
                 where: { id: data.packagePurchaseId },
@@ -112,7 +112,7 @@ export class AppointmentService {
             throw badRequest("Cannot book appointments in the past");
         }
 
-        let slotId: number | undefined;
+        let slotId: string | undefined;
 
         // Reserve paid-for capacity atomically BEFORE touching slots:
         // - package session (decrement now, restore on cancel/failure)
@@ -267,7 +267,7 @@ export class AppointmentService {
      * The booker's calendar zone. `User.timezone` existed but was never read;
      * every day boundary in this service was implicitly the server's own zone.
      */
-    private static async getUserTimezone(userId: number): Promise<string> {
+    private static async getUserTimezone(userId: string): Promise<string> {
         const user = await prisma.user
             .findUnique({ where: { id: userId }, select: { timezone: true } })
             .catch(() => null);
@@ -276,8 +276,8 @@ export class AppointmentService {
 
     private static async sendBookingReceivedEmail(
         appointment: { appointmentDate: Date; startTime: string | null; consultationType: string; notes: string | null },
-        doctor: { userId: number },
-        patientUserId: number
+        doctor: { userId: string },
+        patientUserId: string
     ) {
         try {
             const [doctorUser, patientUser] = await Promise.all([
@@ -322,7 +322,7 @@ export class AppointmentService {
         }
     }
 
-    static async getUserAppointments(userId: number) {
+    static async getUserAppointments(userId: string) {
         return await prisma.appointment.findMany({
             where: { userId },
             include: {
@@ -344,7 +344,7 @@ export class AppointmentService {
         });
     }
 
-    static async getDoctorAppointments(doctorId: number) {
+    static async getDoctorAppointments(doctorId: string) {
         return await prisma.appointment.findMany({
             where: { doctorId },
             include: {
@@ -466,7 +466,7 @@ export class AppointmentService {
         return { rows, total, page, totalPages: Math.ceil(total / take) };
     }
 
-    static async updateStatus(id: number, status: string, actor: { id: number; role: string }) {
+    static async updateStatus(id: string, status: string, actor: { id: string; role: string }) {
         const appointment = await prisma.appointment.findUnique({ where: { id } });
         if (!appointment) throw notFound("Appointment not found");
 
@@ -670,9 +670,9 @@ export class AppointmentService {
 
     // Patient reschedules: moves the appointment, resets to pending for re-confirmation
     static async reschedule(
-        id: number,
-        actor: { id: number; role: string },
-        data: { appointmentDate: string; startTime: string; endTime: string; slotId?: number }
+        id: string,
+        actor: { id: string; role: string },
+        data: { appointmentDate: string; startTime: string; endTime: string; slotId?: string }
     ) {
         const appointment = await prisma.appointment.findUnique({ where: { id } });
         if (!appointment) throw notFound("Appointment not found");
@@ -700,8 +700,8 @@ export class AppointmentService {
         // `claimedSlotId`: releasing an unclaimed slot would advertise a booking
         // as free while the appointment still references it, and the next
         // patient to take it double-books the clinician.
-        let slotId: number | undefined;
-        let claimedSlotId: number | undefined;
+        let slotId: string | undefined;
+        let claimedSlotId: string | undefined;
         if (data.slotId) {
             const slot = await prisma.consultationSlot.findFirst({
                 where: { id: data.slotId, doctorId: appointment.doctorId },
@@ -832,7 +832,7 @@ export class AppointmentService {
      * persisted and use *that*. Whichever caller loses the claim gets the
      * winner's seed rather than its own, which is the whole point.
      */
-    private static async ensureRoomSeed(id: number, known: string | null): Promise<string> {
+    private static async ensureRoomSeed(id: string, known: string | null): Promise<string> {
         if (known) return known;
 
         const candidate = crypto.randomBytes(8).toString("hex");
@@ -856,7 +856,7 @@ export class AppointmentService {
      * the room is available from 15 minutes before the start until 1 hour after.
      * Publishes a realtime event so the counterpart gets pinged.
      */
-    static async joinRoom(id: number, actor: { id: number; name?: string | null }) {
+    static async joinRoom(id: string, actor: { id: string; name?: string | null }) {
         const appointment = await prisma.appointment.findUnique({
             where: { id },
             include: {
@@ -981,7 +981,7 @@ export class AppointmentService {
      * Rebook assist: after a cancellation, offer the same doctor's next open
      * slots plus open slots from same-specialty doctors (within 14 days).
      */
-    static async getRebookOptions(id: number, actor: { id: number; role: string }) {
+    static async getRebookOptions(id: string, actor: { id: string; role: string }) {
         const appointment = await prisma.appointment.findUnique({
             where: { id },
             include: { doctor: { select: { id: true, specialty: true, userId: true } } },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uuid7 } from "./params.schema";
 
 /**
  * An attachment must reference a file this deployment actually issued.
@@ -103,23 +104,23 @@ export const SendMessageSchema = z.object({
             .optional(),
     }),
     params: z.object({
-        userId: z.string().regex(/^\d+$/, "Invalid user id"),
+        userId: uuid7,
     }),
 });
 
 export const GetMessagesSchema = z.object({
     params: z.object({
-        userId: z.string().regex(/^\d+$/, "Invalid user id"),
+        userId: uuid7,
     }),
     query: z.object({
         limit: z.string().regex(/^\d+$/).optional(),
-        before: z.string().regex(/^\d+$/).optional(),
+        before: uuid7.optional(),
     }),
 });
 
 export const TypingSchema = z.object({
     params: z.object({
-        userId: z.string().regex(/^\d+$/, "Invalid user id"),
+        userId: uuid7,
     }),
     body: z.object({
         isTyping: z.boolean(),
@@ -128,7 +129,7 @@ export const TypingSchema = z.object({
 
 export const MarkReadSchema = z.object({
     params: z.object({
-        userId: z.string().regex(/^\d+$/, "Invalid user id"),
+        userId: uuid7,
     }),
 });
 
@@ -145,7 +146,7 @@ export const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as c
 
 export const ReactionSchema = z.object({
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid message id"),
+        id: uuid7,
     }),
     body: z.object({
         reaction: z
@@ -156,6 +157,6 @@ export const ReactionSchema = z.object({
 
 export const MessageIdSchema = z.object({
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid message id"),
+        id: uuid7,
     }),
 });

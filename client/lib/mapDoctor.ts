@@ -18,7 +18,7 @@ import type { Doctor } from "./types/doctor";
  * means being equally clear when they have stated nothing.
  */
 export interface ApiDoctor {
-    id: number;
+    id: string;
     specialty: string;
     bio?: string | null;
     experience?: number | null;
@@ -32,7 +32,7 @@ export interface ApiDoctor {
     verificationStatus?: string | null;
     availability?: string | null;
     availabilityPatterns?: { weekday: number; startTime: string; endTime: string }[] | null;
-    user?: { id?: number; name?: string | null; avatar?: string | null } | null;
+    user?: { id?: string; name?: string | null; avatar?: string | null } | null;
     reviews?: unknown[] | null;
     _count?: { reviews?: number | null } | null;
     consultationSlots?: unknown[];

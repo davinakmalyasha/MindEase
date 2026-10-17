@@ -83,22 +83,22 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		Send: make(chan Event, 64),
 	}
 	if err := h.Register(claims.UserID, client); err != nil {
-		log.Printf("connection limit reached for user %d: %v", claims.UserID, err)
+		log.Printf("connection limit reached for user %s: %v", claims.UserID, err)
 		// Best-effort, but not silent. A failed close frame leaves the peer
 		// hanging on a socket we are about to drop, with no explanation.
 		if err := conn.WriteMessage(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"),
 		); err != nil {
-			log.Printf("user %d over cap: close frame failed: %v", claims.UserID, err)
+			log.Printf("user %s over cap: close frame failed: %v", claims.UserID, err)
 		}
 		if err := conn.Close(); err != nil {
-			log.Printf("user %d over cap: close failed: %v", claims.UserID, err)
+			log.Printf("user %s over cap: close failed: %v", claims.UserID, err)
 		}
 		return
 	}
 
-	log.Printf("user %d connected (role=%s)", claims.UserID, claims.Role)
+	log.Printf("user %s connected (role=%s)", claims.UserID, claims.Role)
 
 	go h.writePump(conn, client)
 	go h.readPump(conn, client)
@@ -129,7 +129,7 @@ func (h *Hub) writePump(conn *websocket.Conn, c *Client) {
 		// either way; logging it is what distinguishes a clean disconnect from
 		// one the network ate.
 		if err := conn.Close(); err != nil {
-			log.Printf("user %d write pump: close: %v", c.ID, err)
+			log.Printf("user %s write pump: close: %v", c.ID, err)
 		}
 	}()
 
@@ -137,12 +137,12 @@ func (h *Hub) writePump(conn *websocket.Conn, c *Client) {
 		select {
 		case event, ok := <-c.Send:
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				log.Printf("user %d write pump: set deadline: %v", c.ID, err)
+				log.Printf("user %s write pump: set deadline: %v", c.ID, err)
 				return
 			}
 			if !ok {
 				if err := conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
-					log.Printf("user %d write pump: close frame: %v", c.ID, err)
+					log.Printf("user %s write pump: close frame: %v", c.ID, err)
 				}
 				return
 			}
@@ -151,7 +151,7 @@ func (h *Hub) writePump(conn *websocket.Conn, c *Client) {
 			}
 		case <-ticker.C:
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				log.Printf("user %d write pump: ping deadline: %v", c.ID, err)
+				log.Printf("user %s write pump: ping deadline: %v", c.ID, err)
 				return
 			}
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -165,13 +165,13 @@ func (h *Hub) readPump(conn *websocket.Conn, c *Client) {
 	defer func() {
 		h.Unregister(c.ID, c)
 		if err := conn.Close(); err != nil {
-			log.Printf("user %d read pump: close: %v", c.ID, err)
+			log.Printf("user %s read pump: close: %v", c.ID, err)
 		}
 	}()
 
 	conn.SetReadLimit(maxMsgSize)
 	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
-		log.Printf("user %d read pump: initial deadline: %v", c.ID, err)
+		log.Printf("user %s read pump: initial deadline: %v", c.ID, err)
 		return
 	}
 	conn.SetPongHandler(func(string) error {

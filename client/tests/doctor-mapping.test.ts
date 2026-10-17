@@ -28,7 +28,7 @@ import {
  */
 
 const api = (overrides: Partial<ApiDoctor> = {}): ApiDoctor => ({
-    id: 1,
+    id: "doctor-1",
     specialty: "Clinical Psychologist",
     ...overrides,
 });
@@ -108,7 +108,7 @@ describe("mapDoctor", () => {
         // Two fields, one source. They existed because a component read
         // `image` and the API returned `avatar`, and duplicating it at the mapper
         // is better than at every call site.
-        const mapped = mapDoctor(api({ user: { id: 9, name: "Dr Asha", avatar: "/uploads/a.png" } }));
+        const mapped = mapDoctor(api({ user: { id: "user-9", name: "Dr Asha", avatar: "/uploads/a.png" } }));
         expect(mapped.avatar).toBe("/uploads/a.png");
         expect(mapped.image).toBe("/uploads/a.png");
         expect(mapped.name).toBe("Dr Asha");

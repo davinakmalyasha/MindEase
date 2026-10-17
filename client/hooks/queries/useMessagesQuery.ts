@@ -7,7 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 export const messageKeys = {
     conversations: ["messages", "conversations"] as const,
     contacts: ["messages", "contacts"] as const,
-    thread: (userId: number) => ["messages", "thread", userId] as const,
+    thread: (userId: string) => ["messages", "thread", userId] as const,
 };
 
 export const useConversations = (refetchInterval = 30000) =>
@@ -35,7 +35,7 @@ export const useChatContacts = () =>
         queryFn: async () => {
             const res = await api.get("/messages/contacts");
             return (res.data?.data || []) as {
-                id: number;
+                id: string;
                 name: string;
                 avatar: string | null;
                 role: string;
@@ -43,9 +43,9 @@ export const useChatContacts = () =>
         },
     });
 
-export const useMessageThread = (otherUserId: number | null, refetchInterval = 5000) =>
+export const useMessageThread = (otherUserId: string | null, refetchInterval = 5000) =>
     useQuery({
-        queryKey: messageKeys.thread(otherUserId ?? 0),
+        queryKey: messageKeys.thread(otherUserId ?? "none"),
         queryFn: async () => {
             const res = await api.get(`/messages/${otherUserId}/messages`);
             return (res.data?.data || []) as any[];
@@ -64,7 +64,7 @@ export const useSendMessage = () => {
             content,
             attachment,
         }: {
-            receiverId: number;
+            receiverId: string;
             content: string;
             attachment?: { url: string; type: string };
         }) => {
@@ -83,7 +83,7 @@ export const useSendMessage = () => {
 
 export const useSendTyping = () =>
     useMutation({
-        mutationFn: async ({ receiverId, isTyping }: { receiverId: number; isTyping: boolean }) => {
+        mutationFn: async ({ receiverId, isTyping }: { receiverId: string; isTyping: boolean }) => {
             await api.post(`/messages/${receiverId}/typing`, { isTyping });
         },
     });
@@ -92,7 +92,7 @@ export const useUploadAttachment = () => {
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async ({ file, receiverId }: { file: File; receiverId: number }) => {
+        mutationFn: async ({ file, receiverId }: { file: File; receiverId: string }) => {
             const formData = new FormData();
             formData.append("file", file);
             formData.append("receiverId", String(receiverId));
@@ -107,12 +107,12 @@ export const useUploadAttachment = () => {
     });
 };
 
-export const useDeleteMessage = (otherUserId: number) => {
+export const useDeleteMessage = (otherUserId: string) => {
     const queryClient = useQueryClient();
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async (messageId: number) => {
+        mutationFn: async (messageId: string) => {
             const res = await api.delete(`/messages/${messageId}`);
             return res.data?.data;
         },
@@ -125,12 +125,12 @@ export const useDeleteMessage = (otherUserId: number) => {
     });
 };
 
-export const useSetReaction = (otherUserId: number) => {
+export const useSetReaction = (otherUserId: string) => {
     const queryClient = useQueryClient();
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async ({ messageId, reaction }: { messageId: number; reaction: string | null }) => {
+        mutationFn: async ({ messageId, reaction }: { messageId: string; reaction: string | null }) => {
             const res = await api.put(`/messages/${messageId}/reaction`, { reaction });
             return res.data?.data;
         },

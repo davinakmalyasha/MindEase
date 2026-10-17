@@ -70,7 +70,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
         setIsGenerating(true);
         try {
             const res = force
-                ? await api.post("/ai/briefing", { appointmentId: Number(appointmentId) })
+                ? await api.post("/ai/briefing", { appointmentId })
                 : await api.get(`/ai/briefing/${appointmentId}`);
             // A generation can take seconds. If the user navigated to another
             // appointment in the meantime, writing now would replace this

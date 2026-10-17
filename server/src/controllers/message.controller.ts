@@ -29,9 +29,9 @@ export class MessageController {
     static async getMessages(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const otherUserId = parseInt(req.params.userId as string);
+            const otherUserId = req.params.userId as string;
             const limit = parseInt(req.query.limit as string) || 50;
-            const before = req.query.before ? parseInt(req.query.before as string) : undefined;
+            const before = req.query.before ? String(req.query.before) : undefined;
 
             const messages = await MessageService.getMessages(userId, otherUserId, limit, before);
             res.json({ status: "success", data: messages });
@@ -44,7 +44,7 @@ export class MessageController {
     static async sendMessage(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const receiverId = parseInt(req.params.userId as string);
+            const receiverId = req.params.userId as string;
             const { content, attachment } = req.body;
 
             const message = await MessageService.sendMessage(userId, receiverId, content, attachment);
@@ -58,7 +58,7 @@ export class MessageController {
     static async uploadAttachment(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const receiverId = parseInt(req.body?.receiverId as string);
+            const receiverId = typeof req.body?.receiverId === "string" ? req.body.receiverId.trim() : "";
             if (!receiverId) {
                 res.status(400).json({ status: "error", message: "receiverId is required" });
                 return;
@@ -89,7 +89,7 @@ export class MessageController {
     static async typingIndicator(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const receiverId = parseInt(req.params.userId as string);
+            const receiverId = req.params.userId as string;
             const isTyping = req.body?.isTyping === true;
 
             const result = await MessageService.sendTypingEvent(userId, receiverId, isTyping);
@@ -103,7 +103,7 @@ export class MessageController {
     static async deleteMessage(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const messageId = parseInt(req.params.id as string);
+            const messageId = req.params.id as string;
             const result = await MessageService.deleteMessage(messageId, userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
@@ -115,7 +115,7 @@ export class MessageController {
     static async setReaction(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const messageId = parseInt(req.params.id as string);
+            const messageId = req.params.id as string;
             const { reaction } = req.body;
             const updated = await MessageService.setReaction(messageId, userId, reaction);
             res.json({ status: "success", data: updated });

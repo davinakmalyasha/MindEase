@@ -9,8 +9,22 @@ import { z } from "zod";
  * separately, so a bare `{ id }` shape silently matched nothing and rejected
  * every request — a failure mode worth having exactly one definition of.
  */
+/**
+ * UUIDv7, the identifier the product exposes.
+ *
+ * Strictly version 7 rather than \`z.uuid()\`: the format is the point of the
+ * PRD requirement, and accepting v4 or a bare hex string would let the next
+ * generator drift without anyone noticing. A numeric id is rejected outright -
+ * sequential ids no longer exist in any response, so accepting one here would
+ * quietly reintroduce the enumeration surface this change removes.
+ */
+export const uuid7 = z.string().regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    "Invalid id"
+);
+
 export const idObject = z.object({
-    id: z.coerce.number().int().positive("Invalid id").max(2_147_483_647, "Invalid id"),
+    id: uuid7,
 });
 
 /** Route-level schema for a path that is only an `:id`. */
@@ -27,11 +41,7 @@ export const idParam = z.object({ params: idObject });
  */
 export const appointmentIdParam = z.object({
     params: z.object({
-        appointmentId: z.coerce
-            .number()
-            .int()
-            .positive("Invalid appointment id")
-            .max(2_147_483_647, "Invalid appointment id"),
+        appointmentId: uuid7,
     }),
 });
 

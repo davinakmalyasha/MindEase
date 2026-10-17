@@ -405,7 +405,7 @@ describe("Clinical data lifecycle", () => {
         // will show a patient a reassuring result screen for a disclosure that
         // left no audit trail.
         expect(res.body.data.risk.recorded).toBe(true);
-        expect(res.body.data.risk.alertId).toBeTypeOf("number");
+        expect(res.body.data.risk.alertId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 
         const alert = await prisma.riskAlert.findFirst({ where: { userId: patient.id } });
         expect(alert).toBeTruthy();

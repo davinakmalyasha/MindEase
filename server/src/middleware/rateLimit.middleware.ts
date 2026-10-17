@@ -175,7 +175,7 @@ export const perUserWriteLimiter = (
         windowMs,
         max,
         keyGenerator: (req) => {
-            const id = (req as Request & { user?: { id?: number } }).user?.id;
+            const id = (req as Request & { user?: { id?: string } }).user?.id;
             // Before `authenticate` has run there is no user, so fall back to
             // the IP rather than keying everything under `undefined`.
             return id ? `u${id}` : ipKeyGenerator(req.ip || "unknown", 32);

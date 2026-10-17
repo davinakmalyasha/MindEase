@@ -25,8 +25,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/ui/Toast";
 
 interface SlotData {
-    id: number;
-    doctorId: number;
+    id: string;
+    doctorId: string;
     date: string;
     startTime: string;
     endTime: string;
@@ -34,7 +34,7 @@ interface SlotData {
 }
 
 interface PatternData {
-    id: number;
+    id: string;
     weekday: number;
     startTime: string;
     endTime: string;
@@ -68,7 +68,7 @@ export default function DoctorSchedule() {
 
     const [awayUntil, setAwayUntil] = useState("");
     const [awayBusy, setAwayBusy] = useState(false);
-    const [regenerating, setRegenerating] = useState<number | null>(null);
+    const [regenerating, setRegenerating] = useState<string | null>(null);
 
     const fetchSlots = async () => {
         try {
@@ -120,7 +120,7 @@ export default function DoctorSchedule() {
         }
     };
 
-    const handleDelete = async (slotId: number) => {
+    const handleDelete = async (slotId: string) => {
         try {
             await api.delete(`/doctors/slots/${slotId}`);
             toast("Slot removed", "success");
@@ -150,7 +150,7 @@ export default function DoctorSchedule() {
         }
     };
 
-    const handlePatternDelete = async (patternId: number) => {
+    const handlePatternDelete = async (patternId: string) => {
         try {
             await api.delete(`/doctors/patterns/${patternId}`);
             toast("Pattern removed", "success");
@@ -160,7 +160,7 @@ export default function DoctorSchedule() {
         }
     };
 
-    const handleRegenerate = async (patternId: number) => {
+    const handleRegenerate = async (patternId: string) => {
         setRegenerating(patternId);
         try {
             const res = await api.post(`/doctors/patterns/${patternId}/regenerate`);

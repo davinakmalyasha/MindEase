@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
 
 interface AppointmentCardProps {
     appointment: AppointmentWithDoctor;
-    onCancel?: (id: number) => void;
-    onViewDetails?: (id: number) => void;
+    onCancel?: (id: string) => void;
+    onViewDetails?: (id: string) => void;
 }
 
 export default function AppointmentCard({ appointment, onCancel, onViewDetails }: AppointmentCardProps) {

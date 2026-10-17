@@ -26,7 +26,7 @@ export const useUpdateAppointmentStatus = () => {
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async ({ id, status }: { id: number; status: string }) => {
+        mutationFn: async ({ id, status }: { id: string; status: string }) => {
             const res = await api.put(`/appointments/${id}/status`, { status });
             return res.data?.data;
         },
@@ -72,7 +72,7 @@ export const useRescheduleAppointment = () => {
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async ({ id, ...data }: { id: number; appointmentDate: string; startTime: string; endTime: string; slotId?: number }) => {
+        mutationFn: async ({ id, ...data }: { id: string; appointmentDate: string; startTime: string; endTime: string; slotId?: string }) => {
             const res = await api.put(`/appointments/${id}/reschedule`, data);
             return res.data?.data;
         },

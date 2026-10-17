@@ -12,10 +12,8 @@ export const PaymentController = {
      * pending and only becomes usable once a verified callback settles it.
      */
     async checkout(req: Request, res: Response) {
-        const packageId = Number(req.params.id);
-        if (!Number.isInteger(packageId) || packageId <= 0) {
-            return res.status(400).json({ status: "error", message: "Invalid package id" });
-        }
+        // The id's format is enforced by `validate(idParam)` before this runs.
+        const packageId = req.params.id as string;
         try {
             const session = await PaymentService.createCheckout(packageId, req.user!.id);
             res.status(201).json({ status: "success", data: session });
@@ -43,10 +41,8 @@ export const PaymentController = {
 
     /** `GET /api/payments/purchases/:id` — status of one purchase. */
     async purchaseStatus(req: Request, res: Response) {
-        const id = Number(req.params.id);
-        if (!Number.isInteger(id) || id <= 0) {
-            return res.status(400).json({ status: "error", message: "Invalid purchase id" });
-        }
+        // The id's format is enforced by `validate(idParam)` before this runs.
+        const id = req.params.id as string;
         try {
             const status = await PaymentService.getStatus(id, req.user!.id);
             if (!status) {

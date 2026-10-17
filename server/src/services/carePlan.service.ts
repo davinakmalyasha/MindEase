@@ -31,7 +31,7 @@ type PlanStatus = (typeof PLAN_STATUSES)[number];
  * those are triage items that may have no clinician attached; a safety plan
  * always belongs to a person and their clinician.
  */
-const treats = async (doctorUserId: number, patientId: number): Promise<boolean> => {
+const treats = async (doctorUserId: string, patientId: string): Promise<boolean> => {
     const row = await prisma.appointment.findFirst({
         where: { userId: patientId, status: { in: ["confirmed", "completed"] }, doctor: { userId: doctorUserId } },
         select: { id: true },
@@ -62,7 +62,7 @@ export class CarePlanService {
      * remove, so the empty state is a plan with no goals in it rather than
      * nothing at all.
      */
-    static async getForPatient(patientId: number) {
+    static async getForPatient(patientId: string) {
         const existing = await prisma.carePlan.findFirst({
             where: { userId: patientId, status: "active" },
             orderBy: { createdAt: "desc" },
@@ -84,7 +84,7 @@ export class CarePlanService {
      * actor and skips the check, because the id is `req.user.id` and there is
      * nothing to check.
      */
-    static async listForPatient(patientId: number, actor?: { id: number; role: string }) {
+    static async listForPatient(patientId: string, actor?: { id: string; role: string }) {
         // A clinician reading somebody else's plan must have a live clinical
         // relationship. Without this route the only way a clinician could see a
         // plan at all was to know the patient's id and no endpoint to ask with.
@@ -115,8 +115,8 @@ export class CarePlanService {
     }
 
     static async updatePlan(
-        actorId: number,
-        planId: number,
+        actorId: string,
+        planId: string,
         patch: {
             title?: string;
             summary?: string | null;
@@ -207,8 +207,8 @@ export class CarePlanService {
      * drop themselves.
      */
     static async addGoal(
-        actor: { id: number; role: string },
-        planId: number,
+        actor: { id: string; role: string },
+        planId: string,
         input: { title: string; detail?: string | null; targetDate?: string | null }
     ) {
         const plan = assertFound(
@@ -252,8 +252,8 @@ export class CarePlanService {
     }
 
     static async updateGoal(
-        actor: { id: number; role: string },
-        goalId: number,
+        actor: { id: string; role: string },
+        goalId: string,
         patch: { title?: string; detail?: string | null; status?: GoalStatus; targetDate?: string | null }
     ) {
         const goal = assertFound(
@@ -282,7 +282,7 @@ export class CarePlanService {
         });
     }
 
-    static async addStep(actor: { id: number; role: string }, goalId: number, title: string) {
+    static async addStep(actor: { id: string; role: string }, goalId: string, title: string) {
         const goal = assertFound(
             await prisma.careGoal.findUnique({
                 where: { id: goalId },
@@ -311,7 +311,7 @@ export class CarePlanService {
      * did they actually do this" is the clinically interesting question and a
      * boolean cannot answer it after the fact.
      */
-    static async setStepDone(actor: { id: number; role: string }, stepId: number, done: boolean) {
+    static async setStepDone(actor: { id: string; role: string }, stepId: string, done: boolean) {
         const step = assertFound(
             await prisma.careStep.findUnique({
                 where: { id: stepId },
@@ -327,7 +327,7 @@ export class CarePlanService {
         });
     }
 
-    static async deleteGoal(actor: { id: number; role: string }, goalId: number) {
+    static async deleteGoal(actor: { id: string; role: string }, goalId: string) {
         const goal = assertFound(
             await prisma.careGoal.findUnique({
                 where: { id: goalId },
@@ -349,7 +349,7 @@ export class SafetyPlanService {
      * patient who has deliberately left the coping section blank should not be
      * prompted to fill it in the moment they open the page.
      */
-    static async get(actor: { id: number; role: string }, patientId: number) {
+    static async get(actor: { id: string; role: string }, patientId: string) {
         await assertMayRead(actor, patientId);
 
         // The safety plan is the most sensitive document in the product: the
@@ -392,8 +392,8 @@ export class SafetyPlanService {
      * should mean.
      */
     static async save(
-        actor: { id: number; role: string },
-        patientId: number,
+        actor: { id: string; role: string },
+        patientId: string,
         input: SafetyPlanInput & { version?: number }
     ) {
         await assertMayRead(actor, patientId);
@@ -444,8 +444,8 @@ export class SafetyPlanService {
         if (locationToBeSafe !== undefined) data.locationToBeSafe = locationToBeSafe;
 
         let plan: {
-            id: number;
-            userId: number;
+            id: string;
+            userId: string;
             warningSigns: string | null;
             copingStrategies: string | null;
             reasonsToLive: string | null;
@@ -510,7 +510,7 @@ export class SafetyPlanService {
      * clinician can therefore see at a glance whether they are looking at a
      * co-authored plan.
      */
-    static async markReviewed(actor: { id: number; role: string }, patientId: number) {
+    static async markReviewed(actor: { id: string; role: string }, patientId: string) {
         // Doctor only. This previously also accepted `role === "admin"`, which
         // was unreachable: the route is `requireDoctor`, so an admin got a 403
         // before reaching here, and even without that guard `assertMayRead` only
@@ -545,7 +545,7 @@ export interface SafetyPlanInput {
 }
 
 /** Owner, or a clinician with an active relationship. */
-const assertMayContribute = async (actor: { id: number; role: string }, patientId: number) => {
+const assertMayContribute = async (actor: { id: string; role: string }, patientId: string) => {
     if (actor.id === patientId) return;
     if (actor.role === "doctor" && (await treats(actor.id, patientId))) return;
     throw forbidden("not your patient");

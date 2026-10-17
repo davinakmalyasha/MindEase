@@ -7,7 +7,7 @@ export class BriefingController {
         try {
             const userId = req.user!.id;
             const { appointmentId } = req.body;
-            const result = await PreSessionService.getBriefing(Number(appointmentId), userId);
+            const result = await PreSessionService.getBriefing(appointmentId, userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
             // Was `message.startsWith("Forbidden") ? 403 : 400`, which broke as
@@ -24,7 +24,7 @@ export class BriefingController {
     static async get(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const appointmentId = parseInt(req.params.appointmentId as string);
+            const appointmentId = req.params.appointmentId as string;
             if (!appointmentId) {
                 return res.status(400).json({ status: "error", message: "Invalid appointment id" });
             }

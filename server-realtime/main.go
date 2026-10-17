@@ -82,7 +82,7 @@ func redisOptions(raw string) (*redis.Options, error) {
 
 // redisEvent is the payload published by the Node API.
 type redisEvent struct {
-	UserID  int64           `json:"userId"`
+	UserID  string          `json:"userId"`
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
 }

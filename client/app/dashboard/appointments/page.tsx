@@ -50,7 +50,7 @@ export default function AppointmentHistory() {
     const { data: appointments = [], isLoading } = useMyAppointments();
     const statusMutation = useUpdateAppointmentStatus();
 
-    const handleStatusUpdate = async (id: number, status: string) => {
+    const handleStatusUpdate = async (id: string, status: string) => {
         statusMutation.mutate(
             { id, status },
             {
@@ -66,7 +66,7 @@ export default function AppointmentHistory() {
         );
     };
 
-    const handleCancel = async (id: number) => {
+    const handleCancel = async (id: string) => {
         const ok = await confirm({
             title: "Cancel this appointment?",
             message: "The slot will be released and the doctor will be notified.",

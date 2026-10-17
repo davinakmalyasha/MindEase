@@ -84,7 +84,7 @@ describe("realtime event contract", () => {
             join(__dirname, "..", "..", "server-realtime", "main.go"),
             "utf8"
         );
-        expect(go).toMatch(/UserID\s+int64\s+`json:"userId"`/);
+        expect(go).toMatch(/UserID\s+string\s+`json:"userId"`/);
         expect(go).toMatch(/Type\s+string\s+`json:"type"`/);
         expect(go).toMatch(/Payload\s+json\.RawMessage\s+`json:"payload"`/);
 

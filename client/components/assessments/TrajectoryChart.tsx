@@ -24,7 +24,7 @@
  */
 
 export interface TrajectoryPoint {
-    id: number;
+    id: string;
     score: number;
     severity: string;
     createdAt: string;

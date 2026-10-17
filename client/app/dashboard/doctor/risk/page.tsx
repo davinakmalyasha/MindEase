@@ -37,7 +37,7 @@ export default function RiskQueuePage() {
     const format = useFormatter();
     const { toast } = useToast();
     const [includeResolved, setIncludeResolved] = useState(false);
-    const [resolving, setResolving] = useState<number | null>(null);
+    const [resolving, setResolving] = useState<string | null>(null);
     const [note, setNote] = useState("");
 
     const { data, isLoading, isError, error, refetch } = useRiskQueue(includeResolved);
@@ -55,7 +55,7 @@ export default function RiskQueuePage() {
     const items = data?.items ?? [];
     const counts = data?.counts;
 
-    const onResolve = async (id: number) => {
+    const onResolve = async (id: string) => {
         try {
             await resolve.mutateAsync({ id, note: note.trim() || undefined });
             setNote("");

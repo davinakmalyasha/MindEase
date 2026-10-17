@@ -33,7 +33,7 @@ export class CarePlanController {
             // the value the client was shown when it loaded the plan. Omitting it
             // is a 400 rather than a silent last-write-wins.
             const { title, summary, status, reviewAt, version } = req.body ?? {};
-            return CarePlanService.updatePlan(req.user!.id, parseInt(req.params.id as string), {
+            return CarePlanService.updatePlan(req.user!.id, req.params.id as string, {
                 title,
                 summary,
                 status,
@@ -47,7 +47,7 @@ export class CarePlanController {
     static addGoal = handle(
         async (req) => {
             const { title, detail, targetDate } = req.body ?? {};
-            return CarePlanService.addGoal(req.user!, parseInt(req.params.id as string), {
+            return CarePlanService.addGoal(req.user!, req.params.id as string, {
                 title,
                 detail,
                 targetDate,
@@ -59,7 +59,7 @@ export class CarePlanController {
     static updateGoal = handle(
         async (req) => {
             const { title, detail, status, targetDate } = req.body ?? {};
-            return CarePlanService.updateGoal(req.user!, parseInt(req.params.id as string), {
+            return CarePlanService.updateGoal(req.user!, req.params.id as string, {
                 title,
                 detail,
                 status,
@@ -70,12 +70,12 @@ export class CarePlanController {
     );
 
     static deleteGoal = handle(
-        (req) => CarePlanService.deleteGoal(req.user!, parseInt(req.params.id as string)),
+        (req) => CarePlanService.deleteGoal(req.user!, req.params.id as string),
         "Failed to delete the goal."
     );
 
     static addStep = handle(
-        async (req) => CarePlanService.addStep(req.user!, parseInt(req.params.id as string), req.body?.title),
+        async (req) => CarePlanService.addStep(req.user!, req.params.id as string, req.body?.title),
         "Failed to add the step."
     );
 
@@ -88,7 +88,7 @@ export class CarePlanController {
         (req) => {
             const done = req.body?.done;
             if (typeof done !== "boolean") throw badRequest("done must be a boolean");
-            return CarePlanService.setStepDone(req.user!, parseInt(req.params.id as string), done);
+            return CarePlanService.setStepDone(req.user!, req.params.id as string, done);
         },
         "Failed to update the step."
     );
@@ -103,7 +103,7 @@ export class CarePlanController {
      * read back. Any client that will show the goals they just agreed needs it.
      */
     static getPlanForPatient = handle(
-        (req) => CarePlanService.listForPatient(parseInt(req.params.id as string), req.user!),
+        (req) => CarePlanService.listForPatient(req.params.id as string, req.user!),
         "Failed to load the patient's care plan."
     );
 }
@@ -122,12 +122,12 @@ export class SafetyPlanController {
      * parameter that could be set to anyone's id.
      */
     static getForPatient = handle(
-        (req) => SafetyPlanService.get(req.user!, parseInt(req.params.id as string)),
+        (req) => SafetyPlanService.get(req.user!, req.params.id as string),
         "Failed to load the safety plan."
     );
 
     static markReviewed = handle(
-        (req) => SafetyPlanService.markReviewed(req.user!, parseInt(req.params.id as string)),
+        (req) => SafetyPlanService.markReviewed(req.user!, req.params.id as string),
         "Failed to record the review."
     );
 }

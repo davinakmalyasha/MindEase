@@ -64,11 +64,11 @@ export const TESTIMONIALS: Testimonial[] = [
 
 export const MOCK_MY_APPOINTMENTS: AppointmentWithDoctor[] = [
     {
-        id: 1,
+        id: "1",
         appointmentDate: "2026-02-18T10:00:00Z",
         status: "confirmed",
         doctor: {
-            id: 1,
+            id: "1",
             name: "Dr. Sarah Althea, M.Psi",
             specialty: "Psychology",
             avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=SarahDr",
@@ -76,11 +76,11 @@ export const MOCK_MY_APPOINTMENTS: AppointmentWithDoctor[] = [
         },
     },
     {
-        id: 2,
+        id: "2",
         appointmentDate: "2026-02-19T14:00:00Z",
         status: "pending",
         doctor: {
-            id: 2,
+            id: "2",
             name: "Dr. Adrian Wijaya, Sp.KJ",
             specialty: "Psychiatry",
             avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=AdrianDr",
@@ -88,11 +88,11 @@ export const MOCK_MY_APPOINTMENTS: AppointmentWithDoctor[] = [
         },
     },
     {
-        id: 3,
+        id: "3",
         appointmentDate: "2026-02-15T09:00:00Z",
         status: "completed",
         doctor: {
-            id: 3,
+            id: "3",
             name: "Maya Sari, M.Psi",
             specialty: "Counseling",
             avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=MayaDr",
@@ -100,11 +100,11 @@ export const MOCK_MY_APPOINTMENTS: AppointmentWithDoctor[] = [
         },
     },
     {
-        id: 4,
+        id: "4",
         appointmentDate: "2026-02-14T16:00:00Z",
         status: "cancelled",
         doctor: {
-            id: 4,
+            id: "4",
             name: "Budi Santoso, S.Psi",
             specialty: "Clinical",
             avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=BudiDr",

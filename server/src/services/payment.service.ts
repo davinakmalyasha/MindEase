@@ -31,7 +31,7 @@ export class PaymentService {
      * `paidAt`, so it could never be used, but it would clutter the patient's
      * package list and the clinic's revenue figures.
      */
-    static async createCheckout(pkgId: number, userId: number) {
+    static async createCheckout(pkgId: string, userId: string) {
         const provider = getPaymentProvider();
 
         const pkg = await prisma.package.findFirst({
@@ -76,7 +76,7 @@ export class PaymentService {
 
         const orderId = `ME-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
 
-        let pending: { id: number };
+        let pending: { id: string };
         try {
             pending = await prisma.packagePurchase.create({
                 data: {
@@ -278,7 +278,7 @@ export class PaymentService {
         );
     }
 
-    static async getStatus(purchaseId: number, userId: number) {
+    static async getStatus(purchaseId: string, userId: string) {
         const purchase = await prisma.packagePurchase.findFirst({
             where: { id: purchaseId, userId },
             include: {
@@ -302,7 +302,7 @@ export class PaymentService {
      *
      * A `pending` row is an abandoned checkout, not something the patient owns.
      */
-    static async getMyPurchases(userId: number) {
+    static async getMyPurchases(userId: string) {
         return prisma.packagePurchase.findMany({
             where: { userId, sessionsLeft: { gt: 0 } },
             // `include: { doctor: true }` returned every Doctor scalar, so a

@@ -24,14 +24,14 @@ import { cn } from "@/lib/utils";
  */
 
 interface CareStep {
-    id: number;
+    id: string;
     title: string;
     done: boolean;
     order: number;
 }
 
 interface CareGoal {
-    id: number;
+    id: string;
     title: string;
     detail: string | null;
     status: string;
@@ -41,7 +41,7 @@ interface CareGoal {
 }
 
 interface CarePlan {
-    id: number;
+    id: string;
     title: string;
     status: string;
     summary: string | null;
@@ -58,7 +58,7 @@ export default function CarePlanPage() {
     const { toast } = useToast();
     const qc = useQueryClient();
     const [newGoal, setNewGoal] = useState("");
-    const [newStepFor, setNewStepFor] = useState<number | null>(null);
+    const [newStepFor, setNewStepFor] = useState<string | null>(null);
     const [newStep, setNewStep] = useState("");
 
     const { data, isLoading } = useQuery({
@@ -83,7 +83,7 @@ export default function CarePlanPage() {
     });
 
     const setStatus = useMutation({
-        mutationFn: async ({ id, status }: { id: number; status: string }) => {
+        mutationFn: async ({ id, status }: { id: string; status: string }) => {
             await api.put(`/care-plan/goals/${id}`, { status });
         },
         onSuccess: invalidate,
@@ -91,7 +91,7 @@ export default function CarePlanPage() {
     });
 
     const addStep = useMutation({
-        mutationFn: async (goalId: number) => {
+        mutationFn: async (goalId: string) => {
             await api.post(`/care-plan/goals/${goalId}/steps`, { title: newStep.trim() });
         },
         onSuccess: (_d, goalId) => {
@@ -103,7 +103,7 @@ export default function CarePlanPage() {
     });
 
     const toggleStep = useMutation({
-        mutationFn: async ({ id, done }: { id: number; done: boolean }) => {
+        mutationFn: async ({ id, done }: { id: string; done: boolean }) => {
             await api.patch(`/care-plan/steps/${id}`, { done });
         },
         onSuccess: invalidate,

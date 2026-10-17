@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { ReviewService } from "../services/review.service";
+import { uuid7 } from "../schemas/params.schema";
 import { publicMessageFor } from "../utils/appError";
 
 /** Query-string integers arrive as strings or arrays; anything unusable falls back. */
@@ -18,8 +19,8 @@ export class ReviewController {
 
             const result = await ReviewService.createReview({
                 userId,
-                doctorId: Number(doctorId),
-                appointmentId: Number(appointmentId),
+                doctorId,
+                appointmentId,
                 rating: Number(rating),
                 comment,
             });
@@ -33,8 +34,8 @@ export class ReviewController {
 
     static async getDoctorReviews(req: Request, res: Response) {
         try {
-            const doctorId = Number(req.params.doctorId);
-            if (!Number.isInteger(doctorId) || doctorId <= 0) {
+            const doctorId = req.params.doctorId as string;
+            if (!uuid7.safeParse(doctorId).success) {
                 return res.status(400).json({ status: "error", message: "Invalid doctor id" });
             }
             // Clamped in the service too; validated here so a junk value is a
@@ -56,7 +57,7 @@ export class ReviewController {
 
     static async getDoctorRatingSummary(req: Request, res: Response) {
         try {
-            const doctorId = Number(req.params.doctorId);
+            const doctorId = req.params.doctorId as string;
             const summary = await ReviewService.getDoctorRatingSummary(doctorId);
             res.json({ status: "success", data: summary });
         } catch (error: unknown) {
@@ -68,7 +69,7 @@ export class ReviewController {
     static async replyToReview(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const reviewId = Number(req.params.id);
+            const reviewId = req.params.id as string;
             const { reply } = req.body;
 
             const result = await ReviewService.replyToReview(reviewId, userId, reply);
@@ -82,7 +83,7 @@ export class ReviewController {
     static async reportReview(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const reviewId = Number(req.params.id);
+            const reviewId = req.params.id as string;
             const { reason } = req.body;
 
             const result = await ReviewService.reportReview(reviewId, userId, reason);

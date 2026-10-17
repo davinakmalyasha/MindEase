@@ -4,7 +4,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import api from "@/lib/api";
 
 export interface Notification {
-    id: number;
+    id: string;
     title: string;
     message: string;
     isRead: boolean;
@@ -180,7 +180,7 @@ function onRealtimeNotification() {
 
 const getSnapshot = () => state;
 
-const markAsRead = (id: number) => {
+const markAsRead = (id: string) => {
     const target = state.notifications.find((n) => n.id === id);
     if (!target || target.isRead) return;
     // Optimistic: the socket or poll will confirm.

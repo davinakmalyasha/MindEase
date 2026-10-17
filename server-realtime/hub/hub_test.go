@@ -9,8 +9,8 @@ import (
 
 func TestHubRegisterAndPublish(t *testing.T) {
 	h := New(DefaultLimits())
-	c := &Client{ID: 1, Send: make(chan Event, 4)}
-	if err := h.Register(1, c); err != nil {
+	c := &Client{ID: "1", Send: make(chan Event, 4)}
+	if err := h.Register("1", c); err != nil {
 		t.Fatalf("register c: %v", err)
 	}
 
@@ -18,7 +18,7 @@ func TestHubRegisterAndPublish(t *testing.T) {
 		t.Fatalf("expected 1 connected user, got %d", h.UserCount())
 	}
 
-	h.PublishToUser(1, Event{Type: "message:new"})
+	h.PublishToUser("1", Event{Type: "message:new"})
 
 	select {
 	case ev := <-c.Send:
@@ -32,16 +32,16 @@ func TestHubRegisterAndPublish(t *testing.T) {
 
 func TestHubDoesNotCrossDeliver(t *testing.T) {
 	h := New(DefaultLimits())
-	a := &Client{ID: 1, Send: make(chan Event, 2)}
-	b := &Client{ID: 2, Send: make(chan Event, 2)}
-	if err := h.Register(1, a); err != nil {
+	a := &Client{ID: "1", Send: make(chan Event, 2)}
+	b := &Client{ID: "2", Send: make(chan Event, 2)}
+	if err := h.Register("1", a); err != nil {
 		t.Fatalf("register a: %v", err)
 	}
-	if err := h.Register(2, b); err != nil {
+	if err := h.Register("2", b); err != nil {
 		t.Fatalf("register b: %v", err)
 	}
 
-	h.PublishToUser(1, Event{Type: "only-for-one"})
+	h.PublishToUser("1", Event{Type: "only-for-one"})
 
 	select {
 	case <-b.Send:
@@ -58,11 +58,11 @@ func TestHubDoesNotCrossDeliver(t *testing.T) {
 
 func TestHubUnregister(t *testing.T) {
 	h := New(DefaultLimits())
-	c := &Client{ID: 1, Send: make(chan Event, 2)}
-	if err := h.Register(1, c); err != nil {
+	c := &Client{ID: "1", Send: make(chan Event, 2)}
+	if err := h.Register("1", c); err != nil {
 		t.Fatalf("register c: %v", err)
 	}
-	h.Unregister(1, c)
+	h.Unregister("1", c)
 
 	if h.UserCount() != 0 {
 		t.Fatalf("expected 0 connected users after unregister, got %d", h.UserCount())
@@ -74,10 +74,10 @@ func TestHubUnregister(t *testing.T) {
 // client (e.g. a user with multiple simultaneous connections).
 func TestHubDoubleUnregisterNoPanic(t *testing.T) {
 	h := New(DefaultLimits())
-	for _, userID := range []int64{1, 2, 3} {
+	for _, userID := range []string{"1", "2", "3"} {
 		c := &Client{ID: userID, Send: make(chan Event, 4)}
 		if err := h.Register(userID, c); err != nil {
-			t.Fatalf("register %d: %v", userID, err)
+			t.Fatalf("register %s: %v", userID, err)
 		}
 		h.Unregister(userID, c)
 		h.Unregister(userID, c)
@@ -92,12 +92,12 @@ func TestHubDoubleUnregisterNoPanic(t *testing.T) {
 // events can be delivered and the hub stays consistent.
 func TestHubMultiConnectionUnregister(t *testing.T) {
 	h := New(DefaultLimits())
-	a := &Client{ID: 7, Send: make(chan Event, 4)}
-	b := &Client{ID: 7, Send: make(chan Event, 4)}
-	if err := h.Register(7, a); err != nil {
+	a := &Client{ID: "7", Send: make(chan Event, 4)}
+	b := &Client{ID: "7", Send: make(chan Event, 4)}
+	if err := h.Register("7", a); err != nil {
 		t.Fatalf("register a: %v", err)
 	}
-	if err := h.Register(7, b); err != nil {
+	if err := h.Register("7", b); err != nil {
 		t.Fatalf("register b: %v", err)
 	}
 
@@ -105,30 +105,30 @@ func TestHubMultiConnectionUnregister(t *testing.T) {
 		t.Fatalf("expected 1 connected user, got %d", h.UserCount())
 	}
 
-	h.Unregister(7, a)
-	h.Unregister(7, b)
+	h.Unregister("7", a)
+	h.Unregister("7", b)
 
 	if h.UserCount() != 0 {
 		t.Fatalf("expected 0 connected users, got %d", h.UserCount())
 	}
 
 	// Publishing to an unregistered user must not panic.
-	h.PublishToUser(7, Event{Type: "after-unregister"})
+	h.PublishToUser("7", Event{Type: "after-unregister"})
 }
 
 // TestHubConcurrentUnregister exercises the writePump/readPump race
 // concurrently to flush out data races under -race.
 func TestHubConcurrentUnregister(t *testing.T) {
 	h := New(DefaultLimits())
-	c := &Client{ID: 42, Send: make(chan Event, 4)}
-	if err := h.Register(42, c); err != nil {
+	c := &Client{ID: "42", Send: make(chan Event, 4)}
+	if err := h.Register("42", c); err != nil {
 		t.Fatalf("register c: %v", err)
 	}
 
 	done := make(chan struct{}, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			h.Unregister(42, c)
+			h.Unregister("42", c)
 			done <- struct{}{}
 		}()
 	}
@@ -173,15 +173,15 @@ func TestHubPerUserConnectionCap(t *testing.T) {
 
 	var accepted []*Client
 	for i := 0; i < 3; i++ {
-		c := &Client{ID: 1, Send: make(chan Event, 1)}
-		if err := h.Register(1, c); err != nil {
+		c := &Client{ID: "1", Send: make(chan Event, 1)}
+		if err := h.Register("1", c); err != nil {
 			t.Fatalf("connection %d should have been accepted, got %v", i, err)
 		}
 		accepted = append(accepted, c)
 	}
 
-	over := &Client{ID: 1, Send: make(chan Event, 1)}
-	if err := h.Register(1, over); err != ErrTooManyConnections {
+	over := &Client{ID: "1", Send: make(chan Event, 1)}
+	if err := h.Register("1", over); err != ErrTooManyConnections {
 		t.Fatalf("expected ErrTooManyConnections past the per-user cap, got %v", err)
 	}
 
@@ -192,8 +192,8 @@ func TestHubPerUserConnectionCap(t *testing.T) {
 	}
 
 	// Freeing a slot lets the user connect again.
-	h.Unregister(1, accepted[0])
-	if err := h.Register(1, over); err != nil {
+	h.Unregister("1", accepted[0])
+	if err := h.Register("1", over); err != nil {
 		t.Fatalf("expected reconnection to succeed after a slot freed, got %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestHubTotalConnectionCap(t *testing.T) {
 	h := New(Limits{MaxPerUser: 10, MaxTotal: 4})
 
 	registered := 0
-	for userID := int64(1); userID <= 6; userID++ {
+	for _, userID := range []string{"1", "2", "3", "4", "5", "6"} {
 		c := &Client{ID: userID, Send: make(chan Event, 1)}
 		if err := h.Register(userID, c); err == nil {
 			registered++
@@ -246,8 +246,8 @@ func TestHubConcurrentRegisterRespectsCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c := &Client{ID: 99, Send: make(chan Event, 1)}
-			if err := h.Register(99, c); err == nil {
+			c := &Client{ID: "99", Send: make(chan Event, 1)}
+			if err := h.Register("99", c); err == nil {
 				mu.Lock()
 				accepted++
 				mu.Unlock()

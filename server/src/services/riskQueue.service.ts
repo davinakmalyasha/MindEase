@@ -55,7 +55,7 @@ export const priorityFor = (level: string, acknowledgedAt: Date | null): RiskPri
 };
 
 export interface RiskQueuePatient {
-    id: number;
+    id: string;
     name: string | null;
     email: string | null;
     /** Most recent screening result, so triage needs one request not two. */
@@ -63,19 +63,19 @@ export interface RiskQueuePatient {
 }
 
 export interface RiskQueueItem {
-    id: number;
+    id: string;
     priority: RiskPriority;
     urgency: string;
     level: string;
     reason: string;
     sourceType: string;
-    sourceId: number | null;
+    sourceId: string | null;
     createdAt: Date;
     acknowledgedAt: Date | null;
-    acknowledgedById: number | null;
+    acknowledgedById: string | null;
     resolutionNote: string | null;
     resolvedAt: Date | null;
-    resolvedById: number | null;
+    resolvedById: string | null;
     patient: RiskQueuePatient;
 }
 
@@ -95,7 +95,7 @@ const QUEUE_TAKE = 200;
  * acknowledgement is a stronger act than a read: it asserts that a named human
  * took responsibility for responding.
  */
-const treatsPatient = async (doctorUserId: number, userId: number): Promise<boolean> => {
+const treatsPatient = async (doctorUserId: string, userId: string): Promise<boolean> => {
     const row = await prisma.appointment.findFirst({
         where: { userId, status: { in: ["confirmed", "completed"] }, doctor: { userId: doctorUserId } },
         select: { id: true },
@@ -133,7 +133,7 @@ export class RiskQueueService {
      * they had already picked up and still owed an outcome on.
      */
     static async listQueue(
-        actor: { id: number; role: string },
+        actor: { id: string; role: string },
         options: { includeResolved?: boolean } = {}
     ): Promise<{ items: RiskQueueItem[]; counts: RiskQueueCounts }> {
         const isAdmin = actor.role === "admin";
@@ -286,9 +286,9 @@ export class RiskQueueService {
      * would be relying on a type assertion rather than on the data.
      */
     static async acknowledge(
-        actor: { id: number; role: string },
-        id: number
-    ): Promise<{ id: number; acknowledgedAt: Date | null; acknowledgedById: number | null }> {
+        actor: { id: string; role: string },
+        id: string
+    ): Promise<{ id: string; acknowledgedAt: Date | null; acknowledgedById: string | null }> {
         const alert = assertFound(
             await prisma.riskAlert.findUnique({
                 where: { id },
@@ -345,13 +345,13 @@ export class RiskQueueService {
      * not be erasable.
      */
     static async resolve(
-        actor: { id: number; role: string },
-        id: number,
+        actor: { id: string; role: string },
+        id: string,
         note?: string | null
     ): Promise<{
-        id: number;
+        id: string;
         resolvedAt: Date | null;
-        resolvedById: number | null;
+        resolvedById: string | null;
         resolutionNote: string | null;
     }> {
         const alert = assertFound(
@@ -431,8 +431,8 @@ export class RiskQueueService {
 }
 
 const assertCanTriage = async (
-    actor: { id: number; role: string },
-    alert: { userId: number; assignedDoctorUserId: number | null }
+    actor: { id: string; role: string },
+    alert: { userId: string; assignedDoctorUserId: string | null }
 ): Promise<void> => {
     if (actor.role === "admin") return;
     // An alert explicitly assigned to this clinician stays theirs even if the

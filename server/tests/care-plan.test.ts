@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { prisma } from "../src/app";
-import { app, createUser, createDoctor, createAdmin } from "./helpers";
+import { app, createUser, createDoctor, createAdmin, MISSING_ID } from "./helpers";
 /**
  * The version the client would have been shown.
  *
@@ -345,7 +345,7 @@ describe("care plan ownership", () => {
         const patient = await createUser("patient");
 
         const res = await patient.agent
-            .put("/api/care-plan/goals/99999999")
+            .put(`/api/care-plan/goals/${MISSING_ID}`)
             .set("X-CSRF-Token", patient.csrf)
             .send({ status: "achieved" });
 
@@ -356,7 +356,7 @@ describe("care plan ownership", () => {
         const patient = await createUser("patient");
 
         const res = await patient.agent
-            .post("/api/care-plan/99999999/goals")
+            .post(`/api/care-plan/${MISSING_ID}/goals`)
             .set("X-CSRF-Token", patient.csrf)
             .send({ title: "Into the void" });
 
@@ -754,7 +754,7 @@ describe("care plan steps", () => {
     it("404s a step that does not exist", async () => {
         const patient = await createUser("patient");
         const res = await patient.agent
-            .patch("/api/care-plan/steps/99999999")
+            .patch(`/api/care-plan/steps/${MISSING_ID}`)
             .set("X-CSRF-Token", patient.csrf)
             .send({ done: true });
 

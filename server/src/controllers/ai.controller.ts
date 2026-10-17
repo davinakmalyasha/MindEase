@@ -44,7 +44,7 @@ export class AIController {
         try {
             const userId = req.user!.id;
             const { appointmentId } = req.body;
-            const result = await PreSessionService.getQuestionsForPatient(Number(appointmentId), userId);
+            const result = await PreSessionService.getQuestionsForPatient(appointmentId, userId);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
             const { message, status } = publicMessageFor(error) ?? { message: "Failed to generate questions.", status: 400 };
@@ -54,7 +54,7 @@ export class AIController {
 
     static async getPreSessionData(req: Request, res: Response) {
         try {
-            const appointmentId = parseInt(req.params.appointmentId as string);
+            const appointmentId = req.params.appointmentId as string;
             const data = await PreSessionService.getData(appointmentId, req.user!);
             res.json({ status: "success", data });
         } catch (error: unknown) {
@@ -67,7 +67,7 @@ export class AIController {
         try {
             const userId = req.user!.id;
             const { appointmentId, answers } = req.body;
-            const result = await PreSessionService.submitAnswers(Number(appointmentId), userId, answers);
+            const result = await PreSessionService.submitAnswers(appointmentId, userId, answers);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
             const { message, status } = publicMessageFor(error) ?? { message: "Failed to submit answers.", status: 400 };

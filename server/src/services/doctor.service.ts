@@ -7,7 +7,7 @@ import { badRequest, conflict, notFound } from "../utils/appError";
 import { sanitize } from "../utils/sanitize";
 
 const DIRECTORY_CACHE_KEY = "cache:doctors:directory";
-const doctorDetailKey = (id: number) => `cache:doctors:detail:${id}`;
+const doctorDetailKey = (id: string) => `cache:doctors:detail:${id}`;
 // The cache key must include the page size. `limit` determines both `take` and
 // `totalPages`, and the directory and booking pages request different sizes
 // (20 and 50) from the same public endpoint, so a shared key served one of them
@@ -16,7 +16,7 @@ const directoryCacheKey = (limit: number) => `${DIRECTORY_CACHE_KEY}:v2:${limit}
 const SPECIALTIES_CACHE_KEY = "cache:doctors:specialties:v1";
 
 // Cache invalidation hooks — call after any doctor profile change.
-export const invalidateDoctorCache = (doctorId?: number) =>
+export const invalidateDoctorCache = (doctorId?: string) =>
     doctorId
         ? cacheDel(directoryCacheKey(0), doctorDetailKey(doctorId))
         : cacheDel(...DIRECTORY_ALL_KEYS, SPECIALTIES_CACHE_KEY);
@@ -219,7 +219,7 @@ export class DoctorService {
         return result;
     }
 
-    static async getDoctorById(id: number) {
+    static async getDoctorById(id: string) {
         const cached = await cacheGet<any>(doctorDetailKey(id));
         if (cached) return cached;
         // This endpoint is unauthenticated and cached for two minutes, so the
@@ -325,7 +325,7 @@ export class DoctorService {
         return doctor;
     }
 
-    static async getDoctorStats(doctorId: number) {
+    static async getDoctorStats(doctorId: string) {
         // Aggregated in the database. The previous version loaded the doctor's
         // entire booking history into memory and derived six counters with
         // `.filter()` in JavaScript — a 100k-booking doctor meant a 100k-row
@@ -374,7 +374,7 @@ export class DoctorService {
         };
     }
 
-    static async getDoctorAnalytics(doctorId: number) {
+    static async getDoctorAnalytics(doctorId: string) {
         const now = new Date();
 
         // Status breakdown (all time)
@@ -451,7 +451,7 @@ export class DoctorService {
         };
     }
 
-    static async getSlots(doctorId: number) {
+    static async getSlots(doctorId: string) {
         const doctor = await prisma.doctor.findUnique({
             where: { id: doctorId },
             select: { awayUntil: true },
@@ -473,7 +473,7 @@ export class DoctorService {
         });
     }
 
-    static async setAway(doctorId: number, awayUntil: string | null) {
+    static async setAway(doctorId: string, awayUntil: string | null) {
         let until: Date | null = null;
         if (awayUntil) {
             until = parseLocalDate(awayUntil);
@@ -487,7 +487,7 @@ export class DoctorService {
         return { awayUntil: until };
     }
 
-    static async regeneratePattern(patternId: number, doctorId: number) {
+    static async regeneratePattern(patternId: string, doctorId: string) {
         const pattern = await prisma.availabilityPattern.findFirst({
             where: { id: patternId, doctorId },
         });
@@ -537,7 +537,7 @@ export class DoctorService {
         return { generatedSlots: created };
     }
 
-    static async createSlot(data: { doctorId: number; date: string; start_time: string; end_time: string }) {
+    static async createSlot(data: { doctorId: string; date: string; start_time: string; end_time: string }) {
         const slotDate = parseLocalDate(data.date);
         if (isNaN(slotDate.getTime())) throw badRequest("Invalid date");
 
@@ -593,7 +593,7 @@ export class DoctorService {
         return slot;
     }
 
-    static async deleteSlot(slotId: number, doctorId: number) {
+    static async deleteSlot(slotId: string, doctorId: string) {
         const slot = await prisma.consultationSlot.findFirst({
             where: { id: slotId, doctorId },
         });
@@ -613,7 +613,7 @@ export class DoctorService {
      * `weeks` occurrences of the weekday, skipping past dates and duplicates.
      */
     static async createPattern(
-        doctorId: number,
+        doctorId: string,
         data: { weekday: number; start_time: string; end_time: string; activeFrom?: string; weeks?: number }
     ) {
         if (!Number.isInteger(data.weekday) || data.weekday < 0 || data.weekday > 6) {
@@ -731,14 +731,14 @@ export class DoctorService {
         return { pattern, generatedSlots: created };
     }
 
-    static async getPatterns(doctorId: number) {
+    static async getPatterns(doctorId: string) {
         return await prisma.availabilityPattern.findMany({
             where: { doctorId },
             orderBy: [{ weekday: "asc" }, { startTime: "asc" }],
         });
     }
 
-    static async deletePattern(patternId: number, doctorId: number) {
+    static async deletePattern(patternId: string, doctorId: string) {
         const pattern = await prisma.availabilityPattern.findFirst({
             where: { id: patternId, doctorId },
         });
@@ -750,7 +750,7 @@ export class DoctorService {
 
     // Therapy packages
     static async createPackage(
-        doctorId: number,
+        doctorId: string,
         data: { name: string; description?: string; sessionCount: number; totalPrice: number }
     ) {
         // Only a clinician who has passed verification may sell. A pending
@@ -783,14 +783,14 @@ export class DoctorService {
         });
     }
 
-    static async getPackages(doctorId: number, activeOnly = false) {
+    static async getPackages(doctorId: string, activeOnly = false) {
         return await prisma.package.findMany({
             where: { doctorId, ...(activeOnly ? { active: true } : {}) },
             orderBy: { createdAt: "desc" },
         });
     }
 
-    static async deletePackage(packageId: number, doctorId: number) {
+    static async deletePackage(packageId: string, doctorId: string) {
         const pkg = await prisma.package.findFirst({ where: { id: packageId, doctorId } });
         if (!pkg) throw notFound("Package not found");
         await prisma.package.update({ where: { id: packageId }, data: { active: false } });
@@ -812,9 +812,9 @@ export class DoctorService {
      * path is closed rather than merely discouraged.
      */
     static async purchasePackage(
-        packageId: number,
-        userId: number,
-        options: { paidAt?: Date | null; grantedByUserId?: number | null } = {}
+        packageId: string,
+        userId: string,
+        options: { paidAt?: Date | null; grantedByUserId?: string | null } = {}
     ) {
         const pkg = await prisma.package.findFirst({
             where: { id: packageId, active: true },
@@ -848,7 +848,7 @@ export class DoctorService {
         return { ...purchase, package: pkg };
     }
 
-    static async getMyPackagePurchases(userId: number) {
+    static async getMyPackagePurchases(userId: string) {
         return await prisma.packagePurchase.findMany({
             where: { userId },
             orderBy: { createdAt: "desc" },

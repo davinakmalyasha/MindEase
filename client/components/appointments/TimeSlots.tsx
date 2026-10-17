@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 
 export interface RealSlot {
-    id: number;
+    id: string;
     startTime: string;
     endTime: string;
     isBooked: boolean;

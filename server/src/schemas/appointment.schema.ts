@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uuid7 } from "./params.schema";
 import { hhmm } from "./params.schema";
 
 /** A calendar day, `YYYY-MM-DD`. Rejecting the shape here keeps `parseLocalDate` total. */
@@ -10,7 +11,7 @@ const isoDay = (label: string) =>
 
 export const BookAppointmentSchema = z.object({
     body: z.object({
-        doctorId: z.number().int().positive("Doctor is required"),
+        doctorId: uuid7,
         appointmentDate: isoDay("Appointment date"),
         startTime: hhmm("Start time"),
         endTime: hhmm("End time"),
@@ -25,10 +26,10 @@ export const BookAppointmentSchema = z.object({
          * clients are not broken, but the service treats a slot-less booking as
          * a request rather than a confirmed appointment.
          */
-        slotId: z.number().int().positive().optional(),
+        slotId: uuid7.optional(),
         idempotencyKey: z.string().min(8).max(64).optional(),
         notes: z.string().max(1000, "Notes must be under 1000 characters").optional(),
-        packagePurchaseId: z.number().int().positive().optional(),
+        packagePurchaseId: uuid7.optional(),
     }),
 });
 
@@ -37,7 +38,7 @@ export const UpdateStatusSchema = z.object({
         status: z.enum(["confirmed", "cancelled", "completed"]),
     }),
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid appointment id"),
+        id: uuid7,
     }),
 });
 
@@ -68,7 +69,7 @@ export const SuggestFollowUpSchema = z.object({
         notes: z.string().max(1000).optional(),
     }),
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid appointment id"),
+        id: uuid7,
     }),
 });
 
@@ -77,9 +78,9 @@ export const RescheduleSchema = z.object({
         appointmentDate: isoDay("Appointment date"),
         startTime: hhmm("Start time"),
         endTime: hhmm("End time"),
-        slotId: z.number().int().positive().optional(),
+        slotId: uuid7.optional(),
     }),
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid appointment id"),
+        id: uuid7,
     }),
 });

@@ -7,7 +7,7 @@ import { sanitize } from "../utils/sanitize";
 
 
 interface CreateNotificationInput {
-    userId: number;
+    userId: string;
     title: string;
     message: string;
     type?: string;
@@ -169,7 +169,7 @@ export class NotificationService {
         return { recipients: recipients.length };
     }
 
-    static async getPreferences(userId: number) {
+    static async getPreferences(userId: string) {
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { notificationPrefs: true },
@@ -177,7 +177,7 @@ export class NotificationService {
         return parsePrefs(user?.notificationPrefs ?? null);
     }
 
-    static async updatePreferences(userId: number, prefs: Partial<Record<string, unknown>>) {
+    static async updatePreferences(userId: string, prefs: Partial<Record<string, unknown>>) {
         // Only the three known categories are persisted, and each is coerced to
         // the `{inApp, email}` shape, so a malformed payload can never write
         // junk that `parsePrefs` later has to defend against.
@@ -202,7 +202,7 @@ export class NotificationService {
         return clean;
     }
 
-    static async getUserNotifications(userId: number, page = 1, limit = 20) {
+    static async getUserNotifications(userId: string, page = 1, limit = 20) {
         // Clamp once, then derive `skip` from the clamped page size. Computing
         // `skip` from an unclamped `limit` while `take` was clamped made page 2
         // of `?limit=100&page=2` start at row 100 and return 50 rows, so pages
@@ -225,21 +225,21 @@ export class NotificationService {
         return { rows, total, page: currentPage, totalPages: Math.ceil(total / take) };
     }
 
-    static async markAsRead(notificationId: number, userId: number) {
+    static async markAsRead(notificationId: string, userId: string) {
         return await prisma.notification.updateMany({
             where: { id: notificationId, userId },
             data: { isRead: true },
         });
     }
 
-    static async markAllAsRead(userId: number) {
+    static async markAllAsRead(userId: string) {
         return await prisma.notification.updateMany({
             where: { userId, isRead: false },
             data: { isRead: true },
         });
     }
 
-    static async getUnreadCount(userId: number) {
+    static async getUnreadCount(userId: string) {
         return await prisma.notification.count({
             where: { userId, isRead: false },
         });

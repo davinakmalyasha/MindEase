@@ -9,7 +9,7 @@ import (
 
 // Claims mirrors the Node API's access token payload.
 type Claims struct {
-	UserID int64  `json:"userId"`
+	UserID string `json:"userId"`
 	Role   string `json:"role"`
 	// Purpose is one of "access" or "ws-ticket". The realtime service accepts
 	// nothing else, so a refresh token or a pending two-factor ticket can never

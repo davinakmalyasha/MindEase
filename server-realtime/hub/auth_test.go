@@ -21,7 +21,7 @@ func mint(t *testing.T, key string, claims jwt.MapClaims) string {
 
 func baseClaims() jwt.MapClaims {
 	return jwt.MapClaims{
-		"userId": float64(42),
+		"userId": "user-42",
 		"role":   "patient",
 		"iss":    "mindease",
 		"aud":    "mindease:access",
@@ -43,8 +43,8 @@ func TestAuthenticateAcceptsAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate returned error for a valid access token: %v", err)
 	}
-	if got.UserID != 42 {
-		t.Errorf("UserID = %d, want 42", got.UserID)
+	if got.UserID != "user-42" {
+		t.Errorf("UserID = %q, want user-42", got.UserID)
 	}
 	if got.Role != "patient" {
 		t.Errorf("Role = %q, want \"patient\"", got.Role)
@@ -64,8 +64,8 @@ func TestAuthenticateAcceptsWsTicket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate returned error for a valid ws ticket: %v", err)
 	}
-	if got.UserID != 42 {
-		t.Errorf("UserID = %d, want 42", got.UserID)
+	if got.UserID != "user-42" {
+		t.Errorf("UserID = %q, want user-42", got.UserID)
 	}
 }
 
