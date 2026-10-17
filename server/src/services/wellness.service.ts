@@ -94,7 +94,7 @@ const parseFactors = (raw: string | null): MoodFactor[] => {
 };
 
 export class WellnessService {
-    static async logMood(userId: number, mood: number, notes?: string, factors?: string[]) {
+    static async logMood(userId: string, mood: number, notes?: string, factors?: string[]) {
         if (mood < 1 || mood > 5) throw badRequest("Mood must be between 1 and 5.");
 
         const validFactors = (factors || []).filter((f) => (MOOD_FACTORS as readonly string[]).includes(f));
@@ -140,7 +140,7 @@ export class WellnessService {
         return { ...entry, replaced: existing !== null };
     }
 
-    static async getMoodHistory(userId: number, days = 14) {
+    static async getMoodHistory(userId: string, days = 14) {
         const timezone = await this.getUserTimezone(userId);
         const today = todayKey(timezone);
         const since = startOfZonedDay(shiftDayKey(today, -days, timezone), timezone);
@@ -159,14 +159,14 @@ export class WellnessService {
     }
 
     /** `User.timezone` is optional and was previously never read at all. */
-    private static async getUserTimezone(userId: number): Promise<string> {
+    private static async getUserTimezone(userId: string): Promise<string> {
         const user = await prisma.user
             .findUnique({ where: { id: userId }, select: { timezone: true } })
             .catch(() => null);
         return resolveTimezone(user?.timezone);
     }
 
-    static async getMoodStats(userId: number, windowDays = 30) {
+    static async getMoodStats(userId: string, windowDays = 30) {
         const timezone = await this.getUserTimezone(userId);
         const today = todayKey(timezone);
 
@@ -251,14 +251,14 @@ export class WellnessService {
         };
     }
 
-    static async createJournalEntry(userId: number, content: string) {
+    static async createJournalEntry(userId: string, content: string) {
         return await prisma.journalEntry.create({
             data: { userId, content: sanitize(content) },
         });
     }
 
     // Owner-checked edit/delete for journal entries
-    static async updateJournalEntry(userId: number, entryId: number, content: string) {
+    static async updateJournalEntry(userId: string, entryId: string, content: string) {
         const entry = await prisma.journalEntry.findUnique({ where: { id: entryId } });
         if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         return await prisma.journalEntry.update({
@@ -267,14 +267,14 @@ export class WellnessService {
         });
     }
 
-    static async deleteJournalEntry(userId: number, entryId: number) {
+    static async deleteJournalEntry(userId: string, entryId: string) {
         const entry = await prisma.journalEntry.findUnique({ where: { id: entryId } });
         if (!entry || entry.userId !== userId) throw notFound("Journal entry not found");
         await prisma.journalEntry.delete({ where: { id: entryId } });
         return { success: true };
     }
 
-    static async getJournalEntries(userId: number, limit = 20) {
+    static async getJournalEntries(userId: string, limit = 20) {
         return await prisma.journalEntry.findMany({
             where: { userId },
             orderBy: { createdAt: "desc" },
@@ -282,7 +282,7 @@ export class WellnessService {
         });
     }
 
-    static async summarizeJournal(userId: number) {
+    static async summarizeJournal(userId: string) {
         const entries = await prisma.journalEntry.findMany({
             where: { userId },
             orderBy: { createdAt: "desc" },
@@ -303,7 +303,7 @@ export class WellnessService {
         };
     }
 
-    static async submitAssessment(userId: number, type: string, answers: number[]) {
+    static async submitAssessment(userId: string, type: string, answers: number[]) {
         if (!(ASSESSMENT_TYPES as readonly string[]).includes(type)) {
             throw badRequest("Assessment type must be phq9 or gad7");
         }
@@ -353,7 +353,7 @@ export class WellnessService {
         return { assessment, risk: signal };
     }
 
-    static async getAssessments(userId: number, type?: string, limit = 10) {
+    static async getAssessments(userId: string, type?: string, limit = 10) {
         return await prisma.assessment.findMany({
             where: {
                 userId,
@@ -379,7 +379,7 @@ export class WellnessService {
      * and get them subtly wrong per instrument - the two scales differ, and
      * both are already wrong in most client code that hardcodes them.
      */
-    static async getAssessmentTrajectory(userId: number, type: AssessmentType, limit = 24) {
+    static async getAssessmentTrajectory(userId: string, type: AssessmentType, limit = 24) {
         // Newest first, then reversed.
         //
         // The previous query was `orderBy: { createdAt: "asc" }, take: limit`. MySQL
@@ -438,7 +438,7 @@ export class WellnessService {
         };
     }
 
-    static async getLatestAssessments(userId: number) {
+    static async getLatestAssessments(userId: string) {
         const [phq9, gad7] = await Promise.all([
             prisma.assessment.findFirst({ where: { userId, type: "phq9" }, orderBy: { createdAt: "desc" } }),
             prisma.assessment.findFirst({ where: { userId, type: "gad7" }, orderBy: { createdAt: "desc" } }),

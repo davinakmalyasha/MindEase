@@ -65,7 +65,7 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
                 setSavedAnswers(saved);
                 setAnswers(Object.fromEntries(saved.map((a: Answer) => [a.question, a.answer])));
             } else {
-                const res = await api.post("/ai/pre-session", { appointmentId: Number(appointmentId) });
+                const res = await api.post("/ai/pre-session", { appointmentId });
                 if (!isCurrent()) return;
                 setQuestions(res.data?.data?.questions || []);
                 setAnswers({});
@@ -103,7 +103,7 @@ export default function PreSessionPage({ params }: { params: Promise<{ appointme
         setIsSubmitting(true);
         try {
             const payload: Answer[] = questions.map((q) => ({ question: q, answer: answers[q]?.trim() || "" }));
-            await api.post("/ai/pre-session/answers", { appointmentId: Number(appointmentId), answers: payload });
+            await api.post("/ai/pre-session/answers", { appointmentId, answers: payload });
             toast("Reflections saved. Your doctor will see them before the session.", "success");
             setSavedAnswers(payload);
         } catch (error) {

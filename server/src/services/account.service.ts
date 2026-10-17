@@ -13,7 +13,7 @@ const MAX_OTP_ATTEMPTS = 5;
 const generateOtp = () => crypto.randomInt(100000, 999999).toString();
 
 export class AccountService {
-    static async changePassword(userId: number, currentPassword: string, newPassword: string) {
+    static async changePassword(userId: string, currentPassword: string, newPassword: string) {
         const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user) throw notFound("User not found");
 
@@ -187,14 +187,16 @@ export class AccountService {
     }
 
     // GDPR-style account deletion: purge PII, keep anonymized records
-    static async deleteAccount(userId: number) {
+    static async deleteAccount(userId: string) {
         const user = await prisma.user.findUnique({
             where: { id: userId },
             include: { doctorProfile: true },
         });
         if (!user) throw notFound("User not found");
 
-        const doctorId = user.doctorProfile?.id ?? -1;
+        // `""` rather than `-1`: ids are UUID strings now, and an empty string is the
+        // value no row has, which is what "this user has no doctor profile" needs.
+        const doctorId = user.doctorProfile?.id ?? "";
         // Derives from a random source rather than the row id, so the export
         // never echoes the internal primary key.
         const anonymizedEmail = `deleted-${crypto.randomBytes(8).toString("hex")}@deleted.invalid`;

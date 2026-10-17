@@ -13,7 +13,7 @@ import {
 import api, { onSessionExpired } from "@/lib/api";
 
 export interface AuthUser {
-    id: number;
+    id: string;
     email: string;
     name?: string;
     avatar?: string | null;
@@ -25,7 +25,7 @@ export interface AuthUser {
     referralCode?: string | null;
     sessionCredits?: number;
     timezone?: string | null;
-    doctorProfile?: { id: number; specialty?: string } | null;
+    doctorProfile?: { id: string; specialty?: string } | null;
 }
 
 export interface TwoFactorChallenge {

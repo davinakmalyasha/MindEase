@@ -102,7 +102,7 @@ export interface RealtimeEvent {
 }
 
 // Publishes an event for a user; the Go realtime service pushes it over WebSocket.
-export const publishEvent = async (userId: number, event: RealtimeEvent) => {
+export const publishEvent = async (userId: string, event: RealtimeEvent) => {
     if (process.env.NODE_ENV === "test") return; // tests use REST + polling
     try {
         const client = await getPublisher();
@@ -124,7 +124,7 @@ export const closePublisher = async () => {
     }
 };
 
-export const notifyUser = (userId: number, title: string, message: string, type = "system") => {
+export const notifyUser = (userId: string, title: string, message: string, type = "system") => {
     return publishEvent(userId, {
         type: "notification:new",
         payload: { title, message, type, createdAt: new Date().toISOString() },

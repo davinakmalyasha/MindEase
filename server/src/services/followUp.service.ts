@@ -7,8 +7,8 @@ import { sanitize } from "../utils/sanitize";
 
 export class FollowUpService {
     static async suggest(
-        appointmentId: number,
-        doctorUserId: number,
+        appointmentId: string,
+        doctorUserId: string,
         data: { suggestedDate: string; startTime: string; endTime: string; consultationType?: string; notes?: string }
     ) {
         const appointment = await prisma.appointment.findUnique({
@@ -54,7 +54,7 @@ export class FollowUpService {
         return followUp;
     }
 
-    static async get(appointmentId: number, actor: { id: number; role: string }) {
+    static async get(appointmentId: string, actor: { id: string; role: string }) {
         const appointment = await prisma.appointment.findUnique({
             where: { id: appointmentId },
             include: { doctor: { select: { userId: true } } },
@@ -67,7 +67,7 @@ export class FollowUpService {
         return await prisma.followUp.findUnique({ where: { appointmentId } });
     }
 
-    static async respond(followUpId: number, patientId: number, accept: boolean) {
+    static async respond(followUpId: string, patientId: string, accept: boolean) {
         const followUp = await prisma.followUp.findUnique({
             where: { id: followUpId },
             include: { appointment: { select: { userId: true } } },
@@ -209,9 +209,9 @@ export class FollowUpService {
      */
     private static async findConsumableReservation(
         tx: Prisma.TransactionClient,
-        patientId: number,
-        doctorId: number
-    ): Promise<{ packagePurchaseId?: number; creditApplied?: boolean }> {
+        patientId: string,
+        doctorId: string
+    ): Promise<{ packagePurchaseId?: string; creditApplied?: boolean }> {
         const candidates = await tx.packagePurchase.findMany({
             where: {
                 userId: patientId,

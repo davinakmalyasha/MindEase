@@ -46,7 +46,7 @@ export class DoctorController {
 
     static async getById(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             if (!id) {
                 return res.status(400).json({ status: "error", message: "Invalid doctor id" });
             }
@@ -88,7 +88,7 @@ export class DoctorController {
 
     static async getSlots(req: Request, res: Response) {
         try {
-            const doctorId = parseInt(req.params.id as string);
+            const doctorId = req.params.id as string;
             if (!doctorId) {
                 return res.status(400).json({ status: "error", message: "Invalid doctor id" });
             }
@@ -120,7 +120,7 @@ export class DoctorController {
 
     static async deleteSlot(req: Request, res: Response) {
         try {
-            const slotId = parseInt(req.params.id as string);
+            const slotId = req.params.id as string;
             const doctorId = req.user!.doctorProfileId;
             if (!doctorId) {
                 return res.status(400).json({ status: "error", message: "Doctor profile not found" });
@@ -169,7 +169,7 @@ export class DoctorController {
 
     static async deletePattern(req: Request, res: Response) {
         try {
-            const patternId = parseInt(req.params.id as string);
+            const patternId = req.params.id as string;
             const doctorId = req.user!.doctorProfileId;
             if (!doctorId) {
                 return res.status(400).json({ status: "error", message: "Doctor profile not found" });
@@ -184,7 +184,7 @@ export class DoctorController {
 
     static async joinWaitlist(req: Request, res: Response) {
         try {
-            const doctorId = parseInt(req.params.id as string);
+            const doctorId = req.params.id as string;
             const entry = await WaitlistService.join(doctorId, req.user!.id);
             res.status(201).json({ status: "success", data: entry });
         } catch (error: unknown) {
@@ -195,7 +195,7 @@ export class DoctorController {
 
     static async leaveWaitlist(req: Request, res: Response) {
         try {
-            const doctorId = parseInt(req.params.id as string);
+            const doctorId = req.params.id as string;
             const result = await WaitlistService.leave(doctorId, req.user!.id);
             res.json({ status: "success", data: result });
         } catch (error: unknown) {
@@ -206,7 +206,7 @@ export class DoctorController {
 
     static async waitlistStatus(req: Request, res: Response) {
         try {
-            const doctorId = parseInt(req.params.id as string);
+            const doctorId = req.params.id as string;
             const status = await WaitlistService.status(doctorId, req.user!.id);
             res.json({ status: "success", data: status });
         } catch (error: unknown) {
@@ -234,7 +234,7 @@ export class DoctorController {
 
     static async regeneratePattern(req: Request, res: Response) {
         try {
-            const patternId = parseInt(req.params.id as string);
+            const patternId = req.params.id as string;
             const doctorId = req.user!.doctorProfileId;
             if (!doctorId) {
                 return res.status(400).json({ status: "error", message: "Doctor profile not found" });
@@ -268,7 +268,7 @@ export class DoctorController {
 
     static async getPackages(req: Request, res: Response) {
         try {
-            const doctorId = parseInt(req.params.id as string);
+            const doctorId = req.params.id as string;
             const packages = await DoctorService.getPackages(doctorId, true);
             res.json({ status: "success", data: packages });
         } catch (error: unknown) {
@@ -279,7 +279,7 @@ export class DoctorController {
 
     static async deletePackage(req: Request, res: Response) {
         try {
-            const packageId = parseInt(req.params.id as string);
+            const packageId = req.params.id as string;
             const doctorId = req.user!.doctorProfileId;
             if (!doctorId) {
                 return res.status(400).json({ status: "error", message: "Doctor profile not found" });
@@ -294,7 +294,7 @@ export class DoctorController {
 
     static async purchasePackage(req: Request, res: Response) {
         try {
-            const packageId = Number(req.params.id);
+            const packageId = req.params.id as string;
 
             // A patient cannot grant themselves a package. Until the payment
             // provider is wired up (Wave 3) the only legitimate path is an

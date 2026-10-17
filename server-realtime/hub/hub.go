@@ -43,14 +43,14 @@ type Event struct {
 
 // Client is a single WebSocket connection owned by a user.
 type Client struct {
-	ID   int64
+	ID   string
 	Send chan Event
 }
 
 // Hub routes events to clients, fanning out to all connections of a user.
 type Hub struct {
 	mu      sync.RWMutex
-	clients map[int64]map[*Client]bool
+	clients map[string]map[*Client]bool
 	total   int
 	limits  Limits
 
@@ -85,7 +85,7 @@ func New(limits Limits) *Hub {
 		limits.MaxTotal = DefaultMaxTotalConnections
 	}
 	return &Hub{
-		clients: make(map[int64]map[*Client]bool),
+		clients: make(map[string]map[*Client]bool),
 		limits:  limits,
 	}
 }
@@ -95,7 +95,7 @@ func New(limits Limits) *Hub {
 // It returns ErrTooManyConnections — and registers nothing — when either cap
 // would be exceeded. The check and the insert happen under one lock so two
 // concurrent connections cannot both observe a free slot.
-func (h *Hub) Register(userID int64, c *Client) error {
+func (h *Hub) Register(userID string, c *Client) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -120,7 +120,7 @@ func (h *Hub) Register(userID int64, c *Client) error {
 // multiple times for the same client (e.g. from both writePump and readPump
 // goroutines): the channel is closed exactly once, only if the client was
 // still registered.
-func (h *Hub) Unregister(userID int64, c *Client) {
+func (h *Hub) Unregister(userID string, c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if room := h.clients[userID]; room != nil {
@@ -193,7 +193,7 @@ func IsCritical(eventType string) bool {
 // to stall the hub for every other user. That trade is right - one stalled
 // client must not become a service-wide outage - but it used to be silent, so
 // the drop is counted by class and readable via DropStats.
-func (h *Hub) PublishToUser(userID int64, event Event) {
+func (h *Hub) PublishToUser(userID string, event Event) {
 	critical := IsCritical(event.Type)
 
 	h.mu.RLock()

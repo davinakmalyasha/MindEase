@@ -5,9 +5,9 @@ import { logger } from "../utils/logger";
 
 export interface AuditEntry {
     action: string;
-    actorId?: number | null;
+    actorId?: string | null;
     targetType?: string | null;
-    targetId?: number | null;
+    targetId?: string | null;
     meta?: Record<string, any> | null;
 }
 
@@ -35,13 +35,13 @@ export interface AuditEntry {
  */
 export interface ReadAuditEntry {
     /** The clinician, or any authenticated actor, who opened the record. */
-    actorId: number;
+    actorId: string;
     /** Which kind of clinical record was read. */
     subjectType: ClinicalResource;
     /** Whose record it was - the patient, not the row id. */
-    subjectId: number;
+    subjectId: string;
     /** The row that was opened, where the record has one. */
-    targetId?: number | null;
+    targetId?: string | null;
     /** How it was reached: a route, a bulk list, an export. */
     via?: string | null;
     meta?: Record<string, any> | null;
@@ -151,7 +151,7 @@ export class AuditService {
      * what was actually sent would be worse than one that records the raw value.
      */
     static async logBulkExport(entry: {
-        actorId: number;
+        actorId: string;
         kind: string;
         rows: number;
     }): Promise<void> {
@@ -172,13 +172,13 @@ export class AuditService {
      * accountability artefact, and surfacing it would tell a clinician they are
      * being watched without telling anyone who.
      */
-    static async readsForSubject(subjectId: number, limit = 100) {
+    static async readsForSubject(subjectId: string, limit = 100) {
         const entries = await prisma.auditLog.findMany({
             where: {
                 action: "clinical.read",
                 // The subject id lives inside `meta` because `AuditLog` predates
                 // read logging and has no column for it.
-                meta: { contains: `"subjectId":${subjectId}` },
+                meta: { contains: `"subjectId":"${subjectId}"` },
             },
             include: { actor: { select: { id: true, name: true, role: true } } },
             orderBy: { createdAt: "desc" },

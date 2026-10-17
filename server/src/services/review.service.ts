@@ -7,9 +7,9 @@ import { badRequest, conflict, forbidden, notFound } from "../utils/appError";
 
 
 interface CreateReviewInput {
-    userId: number;
-    doctorId: number;
-    appointmentId: number;
+    userId: string;
+    doctorId: string;
+    appointmentId: string;
     rating: number;
     comment: string;
 }
@@ -79,11 +79,26 @@ const PSEUDONYM_NOUNS = [
     "Sorrel",
 ];
 
-function publicDisplayName(userId: number): string {
-    // Two independent mixes of the id, so that ids which are adjacent - and
-    // therefore likely to be created together - do not produce adjacent names.
-    const a = PSEUDONYM_ADJECTIVES[userId % PSEUDONYM_ADJECTIVES.length];
-    const b = PSEUDONYM_NOUNS[Math.floor(userId / PSEUDONYM_ADJECTIVES.length) % PSEUDONYM_NOUNS.length];
+/**
+ * A stable 32-bit hash of the id.
+ *
+ * The pseudonym used to index the word lists with the integer id directly.
+ * Ids are UUID strings now, so the mixing has to be explicit: two different
+ * seeds (the id, and the id with a suffix) keep the adjective and the noun
+ * independent, which is what stopped adjacent ids producing adjacent names.
+ */
+function pseudoIndex(seed: string, length: number): number {
+    let hash = 2166136261; // FNV-1a offset basis
+    for (let i = 0; i < seed.length; i += 1) {
+        hash ^= seed.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) % length;
+}
+
+function publicDisplayName(userId: string): string {
+    const a = PSEUDONYM_ADJECTIVES[pseudoIndex(userId, PSEUDONYM_ADJECTIVES.length)];
+    const b = PSEUDONYM_NOUNS[pseudoIndex(`${userId}:b`, PSEUDONYM_NOUNS.length)];
     return `${a} ${b}`;
 }
 
@@ -160,7 +175,7 @@ export class ReviewService {
      * review author name and avatar included. The count is returned alongside so
      * the client can show "showing 50 of N".
      */
-    static async getReviewsByDoctor(doctorId: number, limit = 20, offset = 0) {
+    static async getReviewsByDoctor(doctorId: string, limit = 20, offset = 0) {
         const take = Math.min(Math.max(limit, 1), 50);
         const skip = Math.max(offset, 0);
 
@@ -205,7 +220,7 @@ export class ReviewService {
     }
 
     // Doctors may report reviews on their own profile (one open report per review)
-    static async reportReview(reviewId: number, doctorUserId: number, reason: string) {
+    static async reportReview(reviewId: string, doctorUserId: string, reason: string) {
         const review = await prisma.review.findUnique({
             where: { id: reviewId },
             include: { doctor: { select: { userId: true } } },
@@ -236,7 +251,7 @@ export class ReviewService {
     }
 
     // Shared recalculation used on create and when admins hide/unhide
-    static async recalcDoctorRating(doctorId: number) {
+    static async recalcDoctorRating(doctorId: string) {
         const aggregation = await prisma.review.aggregate({
             where: { doctorId, hidden: false },
             _avg: { rating: true },
@@ -259,7 +274,7 @@ export class ReviewService {
         invalidateDoctorCache(doctorId);
     }
 
-    static async getDoctorRatingSummary(doctorId: number) {
+    static async getDoctorRatingSummary(doctorId: string) {
         const aggregation = await prisma.review.aggregate({
             where: { doctorId, hidden: false },
             _avg: { rating: true },
@@ -281,7 +296,7 @@ export class ReviewService {
     }
 
     // Doctors may reply to reviews on their own profile (one reply, update-in-place)
-    static async replyToReview(reviewId: number, doctorUserId: number, reply: string) {
+    static async replyToReview(reviewId: string, doctorUserId: string, reply: string) {
         const review = await prisma.review.findUnique({
             where: { id: reviewId },
             include: { doctor: { select: { userId: true } } },

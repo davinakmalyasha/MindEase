@@ -24,7 +24,7 @@ export default function FollowUpModal({
     onClose,
     onDone,
 }: {
-    appointmentId: number;
+    appointmentId: string;
     onClose: () => void;
     onDone: () => void;
 }) {

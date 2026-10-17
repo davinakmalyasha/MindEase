@@ -5,13 +5,13 @@ import api from "@/lib/api";
 
 export const doctorKeys = {
     all: ["doctors"] as const,
-    detail: (id: number | string) => ["doctors", "detail", String(id)] as const,
-    slots: (id: number | string) => ["doctors", "slots", String(id)] as const,
+    detail: (id: string | string) => ["doctors", "detail", String(id)] as const,
+    slots: (id: string | string) => ["doctors", "slots", String(id)] as const,
     myPackages: ["doctors", "packages", "mine"] as const,
-    packages: (id: number | string) => ["doctors", "packages", String(id)] as const,
+    packages: (id: string | string) => ["doctors", "packages", String(id)] as const,
 };
 
-export const useDoctorSlots = (id: number | string | null) =>
+export const useDoctorSlots = (id: string | string | null) =>
     useQuery({
         queryKey: doctorKeys.slots(id ?? "none"),
         queryFn: async () => {
@@ -34,7 +34,7 @@ export const useDoctorSlots = (id: number | string | null) =>
  * settled, so an abandoned checkout is not presented as something the patient
  * owns.
  */
-export const useMyPackages = (doctorId?: number | string | null) =>
+export const useMyPackages = (doctorId?: string | string | null) =>
     useQuery({
         queryKey: [...doctorKeys.myPackages, String(doctorId ?? "any")],
         queryFn: async () => {

@@ -25,19 +25,19 @@ export interface RiskQueueCounts {
 }
 
 export interface RiskQueueItem {
-    id: number;
+    id: string;
     priority: 0 | 1 | 2 | 3;
     urgency: string;
     level: string;
     reason: string;
     sourceType: string;
-    sourceId: number | null;
+    sourceId: string | null;
     createdAt: string;
     acknowledgedAt: string | null;
     resolutionNote: string | null;
     resolvedAt: string | null;
     patient: {
-        id: number;
+        id: string;
         name: string | null;
         email: string | null;
         lastAssessment: {
@@ -77,7 +77,7 @@ export const useRiskQueue = (includeResolved = false) =>
 export const useAcknowledgeRisk = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async (id: number) => {
+        mutationFn: async (id: string) => {
             const res = await api.post(`/wellness/risk-alerts/${id}/acknowledge`);
             return res.data?.data;
         },
@@ -91,7 +91,7 @@ export const useAcknowledgeRisk = () => {
 export const useResolveRisk = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, note }: { id: number; note?: string }) => {
+        mutationFn: async ({ id, note }: { id: string; note?: string }) => {
             const res = await api.post(`/wellness/risk-alerts/${id}/resolve`, { note });
             return res.data?.data;
         },

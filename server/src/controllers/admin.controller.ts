@@ -182,7 +182,7 @@ export class AdminController {
 
     static async updateUserRole(req: Request, res: Response) {
         try {
-            const userId = parseInt(req.params.id as string);
+            const userId = req.params.id as string;
             const { role } = req.body;
 
             if (userId === req.user!.id) {
@@ -227,7 +227,7 @@ export class AdminController {
 
     static async toggleBan(req: Request, res: Response) {
         try {
-            const userId = parseInt(req.params.id as string);
+            const userId = req.params.id as string;
             if (userId === req.user!.id) {
                 return res.status(400).json({ status: "error", message: "Cannot ban yourself" });
             }
@@ -287,7 +287,7 @@ export class AdminController {
 
     static async updateDoctorVerification(req: Request, res: Response) {
         try {
-            const doctorId = parseInt(req.params.id as string);
+            const doctorId = req.params.id as string;
             const { status } = req.body;
 
             const doctor = await prisma.doctor.findUnique({
@@ -369,7 +369,7 @@ export class AdminController {
      */
     static async getPatientAccessLog(req: Request, res: Response) {
         try {
-            const patientId = parseInt(req.params.id as string);
+            const patientId = req.params.id as string;
             const entries = await AuditService.readsForSubject(patientId, 200);
             res.json({
                 status: "success",
@@ -430,7 +430,7 @@ export class AdminController {
 
     static async hideReview(req: Request, res: Response) {
         try {
-            const reviewId = parseInt(req.params.id as string);
+            const reviewId = req.params.id as string;
             const review = await prisma.review.findUnique({ where: { id: reviewId } });
             if (!review) return res.status(404).json({ status: "error", message: "Review not found" });
 
@@ -463,7 +463,7 @@ export class AdminController {
 
     static async resolveReviewReport(req: Request, res: Response) {
         try {
-            const reportId = parseInt(req.params.id as string);
+            const reportId = req.params.id as string;
             const { status } = req.body; // resolved | dismissed
             if (!["resolved", "dismissed"].includes(status)) {
                 return res.status(400).json({ status: "error", message: "Status must be resolved or dismissed" });
@@ -533,7 +533,7 @@ export class AdminController {
                     where: { status: "completed" },
                     select: { doctorId: true, appointmentDate: true },
                 });
-                const byDoctor = new Map<number, { bookings: number; revenue: number }>();
+                const byDoctor = new Map<string, { bookings: number; revenue: number }>();
                 for (const a of appointments) {
                     const agg = byDoctor.get(a.doctorId) || { bookings: 0, revenue: 0 };
                     agg.bookings += 1;

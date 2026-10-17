@@ -30,7 +30,7 @@ export class PushService {
      * working: browsers rotate the key pair for an unchanged endpoint, and the
      * upsert updates in place.
      */
-    static async subscribe(userId: number, subscription: { endpoint: string; keys: { p256dh: string; auth: string } }, userAgent?: string) {
+    static async subscribe(userId: string, subscription: { endpoint: string; keys: { p256dh: string; auth: string } }, userAgent?: string) {
         if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
             throw badRequest("Invalid push subscription");
         }
@@ -55,13 +55,13 @@ export class PushService {
         });
     }
 
-    static async unsubscribe(userId: number, endpoint: string) {
+    static async unsubscribe(userId: string, endpoint: string) {
         await prisma.pushSubscription.deleteMany({ where: { userId, endpoint } });
         return { success: true };
     }
 
     // Fire-and-forget push to all of the user's devices; silently no-ops when unconfigured
-    static async send(userId: number, title: string, body: string, url?: string) {
+    static async send(userId: string, title: string, body: string, url?: string) {
         if (!IS_CONFIGURED) return;
         try {
             const subs = await prisma.pushSubscription.findMany({ where: { userId } });

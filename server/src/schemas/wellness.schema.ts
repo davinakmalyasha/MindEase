@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { idObject, idParam, uuid7 } from "./params.schema";
 
 const MOOD_FACTORS = ["sleep", "exercise", "social", "work", "stress"] as const;
 
 export const CreateReviewSchema = z.object({
     body: z.object({
-        doctorId: z.coerce.number().int().positive("Doctor is required"),
-        appointmentId: z.coerce.number().int().positive("Appointment is required"),
+        doctorId: uuid7,
+        appointmentId: uuid7,
         rating: z.number().int().min(1).max(5, "Rating must be between 1 and 5"),
         comment: z.string().min(3, "Comment must be at least 3 characters").max(2000, "Comment too long"),
     }),
@@ -43,7 +44,6 @@ export const JournalListSchema = z.object({
  * zero, negatives and junk strings — previously these reached Prisma as `NaN`
  * and surfaced as a 500 carrying an internal error string.
  */
-import { idObject, idParam } from "./params.schema";
 
 // Re-exported so existing imports keep working; the definitions now live in one
 // place rather than being duplicated per schema file.
@@ -71,7 +71,7 @@ export const JournalIdSchema = idParam;
 export const JournalSummarizeSchema = z.object({
     body: z
         .object({
-            entryId: z.coerce.number().int().positive().optional(),
+            entryId: uuid7.optional(),
         })
         .strict(),
 });

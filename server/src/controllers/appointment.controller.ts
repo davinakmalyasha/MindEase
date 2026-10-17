@@ -63,7 +63,7 @@ export class AppointmentController {
 
     static async updateStatus(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
 
             const { status } = req.body;
@@ -120,7 +120,7 @@ export class AppointmentController {
 
     static async reschedule(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
 
             const { appointmentDate, startTime, endTime, slotId } = req.body;
@@ -156,7 +156,7 @@ export class AppointmentController {
 
     static async joinRoom(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
 
             const room = await AppointmentService.joinRoom(id, req.user!);
@@ -176,7 +176,7 @@ export class AppointmentController {
 
     static async rebookOptions(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
 
             const options = await AppointmentService.getRebookOptions(id, req.user!);
@@ -192,7 +192,7 @@ export class AppointmentController {
 
     static async getIcs(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
+            const id = req.params.id as string;
             if (!id) return res.status(400).json({ status: "error", message: "Invalid appointment id" });
 
             const appointment = await prisma.appointment.findUnique({

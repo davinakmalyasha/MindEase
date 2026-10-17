@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { prisma } from "../src/app";
-import { createUser, createDoctor, createAdmin } from "./helpers";
+import { createUser, createDoctor, createAdmin, MISSING_ID } from "./helpers";
 import { priorityFor } from "../src/services/riskQueue.service";
 
 /**
@@ -345,7 +345,7 @@ describe("POST /api/wellness/risk-alerts/:id/acknowledge", () => {
     it("404s an alert that does not exist", async () => {
         const doctor = await createDoctor();
         const res = await doctor.agent
-            .post("/api/wellness/risk-alerts/99999999/acknowledge")
+            .post(`/api/wellness/risk-alerts/${MISSING_ID}/acknowledge`)
             .set("X-CSRF-Token", doctor.csrf);
         expect(res.status).toBe(404);
     });

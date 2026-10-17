@@ -22,7 +22,7 @@ const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 const DUMMY_PASSWORD_HASH =
     "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHR2YWx1ZQ$0000000000000000000000000000000000000000000";
 
-type TokenBearingUser = { id: number; role: string; totpEnabled?: boolean };
+type TokenBearingUser = { id: string; role: string; totpEnabled?: boolean };
 
 /**
  * Mints a token pair. `totpVerified` is only true when the session has actually
@@ -181,7 +181,7 @@ export class AuthService {
         return { user: toSafeUser(user), requiresTwoFactor: false as const, ...tokens };
     }
 
-    private static async recordFailedAttempt(user: { id: number }) {
+    private static async recordFailedAttempt(user: { id: string }) {
         // `{ increment: 1 }` in SQL, not `user.failedAttempts + 1` in JavaScript.
         //
         // The read-modify-write version had two failure modes and they compound.
@@ -211,7 +211,7 @@ export class AuthService {
     }
 
     /** The lock deadline, only when the account is not already locked. */
-    private static async stampLockIfUnlocked(userId: number) {
+    private static async stampLockIfUnlocked(userId: string) {
         const current = await prisma.user.findUnique({
             where: { id: userId },
             select: { failedAttempts: true, lockedUntil: true },
@@ -284,7 +284,7 @@ export class AuthService {
     // Store Refresh Token in DB (Rotation), pruning expired + oldest tokens.
     // Only the SHA-256 digest is persisted, so a database read cannot be
     // replayed as a live session.
-    static async storeRefreshToken(userId: number, token: string) {
+    static async storeRefreshToken(userId: string, token: string) {
         await prisma.refreshToken.deleteMany({
             where: { userId, expiresAt: { lt: new Date() } },
         });
@@ -316,7 +316,7 @@ export class AuthService {
      * password reset and 2FA enable/disable so a stolen refresh cookie cannot
      * outlive the credential it was obtained with.
      */
-    static async revokeAllSessions(userId: number, reason: string) {
+    static async revokeAllSessions(userId: string, reason: string) {
         const deleted = await prisma.refreshToken.deleteMany({ where: { userId } });
         if (deleted.count > 0) {
             await AuditService.log({
@@ -335,9 +335,9 @@ export class AuthService {
     }
 
     static async refresh(token: string) {
-        let decoded: { userId: number; amr?: AuthMethod[] };
+        let decoded: { userId: string; amr?: AuthMethod[] };
         try {
-            decoded = verifyToken<{ userId: number; amr?: AuthMethod[] }>(token, "refresh");
+            decoded = verifyToken<{ userId: string; amr?: AuthMethod[] }>(token, "refresh");
         } catch {
             throw badRequest("Invalid Refresh Token");
         }

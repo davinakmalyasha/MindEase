@@ -23,10 +23,10 @@ import {
 } from "@/hooks/queries/useMessagesQuery";
 
 interface Message {
-    id: number;
+    id: string;
     content: string;
-    senderId: number;
-    receiverId: number;
+    senderId: string;
+    receiverId: string;
     createdAt: string;
     isRead: boolean;
     readAt?: string | null;
@@ -61,7 +61,7 @@ function MessagesContent() {
     const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastTypingSentRef = useRef(0);
 
-    const messageThreadKey = (userId: number) => ["messages", "thread", userId];
+    const messageThreadKey = (userId: string) => ["messages", "thread", userId];
 
     // `isError` and `refetch` are destructured for a reason: a failed request used to
     // be indistinguishable from an empty account. `data` defaults to `[]`, so a
@@ -104,7 +104,7 @@ function MessagesContent() {
     const setReaction = useSetReaction(activeUser?.id ?? 0);
     const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = useState("");
-    const [reactingTo, setReactingTo] = useState<number | null>(null);
+    const [reactingTo, setReactingTo] = useState<string | null>(null);
 
     // Open conversation from ?with= param
     //
@@ -145,7 +145,7 @@ function MessagesContent() {
         router.replace("/messages", { scroll: false });
     };
 
-    const openContact = (contact: { id: number; name: string; avatar: string | null; role: string }) => {
+    const openContact = (contact: { id: string; name: string; avatar: string | null; role: string }) => {
         setActiveUser(contact);
         setShowMobileThread(true);
         router.replace("/messages", { scroll: false });

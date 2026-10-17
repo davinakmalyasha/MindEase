@@ -2,11 +2,11 @@ declare global {
     namespace Express {
         interface Request {
             user?: {
-                id: number;
+                id: string;
                 role: string;
                 email: string;
                 name?: string | null;
-                doctorProfileId?: number | null;
+                doctorProfileId?: string | null;
             };
         }
     }

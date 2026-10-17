@@ -69,7 +69,7 @@ describe("mood-decline nudge", () => {
         expect(alert?.level).toBe("elevated");
         // Pointing at the evidence, so a clinician reading the queue item can go
         // straight to the logs that triggered it.
-        expect(alert?.sourceId).toBeTypeOf("number");
+        expect(alert?.sourceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
         expect(alert?.reason).toMatch(/declined/i);
         expect(alert?.acknowledgedAt).toBeNull();
     });

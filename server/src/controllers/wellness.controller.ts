@@ -59,7 +59,7 @@ export class WellnessController {
     static async updateJournalEntry(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const entryId = parseInt(req.params.id as string);
+            const entryId = req.params.id as string;
             if (!entryId) return res.status(400).json({ status: "error", message: "Invalid entry id" });
             const { content } = req.body;
             const entry = await WellnessService.updateJournalEntry(userId, entryId, content);
@@ -73,7 +73,7 @@ export class WellnessController {
     static async deleteJournalEntry(req: Request, res: Response) {
         try {
             const userId = req.user!.id;
-            const entryId = parseInt(req.params.id as string);
+            const entryId = req.params.id as string;
             if (!entryId) return res.status(400).json({ status: "error", message: "Invalid entry id" });
             const result = await WellnessService.deleteJournalEntry(userId, entryId);
             res.json({ status: "success", data: result });

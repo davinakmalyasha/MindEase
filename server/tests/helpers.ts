@@ -9,6 +9,15 @@ export const app = createApp();
 export const PASSWORD = "TestPass@123";
 
 /**
+ * A well-formed UUIDv7 that no row carries.
+ *
+ * "Not found" has to be tested with an id that is *valid but unknown*: a
+ * numeric string is now a 400 from the param validator, which is a different
+ * answer and would hide a missing 404.
+ */
+export const MISSING_ID = "00000000-0000-7000-8000-000000000000";
+
+/**
  * The access token is delivered only as an HttpOnly cookie — it is deliberately
  * no longer part of the JSON body, because returning it there makes it readable
  * by any script on the page and defeats the point of the cookie. Tests read it
@@ -28,7 +37,7 @@ export interface TestUser {
     email: string;
     password: string;
     role: string;
-    id: number;
+    id: string;
     accessToken: string;
     agent: request.SuperAgentTest;
     csrf: string;

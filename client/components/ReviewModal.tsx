@@ -9,9 +9,9 @@ import Dialog from "@/components/ui/Dialog";
 
 interface ReviewModalProps {
     open: boolean;
-    doctorId: number;
+    doctorId: string;
     doctorName: string;
-    appointmentId: number;
+    appointmentId: string;
     onClose: () => void;
     onSuccess: () => void;
 }

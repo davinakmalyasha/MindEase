@@ -36,7 +36,7 @@ export interface CheckoutRequest {
     currency?: string;
     lines: CheckoutLine[];
     customer: {
-        id: number;
+        id: string;
         name: string;
         email: string;
     };

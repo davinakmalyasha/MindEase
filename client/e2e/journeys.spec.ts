@@ -82,6 +82,24 @@ async function pickFirstOfferedSlot(page: Page) {
     throw new Error("no date in the picker offered an open slot");
 }
 
+/**
+ * Resolves a seeded clinician's profile id from the public directory.
+ *
+ * Ids are UUIDv7 now, so there is no stable id to hardcode. The seed creates
+ * clinicians in order from fixed name lists (`server/scripts/seed.ts`), so the
+ * account and the display name are both deterministic - and the directory is
+ * the only source of an id that needs no session of its own.
+ */
+async function seededDoctorId(page: Page, name: string): Promise<string> {
+    const res = await page.request.get(`${API}/doctors?limit=50`);
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    const rows = body.data?.rows ?? body.data ?? [];
+    const doctor = rows.find((d: any) => d.user?.name === name);
+    expect(doctor, `seeded clinician ${name} should be in the directory`).toBeTruthy();
+    return doctor.id as string;
+}
+
 async function login(page: Page, email: string, password: string) {
     await page.goto("/login");
     await page.getByLabel("Email").fill(email);
@@ -272,7 +290,8 @@ test.describe("Journey 6: Reviews section smoke (round 3)", () => {
     test.use({ storageState: ".auth/doctor.json" });
 
     test("own profile renders the reviews section for the owning clinician", async ({ page }) => {
-        await page.goto("/doctors/1");
+        const dr1 = await seededDoctorId(page, "Dr. Sarah Mitchell");
+        await page.goto(`/doctors/${dr1}`);
         await expect(page.getByText(/Latest Reviews/)).toBeVisible({ timeout: 15_000 });
 
         // The seed deliberately creates zero reviews - it used to invent 4.2-4.9
@@ -382,16 +401,17 @@ test.describe("Journey 9: Chat smoke (round 3)", () => {
  * in order, so doctorId 2 is the second clinician it made. It is referenced by
  * account rather than by display name, because the name list is shuffled.
  *
- * The booking goes through the directory's deep link (`?doctor=2`) instead of
- * clicking "Book Now" on the second card. Positional selection made this journey
- * depend on the admin-visible order of a list every seeded rating ties at 0, so
- * MySQL is free to return whatever its plan produces - and it does return
- * doctor 7 first on this database. The journey hardcodes dr2 as the clinician
- * who accepts and completes the booking, so which card was second decided
- * whether the rest of the journey could work at all.
+ * The booking goes through the directory's deep link (`?doctor=<id>`) instead
+ * of clicking "Book Now" on the second card, and the id is resolved from the
+ * directory by display name. Positional selection made this journey depend on
+ * the admin-visible order of a list every seeded rating ties at 0, so MySQL is
+ * free to return whatever its plan produces - and it returns doctor 8 first on
+ * this database. The journey follows dr2's account as the clinician who accepts
+ * and completes the booking, so which card was second decided whether the rest
+ * of the journey could work at all.
  */
 test.describe("Journey 10: review lifecycle", () => {
-    const DOCTOR_ID = 2;
+    const DOCTOR_NAME = "Dr. James Carter";
     const DOCTOR_EMAIL = "dr2@mindease.app";
     const DOCTOR_PASSWORD = "Doctor@123";
 
@@ -401,7 +421,8 @@ test.describe("Journey 10: review lifecycle", () => {
         // --- Patient books -----------------------------------------------------
         const patient = await registerUser(page, "patient");
 
-        await page.goto(`/appointments?doctor=${DOCTOR_ID}`);
+        const doctorId = await seededDoctorId(page, DOCTOR_NAME);
+        await page.goto(`/appointments?doctor=${doctorId}`);
         await expect(page.getByText("Select Consultation Date")).toBeVisible({ timeout: 15_000 });
         await pickFirstOfferedSlot(page);
 
@@ -510,7 +531,7 @@ test.describe("Journey 10: review lifecycle", () => {
 
         // --- Clinician replies and reports ------------------------------------
         await login(page, DOCTOR_EMAIL, DOCTOR_PASSWORD);
-        await page.goto(`/doctors/${DOCTOR_ID}`);
+        await page.goto(`/doctors/${doctorId}`);
 
         const reply = page.getByRole("button", { name: /^Reply$/ }).first();
         // No conditional guard. If the review is missing, this test has failed

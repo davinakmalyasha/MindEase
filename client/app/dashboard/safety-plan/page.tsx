@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
  */
 
 export interface SafetyPlan {
-    id: number;
+    id: string;
     warningSigns: string | null;
     copingStrategies: string | null;
     reasonsToLive: string | null;
@@ -105,7 +105,7 @@ export default function SafetyPlanPage() {
     // when a different plan arrives, which is the only case where re-seeding is
     // correct. `undefined` means "not seeded yet"; `null` means "seeded from the
     // server having no plan", which is a real state distinct from unseeded.
-    const [seededId, setSeededId] = useState<number | null | undefined>(undefined);
+    const [seededId, setSeededId] = useState<string | null | undefined>(undefined);
 
     /**
      * The version the current draft is based on.

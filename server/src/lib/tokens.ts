@@ -77,13 +77,13 @@ export const verifyToken = <T extends jwt.JwtPayload = jwt.JwtPayload>(
 };
 
 export interface AccessTokenClaims {
-    userId: number;
+    userId: string;
     role: string;
     /** True when the session completed a second factor, or needs none. */
     totpVerified: boolean;
 }
 
-export const signAccessToken = (user: { id: number; role: string; totpVerified: boolean }): string =>
+export const signAccessToken = (user: { id: string; role: string; totpVerified: boolean }): string =>
     sign(
         "access",
         { userId: user.id, role: user.role, totpVerified: user.totpVerified },
@@ -98,14 +98,14 @@ export const signAccessToken = (user: { id: number; role: string; totpVerified: 
  */
 export type AuthMethod = "pwd" | "google" | "otp";
 
-export const signRefreshToken = (userId: number, amr: AuthMethod[] = ["pwd"]): string =>
+export const signRefreshToken = (userId: string, amr: AuthMethod[] = ["pwd"]): string =>
     sign("refresh", { userId, amr, jti: crypto.randomUUID() }, REFRESH_TTL);
 
-export const signTwoFactorPendingToken = (userId: number): string =>
+export const signTwoFactorPendingToken = (userId: string): string =>
     sign("2fa-pending", { userId }, TWO_FACTOR_TTL);
 
 export interface WsTicketClaims {
-    userId: number;
+    userId: string;
     role: string;
 }
 
@@ -123,7 +123,7 @@ export interface WsTicketClaims {
  * cannot obtain one. It is valid for 30 seconds and can do exactly one thing:
  * open a socket as the user it names.
  */
-export const signWsTicket = (user: { id: number; role: string }): string =>
+export const signWsTicket = (user: { id: string; role: string }): string =>
     sign(
         "ws-ticket",
         { userId: user.id, role: user.role },

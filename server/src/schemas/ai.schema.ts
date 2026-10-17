@@ -1,14 +1,15 @@
 import { z } from "zod";
+import { uuid7 } from "./params.schema";
 
 export const GenerateQuestionsSchema = z.object({
     body: z.object({
-        appointmentId: z.number().int().positive("Appointment is required"),
+        appointmentId: uuid7,
     }),
 });
 
 export const SubmitAnswersSchema = z.object({
     body: z.object({
-        appointmentId: z.number().int().positive("Appointment is required"),
+        appointmentId: uuid7,
         answers: z
             .array(
                 z.object({
@@ -23,10 +24,10 @@ export const SubmitAnswersSchema = z.object({
 
 export const GenerateBriefingSchema = z.object({
     body: z.object({
-        appointmentId: z.number().int().positive("Appointment is required"),
+        appointmentId: uuid7,
     }),
     params: z.object({
-        appointmentId: z.string().optional(),
+        appointmentId: uuid7.optional(),
     }),
 });
 

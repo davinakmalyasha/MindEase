@@ -11,7 +11,7 @@ import { jsonLdScript } from "@/lib/jsonLd";
 import { useAuth } from "@/context/AuthContext";
 
 interface ApiReview {
-    id: number;
+    id: string;
     rating: number;
     comment: string;
     reply?: string | null;

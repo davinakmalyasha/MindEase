@@ -112,7 +112,7 @@ export const useUpdateJournalEntry = () => {
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async ({ id, content }: { id: number; content: string }) => {
+        mutationFn: async ({ id, content }: { id: string; content: string }) => {
             const res = await api.put(`/wellness/journal/${id}`, { content });
             return res.data?.data;
         },
@@ -131,7 +131,7 @@ export const useDeleteJournalEntry = () => {
     const { toast } = useToast();
 
     return useMutation({
-        mutationFn: async (id: number) => {
+        mutationFn: async (id: string) => {
             await api.delete(`/wellness/journal/${id}`);
         },
         onSuccess: () => {
@@ -195,7 +195,7 @@ export interface TrajectoryResponse {
     type: string;
     instrument: { label: string; max: number; bands: { upTo: number; severity: string }[] };
     points: {
-        id: number;
+        id: string;
         score: number;
         severity: string;
         createdAt: string;
@@ -247,7 +247,7 @@ export interface AssessmentRiskSignal {
     /** Whether the RiskAlert row was written. False means no audit trail. */
     recorded: boolean;
     /** The queued item, so a clinician-facing view can link to it. */
-    alertId: number | null;
+    alertId: string | null;
 }
 
 /** What `POST /wellness/assessments` returns. */

@@ -7,7 +7,7 @@ import { prisma } from "../src/app";
 describe("Auth", () => {
     it("registers a patient and returns tokens", async () => {
         const user = await createUser("patient");
-        expect(user.id).toBeGreaterThan(0);
+        expect(user.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
         expect(user.accessToken).toBeTruthy();
     });
 

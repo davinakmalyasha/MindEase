@@ -7,7 +7,7 @@ import Spinner from "@/components/ui/Spinner";
 import { formatDate, formatIDR, formatTimeRange } from "@/lib/format";
 
 interface RebookOptions {
-    sameDoctor: { doctorId: number; slots: any[] };
+    sameDoctor: { doctorId: string; slots: any[] };
     similarDoctors: { slot: any; doctor: any }[];
 }
 
@@ -23,7 +23,7 @@ export default function RebookModal({
     const router = useRouter();
     const hasAny = options.sameDoctor.slots.length > 0 || options.similarDoctors.length > 0;
 
-    const goToDoctor = (doctorId: number) => {
+    const goToDoctor = (doctorId: string) => {
         onClose();
         router.push(`/doctors/${doctorId}`);
     };

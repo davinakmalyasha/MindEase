@@ -16,8 +16,8 @@
 export const ITEMS_PER_PAGE = 8;
 
 export interface Doctor {
-    id: number;
-    userId?: number;
+    id: string;
+    userId?: string;
     name: string;
     /**
      * Free text, as the column is.
@@ -69,7 +69,7 @@ export interface Doctor {
 }
 
 export interface AppointmentWithDoctor {
-    id: number;
+    id: string;
     appointmentDate: string;
     status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
     notes?: string;
@@ -77,7 +77,7 @@ export interface AppointmentWithDoctor {
     startTime?: string;
     endTime?: string;
     doctor: {
-        id: number;
+        id: string;
         name: string;
         specialty: string;
         avatar: string;

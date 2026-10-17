@@ -8,7 +8,7 @@ const NOTIFICATION_TTL_MS = 48 * 60 * 60 * 1000;
 const WAITING_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 export class WaitlistService {
-    static async join(doctorId: number, patientId: number) {
+    static async join(doctorId: string, patientId: string) {
         const doctor = await prisma.doctor.findUnique({ where: { id: doctorId } });
         if (!doctor) throw notFound("Doctor not found");
 
@@ -30,7 +30,7 @@ export class WaitlistService {
         return entry;
     }
 
-    static async leave(doctorId: number, patientId: number) {
+    static async leave(doctorId: string, patientId: string) {
         await prisma.waitlistEntry.updateMany({
             where: { doctorId, patientId, status: { in: ["waiting", "notified"] } },
             data: { status: "expired" },
@@ -38,7 +38,7 @@ export class WaitlistService {
         return { success: true };
     }
 
-    static async status(doctorId: number, patientId: number) {
+    static async status(doctorId: string, patientId: string) {
         const entry = await prisma.waitlistEntry.findFirst({
             where: { doctorId, patientId, status: { in: ["waiting", "notified"] } },
         });
@@ -48,7 +48,7 @@ export class WaitlistService {
     }
 
     /** Marks the waitlist entry as fulfilled when the patient books. */
-    static async markBooked(doctorId: number, patientId: number) {
+    static async markBooked(doctorId: string, patientId: string) {
         await prisma.waitlistEntry
             .updateMany({
                 where: { doctorId, patientId, status: { in: ["waiting", "notified"] } },
@@ -61,14 +61,14 @@ export class WaitlistService {
      * Notifies waiting patients that a slot just opened (top N, claim-style so
      * multiple replicas never double-notify). Called on slot release / creation.
      */
-    static async notifyWaiters(doctorId: number, limit = 3) {
+    static async notifyWaiters(doctorId: string, limit = 3) {
         const waiters = await prisma.waitlistEntry.findMany({
             where: { doctorId, status: "waiting" },
             orderBy: { createdAt: "asc" },
             take: limit,
         });
 
-        const notified: number[] = [];
+        const notified: string[] = [];
         for (const waiter of waiters) {
             // Compare-and-swap on status, so only one replica wins per waiter.
             const claim = await prisma.waitlistEntry.updateMany({

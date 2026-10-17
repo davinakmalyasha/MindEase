@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { uuid7 } from "./params.schema";
 
 export const UpdateUserRoleSchema = z.object({
     body: z.object({
         role: z.enum(["patient", "doctor", "admin"], "Invalid role"),
     }),
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid user id"),
+        id: uuid7,
     }),
 });
 
@@ -14,7 +15,7 @@ export const UpdateVerificationSchema = z.object({
         status: z.enum(["approved", "rejected"], "Invalid verification status"),
     }),
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid doctor id"),
+        id: uuid7,
     }),
 });
 
@@ -30,6 +31,6 @@ export const ReviewReportStatusSchema = z.object({
         status: z.enum(["resolved", "dismissed"], "Invalid status"),
     }),
     params: z.object({
-        id: z.string().regex(/^\d+$/, "Invalid report id"),
+        id: uuid7,
     }),
 });
