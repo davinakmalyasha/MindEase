@@ -201,12 +201,10 @@ invariant rather than a convention.
 
 ### Known deviations
 
-**Sequential integer ids are exposed in API responses.** The PRD requires UUIDv7
-in every external identifier and prohibits leaking internal ids. That is not
-met, and retrofitting it across 27 models, every route, every cache key and
-every export is a rewrite rather than a change. It is recorded here rather than
-left for a reader to discover, because a requirement that has been quietly
-abandoned is worse than one that was never met.
+**Sequential integer ids are no longer exposed.** The deviation recorded here
+was closed: every primary key is UUIDv7 and every id-typed column is a string,
+so there is no internal sequential identifier in any response. The destructive
+migration and its rationale are in `docs/roadmap.md` (theme 1).
 
 **`code.md` was removed.** It described a Go/Gin/raw-SQL architecture that was
 never built. Its zero-trust threat model survives in the services and ADRs.

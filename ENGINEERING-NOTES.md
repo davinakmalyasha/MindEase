@@ -996,3 +996,45 @@ through three stacked limiters: zero mentions, limit still enforced.
 
 The lesson is the same as the service worker's: a diagnostic that only runs on
 failure hides a condition that is present on success.
+
+## The identifier rewrite, and the bug the page found
+
+The PRD asked for UUIDv7 in every external identifier and no internal integers
+in responses. The roadmap had recorded a plan for that: a second `publicId`
+column beside the integer primary key, so joins and data survived. With no
+production database to preserve, that plan's only argument disappears - and its
+cost does not. Two ids mean a mapping layer that must be correct in every
+nested response field; one missed field leaks exactly what the change exists to
+hide. So the ids became UUIDv7 primary keys instead, and there is no internal
+id anywhere to leak.
+
+That decision made the migration destructive: a key's type cannot be changed in
+place. The migration drops and recreates all 28 tables, which is a no-op on a
+fresh CI database and means "reseed" on a developer machine. The header says so,
+and the roadmap records why a production deployment would need a different
+migration shape (add, backfill, dual-read, cut over).
+
+The mechanical fallout was larger than expected but mostly compiler-led: 26
+type errors in the API after two bulk edits, 73 client annotations, the Go
+hub's maps and JWT claim, and 9 server tests that had hard-coded numeric ids or
+asserted `typeof id === "number"`. Two things needed judgement rather than a
+type change: the review pseudonym generator hashed the integer id with
+arithmetic, which became meaningless for a UUID (it now hashes the string with
+FNV-1a under two seeds), and `AuditService.readsForSubject` searched for
+`"subjectId":42` inside the audit meta JSON, which matched integers and misses
+JSON strings (`"subjectId":"…"`). That search is how the access-log tests keep
+their grip, so it was worth fixing properly.
+
+Then the end-to-end suite found the one bug the test suite structurally could
+not. `wellness.schema.ts` imports its shared UUID validator halfway down the
+file, after a schema that uses it. Vitest hoists ESM imports, so every test
+passed; ts-node emits CommonJS `require` calls in source order, so the API
+crashed on boot with `Cannot access 'params_schema_1' before initialization` -
+and only when a real process started, which is exactly what the e2e run does
+and the unit suite does not. The import moved to the top.
+
+`identifier-shape.test.ts` now holds the rule: every model's primary key is
+UUIDv7 (or a natural opaque string key), no `\w+Id` column is an `Int`, and no
+route schema coerces an id to a number. The version nibble is checked
+specifically, because "accepts any UUID" would let the next generator drift
+while the tests stayed green.

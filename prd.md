@@ -293,11 +293,12 @@ sequenceDiagram
 2. **Secure Key/ID Exposure Protection**:
    - Internal auto-increment database integer IDs (`BIGINT`) must **never** be exposed in public API routes or JSON payloads.
    - Use UUIDv7 for all external URL route parameters and JSON responses (e.g. `/api/appointments/018f7a83-b7ca-7650-8b1c-34ba7015cf01`).
-   - **Status: not met.** Every model uses an auto-increment `Int` primary key
-     and every response exposes it. Retrofitting UUIDv7 means 27 models, every
-     route handler, every cache key, the `.ics` export, the GDPR data export and
-     the e2e suite — a rewrite, not a change. It is recorded here and in
-     `ARCHITECTURE.md` as a known deviation rather than quietly dropped,
+   - **Status: met.** Every model's primary key is a UUIDv7 string
+     (`@default(uuid(7))`), every id-typed column is a string, and every route
+     parameter is validated as version 7 specifically. There is no sequential
+     integer id left to expose. The migration that did it was destructive by
+     necessity (a key's type cannot be changed in place); it is documented in
+     `docs/roadmap.md` and `ENGINEERING-NOTES.md`.
      because a requirement that has been abandoned without saying so is worse
      than one that was never met.
    - What *is* enforced today is requirement 5.1: every read, update and

@@ -18,39 +18,44 @@ clinical surface is standing on top of and will keep leaning on.
 
 The two things I would defend hardest as the next six months:
 
-1. **Identifiers.** Every API response exposes a sequential integer. This is the
-   single largest security gap in the system and it is a rewrite, which is
-   exactly why it needs to be planned rather than discovered.
-2. **Durable background work.** Three scheduled jobs run inside the API process
-   and can be missed without trace. Nothing about the clinical surface depends on
-   them today, which is precisely when it is cheap to fix.
+1. ~~**Identifiers.**~~ Done: every key is UUIDv7 and no integer id is
+   exposed. The change was a rewrite, which is why it was planned rather than
+   discovered.
+2. **Durable background work.** Partly closed: a lost tick is caught up and a
+   failed send hands its claim back, and a worker can own the schedule. What
+   remains is deploying it.
 
 ## Themes
 
-### 1. External identifiers
+### 1. ~~External identifiers~~ — done
 
-**The gap.** `prd.md` requires UUIDv7 in every external identifier and prohibits
-leaking internal ids. Neither is met. Every response exposes
-`{ id: 42 }`, and anyone who reads their own record learns the primary-key
-sequence and can enumerate.
+**The gap.** `prd.md` required UUIDv7 in every external identifier and prohibits
+internal integers in responses. Every response used to expose `{ id: 42 }`, so
+anyone reading their own record learned the sequence.
 
-**Why it is not just "add a column".** Retrofitting means touching 27 models,
-every route, every cache key, every export, the `.ics` payload, the GDPR export,
-and the three places the realtime contract carries ids. It is a rewrite rather
-than a change, and it is recorded in `ARCHITECTURE.md` rather than left for a
-reader to discover.
+**What was done.** Every model's primary key is `String @id @default(uuid(7)) @db.Char(36)`,
+and every id-typed scalar (foreign keys included) is a string. A UUID is the
+only identifier that exists, so there is no internal one left to leak and no
+mapping layer that can forget a nested field. Route parameters are validated as
+UUIDv7 specifically, so a numeric id is a 400 rather than a silently-translated
+lookup. The realtime contract carries the string (JWT claim, Redis envelope, Go
+hub maps), and the client's ids are strings end to end.
 
-**The direction.** A separate `publicId String @unique @db.Char(36)` alongside
-the existing `Int` primary key, with the internal id never leaving the service
-layer. That preserves every join, every index and every existing foreign key
-while making the public surface opaque. The trap is doing it halfway — a
-`publicId` on some models and not others is worse than none, because a reader
-cannot tell which is which.
+**Why the direction changed.** This section used to prescribe a second
+`publicId` column beside an integer primary key, to preserve joins and data.
+The repository has no production data to preserve, which removes the only
+argument for two ids - and the mapping it requires is a large surface where a
+single missed nested field leaks exactly what the change exists to hide. One id
+is the smaller, safer change here; if a production database ever needs
+preserving, the migration will have to be written differently (add `publicId`,
+backfill, dual-read, cut over).
 
-**The cost to be honest about.** It doubles the key surface on every table that
-gets it, and it is a two-way mapping that must be correct in the API layer for
-every route. It is the right change and it should be a deliberate piece of work
-with its own branch, not a side-effect of a feature.
+**The cost.** The migration is destructive by necessity (a key's type cannot be
+changed in place), so upgrading an environment means reseeding it. The change
+touched the schema, 94 route-parameter parse sites, the realtime contract, and
+73 client annotations; TypeScript found most of them, the server and e2e suites
+found the rest. `identifier-shape.test.ts` pins the rule so a new integer-keyed
+model fails CI.
 
 ### 2. ~~The payment race~~ — done
 
@@ -383,7 +388,7 @@ would be silent and in the dangerous direction. See
 | README says | Status |
 |---|---|
 | Checkout is read-before-create | **Already fixed.** The live-checkout claim is a unique `liveKey`, cleared on settlement. The README entry is stale. |
-| Sequential integer ids exposed | Open. Theme 1. The largest security gap in the system. |
+| Sequential integer ids exposed | **Already fixed.** Every key is UUIDv7; no integer id appears in any response. The README entry is stale. |
 | Specialty filter taxonomy mismatch | **Already fixed.** The list is now derived from the server. The README entry is stale. |
 | No payment gateway wired | Accurate and intentional. The interface and its invariants are complete; `getPaymentProvider` returns a stub. |
 | Crisis triage is keyword matching | Accurate, and will stay that way. Deliberate, not a gap. |
@@ -410,10 +415,10 @@ Not a plan. An ordering, with the reasoning:
 4. ~~**The guard scripts, then e2e to required.**~~ Both are "make CI mean what it
    claims to mean", and both are done: the guard scripts are required steps and
    the journeys run on every `docker` job, after the seed.
-5. **Durable background work.** Needs a deployment shape decision (where does the
-   worker run), so it follows rather than leads.
+5. **Durable background work.** The worker exists (`npm run worker` + the
+   `/api/internal/jobs` trigger); what remains is the deployment shape decision,
+   i.e. actually running it.
 6. **A real payment provider**, then the race fix once the product has answered
    the double-purchase question. The two belong in the same conversation.
-7. **UUIDv7.** Last, and on its own branch. It is the largest change, it touches
-   everything, and doing it while other work is in flight multiplies the risk of
-   a half-migrated identifier surface.
+7. ~~**UUIDv7.**~~ Done, on its own branch as planned. The destructive
+   migration and the reseed it requires are documented in theme 1.
