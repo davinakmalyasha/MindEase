@@ -61,13 +61,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # gitleaks needs the history to scan it, and the default
           # `fetch-depth: 1` would give it one commit.
           fetch-depth: 0
       - name: Scan full history
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         # `GITHUB_TOKEN` is an env var, not a `with:` input. The action declares
         # no inputs at all - passing one fails the step with "Unexpected input(s)
         # 'GITHUB_TOKEN'" - and it is required since v2 to scan a pull_request
@@ -99,9 +99,9 @@ jobs:
       # the other three jobs cannot write to it.
       security-events: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v3
         with:
           languages: javascript-typescript
           # No build step. TypeScript is not compiled by CodeQL, and a custom
@@ -113,7 +113,7 @@ jobs:
           paths: server,client
           queries: security-and-quality
       - name: Analyse
-        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v3
         with:
           category: "/language:javascript-typescript"
 
@@ -125,9 +125,9 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v3
         with:
           languages: go
           # Go needs a real build for the extractor to see call graphs. A
@@ -136,7 +136,7 @@ jobs:
           paths: server-realtime
           queries: security-and-quality
       - name: Analyse
-        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v3
         with:
           category: "/language:go"
 
@@ -178,7 +178,7 @@ jobs:
           - image: server-realtime
             dockerfile: server-realtime/Dockerfile
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Scan ${{ matrix.dockerfile }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -227,7 +227,7 @@ jobs:
       # what was covered.
       image-ref: ${{ steps.resolve.outputs.ref }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build the image
         env:
@@ -306,8 +306,8 @@ jobs:
       run:
         working-directory: ${{ matrix.directory }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -352,8 +352,8 @@ jobs:
       run:
         working-directory: server-realtime
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Matches ci.yml and the `go` directive in go.mod. A mismatch makes
           # the analysis describe a toolchain the service is not built with.
