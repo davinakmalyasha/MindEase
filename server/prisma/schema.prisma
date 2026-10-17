@@ -699,6 +699,14 @@ model PackagePurchase {
     sessionCount     Int      @default(0)
     // Provider transaction reference, retained for reconciliation.
     reference        String?
+    // The atomic "one live checkout" claim: `userId:packageId` while the
+    // purchase is pending and unpaid, NULL once it settles or is released.
+    // The unique index is what makes two concurrent checkouts impossible -
+    // the old `findFirst` check let both requests read "none" and both create.
+    // A single nullable column rather than a partial index because MySQL has
+    // no partial unique index, and a generated column would be invisible to
+    // Prisma's schema.
+    liveKey          String?  @unique @db.VarChar(80)
     appointments Appointment[]
     paymentOrder PaymentOrder?
     createdAt    DateTime @default(now())
