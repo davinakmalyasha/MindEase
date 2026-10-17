@@ -169,11 +169,28 @@ test.describe("Journey 4: Assessments + mood factors (round 3)", () => {
         await page.goto("/dashboard/assessments");
         await expect(page.getByRole("heading", { name: /Self-Assessments/ })).toBeVisible({ timeout: 15_000 });
 
-        // Answer all 9 PHQ-9 questions with "Not at all" (score 0 → minimal)
+        // Answer all 9 PHQ-9 questions with "Not at all" (score 0 → minimal).
+        //
+        // Every Next click is followed by a wait for the question to change.
+        // One CI run's trace showed all eight clicks dispatched and the wizard
+        // still on "Question 8 of 9" with its answer set: a click had been
+        // dispatched and done nothing, and this loop had no way to notice - it
+        // failed ninety seconds later on a Submit button that never rendered,
+        // with a snapshot that said "Question 8 of 9". A person whose click
+        // does nothing clicks again, so this does too, and the assertion is
+        // what turns a silent no-op into a named failure if the retry does not
+        // take.
         for (let i = 0; i < 9; i++) {
             await page.getByRole("button", { name: /^Not at all$/ }).click();
             if (i < 8) {
                 await page.getByRole("button", { name: /Next/ }).click();
+                const advanced = page.getByText(`Question ${i + 2} of 9`);
+                try {
+                    await expect(advanced).toBeVisible({ timeout: 3000 });
+                } catch {
+                    await page.getByRole("button", { name: /Next/ }).click();
+                    await expect(advanced).toBeVisible({ timeout: 5000 });
+                }
             }
         }
         await page.getByRole("button", { name: /Submit/ }).click();
