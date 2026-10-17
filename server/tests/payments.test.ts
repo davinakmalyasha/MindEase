@@ -213,6 +213,77 @@ describe("Package checkout", () => {
         expect(second.status).toBe(409);
     });
 
+    it("gives one 201 and one 409 when two checkouts race", async () => {
+        // The end state under concurrency: exactly one live checkout and one
+        // 409. This alone does not prove the fix - a serialized interleaving
+        // would satisfy the old read-before-create guard too - so the
+        // guarantee itself is pinned by the constraint test below.
+        const { provider } = stubProvider("pending");
+        __setPaymentProvider(provider);
+
+        const patient = await createUser("patient");
+        const post = () =>
+            patient.agent
+                .post(`/api/payments/packages/${packageId}/checkout`)
+                .set("X-CSRF-Token", patient.csrf);
+
+        const [a, b] = await Promise.all([post(), post()]);
+        expect([a.status, b.status].sort()).toEqual([201, 409]);
+
+        const live = await prisma.packagePurchase.count({
+            where: { userId: patient.id, packageId, status: "pending", paidAt: null },
+        });
+        expect(live).toBe(1);
+    });
+
+    it("enforces the one-live-checkout claim at the database, not by a read", async () => {
+        // The guarantee the service relies on: a second pending row for the
+        // same (user, package) cannot exist, whatever the requests do. Two
+        // direct inserts with the same liveKey race here; exactly one must
+        // succeed and the other must be a unique-constraint violation. A
+        // read-then-write guard cannot satisfy this test.
+        const patient = await createUser("patient");
+        const liveKey = `${patient.id}:${packageId}`;
+
+        const create = () =>
+            prisma.packagePurchase.create({
+                data: {
+                    packageId,
+                    userId: patient.id,
+                    sessionsLeft: 0,
+                    status: "pending",
+                    totalPrice: 1,
+                    sessionCount: 1,
+                    liveKey,
+                },
+            });
+
+        const results = await Promise.allSettled([create(), create()]);
+        expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+        const rejected = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+        expect((rejected.reason as { code?: string }).code).toBe("P2002");
+    });
+
+    it("allows a new checkout once the live one has settled", async () => {
+        // The claim exists to stop two *live* orders; it must not lock the
+        // package forever after a payment. Settlement clears `liveKey`.
+        const { provider } = stubProvider("paid");
+        __setPaymentProvider(provider);
+
+        const patient = await createUser("patient");
+        const first = await patient.agent
+            .post(`/api/payments/packages/${packageId}/checkout`)
+            .set("X-CSRF-Token", patient.csrf);
+        expect(first.status).toBe(201);
+
+        await PaymentService.applyOutcome(first.body.data.orderId, 600000, "paid", "stub_1");
+
+        const second = await patient.agent
+            .post(`/api/payments/packages/${packageId}/checkout`)
+            .set("X-CSRF-Token", patient.csrf);
+        expect(second.status).toBe(201);
+    });
+
     it("requires authentication to start a checkout", async () => {
         // Fetch a valid CSRF pair first, so this exercises the *session* check
         // rather than being satisfied by the CSRF rejection a bare POST gets.

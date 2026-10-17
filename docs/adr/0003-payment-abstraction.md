@@ -67,14 +67,26 @@ is redirected and the same id comes back on the callback. Overloading a purchase
 column would make the callback a scan; a separate table makes it one indexed
 lookup and leaves room for status transitions later.
 
-## The race we knowingly left in
+## The race we knowingly left in — now closed
 
-**Checkout is read-before-create. Two concurrent checkouts for the same package
-create two orders, and a callback that lands for both grants twice.**
+**Checkout was read-before-create. Two concurrent checkouts for the same package
+created two orders, and a callback that landed for both granted twice.**
 
-This is a real defect and it is documented rather than fixed, because the fix is
-a design change with a user-facing decision attached and it did not belong in the
-same change as the rest of the payment work.
+It was documented rather than fixed in the original change, because the fix is a
+design change with a user-facing decision attached. It is now closed with the
+first option below: `PackagePurchase.liveKey` holds `userId:packageId` while the
+purchase is pending and unpaid and is cleared on settlement (and the row itself
+disappears on failure or expiry). The unique index on it is the claim, so two
+concurrent inserts cannot both succeed; the service maps the constraint
+violation to the same 409 the old pre-check returned. "One live order" is the
+semantic the product wanted all along — a patient may buy the same package again
+once the first settles, and cannot buy it twice *at once*.
+
+The migration backfills the claim for the newest live checkout per (user,
+package); older duplicate rows produced by this race keep a NULL key and cannot
+block a legitimate checkout.
+
+The options as they were weighed:
 
 The options, in the order we would take them:
 

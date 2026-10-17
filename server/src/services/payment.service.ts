@@ -60,37 +60,45 @@ export class PaymentService {
         });
         if (!user) throw notFound("User not found");
 
-        // One live checkout per (user, package). Without this a double click, or
-        // a refresh mid-redirect, produced a second pending row and — once one
-        // settled — two entitlements for one payment.
+        // One live checkout per (user, package), enforced by the database.
         //
-        // Keyed on `status: "pending"` rather than on `sessionsLeft`: a pending
-        // purchase deliberately starts at zero sessions so it cannot be booked
-        // before settlement, which means a `sessionsLeft > 0` test never
-        // matches the very rows this guard exists to find.
-        const existing = await prisma.packagePurchase.findFirst({
-            where: { userId, packageId: pkg.id, status: "pending", paidAt: null },
-        });
-        if (existing) {
-            throw conflict("You already have a pending purchase for this package");
-        }
+        // This used to be a `findFirst` followed by a `create`, which is
+        // read-before-create: two concurrent requests both read "none" and both
+        // created a pending purchase, and once both orders settled the patient
+        // held two entitlements for one package. The unique `liveKey` column
+        // makes the second create fail atomically instead.
+        //
+        // `liveKey` is set while the purchase is pending and unpaid, and
+        // cleared on settlement (and gone with the row on failure, since those
+        // rows are released). A single nullable column rather than a partial
+        // index because MySQL has no partial unique index.
+        const liveKey = `${userId}:${pkg.id}`;
 
         const orderId = `ME-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
 
-        const pending = await prisma.packagePurchase.create({
-            data: {
-                packageId: pkg.id,
-                userId,
-                sessionsLeft: 0,
-                // Starts unusable. `paidAt` is null and `sessionsLeft` is zero, so
-                // the booking path — which requires one or the other — cannot
-                // consume it before settlement.
-                status: "pending",
-                totalPrice: pkg.totalPrice,
-                sessionCount: pkg.sessionCount,
-            },
-            select: { id: true },
-        });
+        let pending: { id: number };
+        try {
+            pending = await prisma.packagePurchase.create({
+                data: {
+                    packageId: pkg.id,
+                    userId,
+                    sessionsLeft: 0,
+                    // Starts unusable. `paidAt` is null and `sessionsLeft` is zero, so
+                    // the booking path — which requires one or the other — cannot
+                    // consume it before settlement.
+                    status: "pending",
+                    totalPrice: pkg.totalPrice,
+                    sessionCount: pkg.sessionCount,
+                    liveKey,
+                },
+                select: { id: true },
+            });
+        } catch (err: any) {
+            if (err?.code === "P2002") {
+                throw conflict("You already have a pending purchase for this package");
+            }
+            throw err;
+        }
 
         // The provider is told this order id before the redirect, and it comes
         // back on the callback. Persist the mapping first so a callback that
@@ -225,6 +233,10 @@ export class PaymentService {
                     status: "active",
                     sessionsLeft: purchase.sessionCount,
                     reference: reference ?? null,
+                    // Release the checkout claim: the patient may buy the same
+                    // package again later, and the unique key exists only to
+                    // stop two *live* orders at once.
+                    liveKey: null,
                 },
             }),
             order
