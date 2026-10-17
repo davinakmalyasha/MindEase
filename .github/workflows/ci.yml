@@ -307,9 +307,9 @@ jobs:
         # instead, which is the entire point of having CI.
         run: node scripts/check-migration-case.js
 
-      - name: UI hygiene (advisory)
-        # Counts, never fails. Three things this codebase has been quietly losing
-        # ground on, and all three are invisible until someone counts them:
+      - name: UI hygiene ratchet
+        # Three things this codebase has been quietly losing ground on, and all
+        # three are invisible until someone counts them:
         #
         #   hardcoded UI strings  English text in JSX that `useTranslations` was
         #                        meant to cover, so the Indonesian build silently
@@ -320,19 +320,19 @@ jobs:
         #                        centralise exactly this
         #   <img> without alt     a screen reader announces the file path
         #
-        # Advisory on purpose. A gate with 180 existing violations is a gate nobody
-        # turns on, and enabling it before fixing them would block every PR. This
-        # prints a number so the direction is visible and the count can be held flat
-        # or driven down as strings are migrated.
+        # Required, with the budgets pinned where the counts stood when it was
+        # promoted. The counts may go down and never up; a counter collapsing
+        # below its floor fails too, because a walker that stops finding
+        # anything would sail under every maximum and make the gate look green.
         #
         # UI_HYGIENE_VERBOSE=1 lists every finding.
         #
         # `working-directory: .` because this job defaults to `server/` and the
-        # script lives in `client/scripts/`. Without it the step fails with module
-        # not found - which is how a guard that is supposed to never fail ended up
-        # turning the build red on its first run.
+        # script lives in `client/scripts/`.
         working-directory: .
-        run: node client/scripts/check-ui-hygiene.js
+        run: |
+          node client/scripts/check-ui-hygiene.test.js
+          node client/scripts/check-ui-hygiene.js
         env:
           UI_HYGIENE_VERBOSE: ${{ vars.UI_HYGIENE_VERBOSE }}
 
@@ -415,11 +415,11 @@ jobs:
       # The vitest suite was never run in CI, so the api-session and
       # notifications-store regression tests only ever ran locally.
       - run: npm test
-      # The client half of coverage, which is cheap enough to produce on every
-      # pull request - unlike the server suite, which runs it on main only. No
-      # thresholds; see the `coverage` job for why.
-      - name: Coverage (advisory)
-        continue-on-error: true
+      # The client half of coverage, cheap enough to produce on every pull
+      # request - unlike the server suite, which runs it on main only. The
+      # thresholds live in `vitest.config.ts` and sit just below the measured
+      # baseline; see the `coverage` job for the numbers and the reasoning.
+      - name: Coverage (gated)
         run: npm run coverage
       - name: Upload the coverage report
         if: always()
@@ -472,7 +472,7 @@ jobs:
         run: go test -race -cover ./...
 
   # --------------------------------------------------------------------
-  # Coverage, advisory
+  # Coverage, gated on main
   #
   # The vitest configs have produced coverage for a while - `npm run coverage`
   # writes an HTML report - but nothing collected it, so the number existed only
@@ -487,22 +487,20 @@ jobs:
   # run get it; a PR does not. The client half is cheap enough to run on every PR
   # and lives in the `client` job.
   #
-  # ## Why it cannot fail
+  # ## Why it can fail now
   #
-  # No thresholds, deliberately. A threshold introduced at the same moment as the
-  # first measurement is a number nobody has read yet, and this codebase would
-  # fail it by a wide margin - which would then be "fixed" by adding exclusions
-  # until it passed. A number that appears and is ignored is worth more than no
-  # number; the gate comes after someone has read the baseline.
-  #
-  # The step is advisory on top of that, so an upload failure or a coverage-tool
-  # regression cannot redden `main` either.
+  # The baseline has been read - 73.99% statements, 55.64% branches, 76.55%
+  # functions and 76.8% lines, with thresholds set just below in
+  # `vitest.config.ts`. The number is no longer a report nobody looks at, and a
+  # regression below the floor is a merge-time failure on main rather than a
+  # line in an artifact. The upload itself stays `continue-on-error`: an
+  # artifact-store hiccup should not redden main, the measurement should.
   coverage:
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
     timeout-minutes: 35
-    name: Coverage (server, advisory)
+    name: Coverage (server, gated on main)
     runs-on: ubuntu-latest
     services:
       mysql:
@@ -531,7 +529,6 @@ jobs:
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
       - name: Coverage
-        continue-on-error: true
         run: npm run coverage
         env:
           # Same wiring as the `server` job: `tests/setup.ts` reads

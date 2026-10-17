@@ -15,12 +15,26 @@ export default defineConfig({
         // was never referenced by any config or script. Wired up so the number
         // can be produced at all.
         //
-        // No thresholds, and the same reasoning as the server: a gate added with
-        // a first run is a number nobody has read yet. See docs/roadmap.md.
+        // ## Thresholds
+        //
+        // The report is no longer advisory-only: the first baseline was read
+        // (2.75% statements, 75.77% branches, 69.51% functions, 2.75% lines) and
+        // the floors below sit just under it. The statement and line figures are
+        // diluted by `all: true`, which counts every file in the app even where
+        // only a handful have unit coverage; the numbers that actually move with
+        // this suite are branches and functions, and those are pinned close to
+        // the measurement. They are floors, not targets: raise them when the
+        // number is genuinely earned, never lower them to make a run pass.
         coverage: {
             provider: "v8",
             reportsDirectory: "coverage",
             reporter: ["text-summary", "html", "lcov"],
+            thresholds: {
+                statements: 2,
+                branches: 75,
+                functions: 69,
+                lines: 2,
+            },
             // The locale files are large data, not logic. Measuring them would
             // report a low percentage that says nothing about the client.
             exclude: [

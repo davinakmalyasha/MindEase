@@ -28,23 +28,32 @@ export default defineConfig({
         fileParallelism: false,
 
         /**
-         * Coverage, available but not required.
+         * Coverage.
          *
-         * `npm run coverage` produces an HTML report under
-         * `server/coverage/`. It is not wired into `npm test`, because the
-         * suite is 488 integration tests against a real MySQL and the v8
-         * instrumentation overhead on top of that is not something to pay on
-         * every run to produce a number that changes on its own.
+         * `npm run coverage` produces an HTML report under `server/coverage/`
+         * and is not part of `npm test` - the v8 instrumentation overhead on top
+         * of an integration suite against a real MySQL is not something to pay
+         * on every local run.
          *
-         * No thresholds, deliberately. A coverage gate added at the same moment
-         * as a first coverage run is a number nobody has looked at yet, and this
-         * codebase would fail it by a wide margin - which would then get
-         * "fixed" by adding exclusions. `docs/roadmap.md` tracks it.
+         * ## Thresholds
+         *
+         * The baseline has been read: 73.99% statements, 55.64% branches,
+         * 76.55% functions, 76.8% lines. The floors below sit just under it, so
+         * ordinary churn does not flake the gate while a real regression does.
+         * They are floors, not targets: raise them when the number is earned,
+         * never lower them to make a run pass. CI enforces them on main and the
+         * weekly run, where the suite already pays for coverage.
          */
         coverage: {
             provider: "v8",
             reportsDirectory: "coverage",
             reporter: ["text-summary", "html", "lcov"],
+            thresholds: {
+                statements: 73,
+                branches: 55,
+                functions: 75,
+                lines: 76,
+            },
             // Tests are not the subject; measuring them tells you how many
             // assertions exist, which is a different and much less useful number.
             exclude: ["tests/**", "**/*.d.ts", "dist/**", "prisma/**", "node_modules/**"],
