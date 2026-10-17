@@ -1,11 +1,29 @@
 /**
- * Advisory guards for the two things this codebase is slowly losing ground on.
+ * The UI-hygiene ratchet.
  *
- * Neither is an error yet. Both are `warn`, and both print a count rather than a
- * list of every line, because a guard that reports 200 findings gets ignored and
- * then deleted. The point is that the number must not go *up*.
+ * Two things this codebase was slowly losing ground on, plus one cheap
+ * accessibility check:
+ *
+ *   - English text in JSX that `useTranslations` was meant to cover, so the
+ *     Indonesian build silently falls back to English
+ *   - `toLocaleDateString()` and friends, which render in the *viewer's* locale
+ *     and timezone rather than the one the user chose; `lib/format.ts` exists to
+ *     centralise exactly this
+ *   - `<img>` without `alt`, which a screen reader announces as the file path
+ *
+ * It used to print counts and never fail, because a gate with 200 existing
+ * violations blocks every pull request on debt nobody has started paying. The
+ * budgets below are where the counts stood when this became a gate. They are
+ * **maxima**: the count may go down, never up. Lower a budget when a migration
+ * actually lands; raising one is a decision that should be argued for in the
+ * change that does it.
+ *
+ * The floors are the other half. A broken walker reports zero and would sail
+ * under any maximum, so a collapse that large fails too and asks whether the
+ * instrument broke or the debt was genuinely paid.
  *
  * Run: node scripts/check-ui-hygiene.js
+ * List: UI_HYGIENE_VERBOSE=1 node scripts/check-ui-hygiene.js
  */
 const fs = require("fs");
 const path = require("path");
@@ -13,6 +31,12 @@ const path = require("path");
 const ROOTS = ["app", "components", "hooks", "lib"];
 const FILES = /\.(tsx|ts)$/;
 const TEST_FILES = /\.test\.tsx?$/;
+
+/** Maxima. These may only go down. */
+const BUDGET = { hardcoded: 184, bypasses: 38, imagesMissingAlt: 0 };
+
+/** Floors. These guard the instrument, not the debt. Lower deliberately. */
+const FLOOR = { hardcoded: 150 };
 
 /** i18n message catalogues, used to tell a real string from an identifier. */
 const MESSAGES = ["messages/en.json", "messages/id.json"].map((f) =>
@@ -137,29 +161,75 @@ for (const file of sources) {
 }
 
 // ---------------------------------------------------------------------------
-// Report
+// 4. The ratchet itself
 // ---------------------------------------------------------------------------
-const filesWith = (rows) => new Set(rows.map((r) => r.rel)).size;
 
-console.log("  UI hygiene (advisory - none of these fail the build)\n");
-console.log(`    hardcoded UI strings     ${hardcoded.length} in ${filesWith(hardcoded)} files`);
-console.log(`    locale bypasses          ${bypasses.length} in ${filesWith(bypasses)} files`);
-console.log(`    <img> without alt         ${imagesMissingAlt.length} in ${filesWith(imagesMissingAlt)} files`);
-
-if (process.env.UI_HYGIENE_VERBOSE) {
-    const show = (label, rows) => {
-        if (!rows.length) return;
-        console.log(`\n  ${label}:`);
-        for (const r of rows) {
-            console.log(`    ${r.rel}:${r.line}${r.value ? `  "${r.value}"` : ""}`);
+/**
+ * Classifies the measured counts. Pure, so the self-test can pin both halves:
+ * a count above its maximum fails, and the translatable-text counter collapsing
+ * below its floor fails too (that is the walker breaking, not debt being paid).
+ *
+ * @returns {{ failures: string[], over: string[], under: string[] }}
+ */
+const judge = (counts, budget = BUDGET, floor = FLOOR) => {
+    const rows = [
+        ["hardcoded UI strings", counts.hardcoded, budget.hardcoded, floor.hardcoded],
+        ["locale bypasses", counts.bypasses, budget.bypasses, undefined],
+        ["<img> without alt", counts.imagesMissingAlt, budget.imagesMissingAlt, undefined],
+    ];
+    const failures = [];
+    const over = [];
+    const under = [];
+    for (const [label, actual, max, min] of rows) {
+        if (actual > max) {
+            over.push(`${label}: ${actual}, budget ${max} (+${actual - max})`);
+            failures.push(label);
         }
-    };
-    show("hardcoded UI strings", hardcoded);
-    show("locale bypasses", bypasses);
-    show("<img> without alt", imagesMissingAlt);
-}
+        if (min !== undefined && actual < min) {
+            under.push(`${label}: ${actual}, floor ${min} - did the walker break?`);
+            failures.push(label);
+        }
+    }
+    return { failures, over, under };
+};
 
-console.log(
-    "\n    These counts are a ratchet, not a gate: hold them steady or lower them."
-);
-console.log("    Run with UI_HYGIENE_VERBOSE=1 to list every finding.\n");
+module.exports = { judge, BUDGET, FLOOR };
+
+if (require.main === module) {
+    const counts = {
+        hardcoded: hardcoded.length,
+        bypasses: bypasses.length,
+        imagesMissingAlt: imagesMissingAlt.length,
+    };
+    const filesWith = (rows) => new Set(rows.map((r) => r.rel)).size;
+
+    console.log("  UI hygiene (budgets may only go down)\n");
+    console.log(`    hardcoded UI strings     ${hardcoded.length} in ${filesWith(hardcoded)} files   (max ${BUDGET.hardcoded})`);
+    console.log(`    locale bypasses          ${bypasses.length} in ${filesWith(bypasses)} files   (max ${BUDGET.bypasses})`);
+    console.log(`    <img> without alt         ${imagesMissingAlt.length} in ${filesWith(imagesMissingAlt)} files   (max ${BUDGET.imagesMissingAlt})`);
+
+    if (process.env.UI_HYGIENE_VERBOSE) {
+        const show = (label, rows) => {
+            if (!rows.length) return;
+            console.log(`\n  ${label}:`);
+            for (const r of rows) {
+                console.log(`    ${r.rel}:${r.line}${r.value ? `  "${r.value}"` : ""}`);
+            }
+        };
+        show("hardcoded UI strings", hardcoded);
+        show("locale bypasses", bypasses);
+        show("<img> without alt", imagesMissingAlt);
+    }
+
+    const { over, under } = judge(counts);
+    if (over.length === 0 && under.length === 0) {
+        console.log("\n  within budget (and the counters still find what they expect).");
+    } else {
+        for (const line of over) console.error(`\n  OVER BUDGET  ${line}`);
+        for (const line of under) console.error(`\n  UNDER FLOOR  ${line}`);
+        console.error(
+            "\n  Lower a budget when a migration lands. Raising one is a decision, not a fix."
+        );
+        process.exitCode = 1;
+    }
+}
