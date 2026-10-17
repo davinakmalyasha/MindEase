@@ -392,10 +392,20 @@ either way.
 and `{ sent, failed }`). A broken job's signature is a silent zero, and one line
 per run is the cheapest way to make that visible.
 
-**What remains** is the deployment shape: these jobs stop running when the
-process does, and a worker (or a webhook the API calls) is written up in
-[`roadmap.md`](roadmap.md). Nothing safety-relevant runs on this schedule, which
-is what keeps that a Tier 2 item.
+**What remains is deployment, not code.** These jobs still stop when the
+process does. `src/worker.ts` is the process that stays up when the API is
+redeployed: `npm run worker` runs the same registry on the same schedules, and
+the API forwards its cron ticks to it when `JOBS_WEBHOOK_URL` is set
+(`JOBS_SECRET` on both sides authenticates the trigger; without it the endpoint
+does not exist). Both can run at once without duplicating sends - the claims are
+the guarantee - so the switch is safe in either order.
+
+To deploy it: a second service from the same image with command
+`npm run worker`, the same database/Redis/mailer environment as the API, and on
+the API `JOBS_WEBHOOK_URL=<worker URL>` plus `JOBS_SECRET=<random>`. Without
+those variables the API keeps running the jobs in-process, which is the
+single-service default and what local development uses. Nothing
+safety-relevant runs on this schedule, which is what keeps that a Tier 2 item.
 
 ## Troubleshooting
 
