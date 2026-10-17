@@ -1,4 +1,3 @@
-import cron from "node-cron";
 import { prisma } from "../lib/prisma";
 import { NotificationService } from "../services/notification.service";
 import { raiseRiskAlert } from "../services/clinicalSafety.service";
@@ -293,10 +292,4 @@ export const runCareCheckins = async () => {
     } finally {
         await releaseLock("care-checkins");
     }
-};
-
-export const startCareCheckinJob = () => {
-    if (process.env.NODE_ENV === "test") return;
-    cron.schedule("0 9 * * *", runCareCheckins, { timezone: "Asia/Jakarta" });
-    logger.info("Care check-in job scheduled (daily 09:00 Asia/Jakarta)");
 };
