@@ -28,7 +28,7 @@ const CACHE_PREFIX = "mindease-";
 
 // Replaced at build time with a value derived from the commit or, locally, from
 // this file's own content. See `next.config.mjs`.
-const BUILD = (self.__MINDSW_BUILD__ = "3f866658e5a6");
+const BUILD = (self.__MINDSW_BUILD__ = "9208b7350229");
 const CACHE = `${CACHE_PREFIX}${BUILD}`;
 
 /** Public, unauthenticated routes. No `/dashboard`, no `/messages`. */

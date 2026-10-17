@@ -8,6 +8,14 @@ build/
 out/
 *.tsbuildinfo
 
+# Compiled binaries. `go build` in `server-realtime/` writes the service binary
+# next to its source, and on Windows that name carries `.exe`. A 10 MB
+# `realtime.exe` was committed to this repository for months because nothing
+# said not to; it is gone now, and this is why it cannot come back.
+*.exe
+server-realtime/realtime
+server-realtime/server-realtime
+
 # Local environment and secrets
 # Every variant, not just `.env` — a `.env.production` or `.env.local`
 # committed to a public repository leaks live credentials just as effectively.
