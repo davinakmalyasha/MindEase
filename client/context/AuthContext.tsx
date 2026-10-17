@@ -400,29 +400,3 @@ export function useAuth(): AuthContextValue {
     if (!ctx) throw new Error("useAuth must be used within AuthProvider");
     return ctx;
 }
-
-/**
- * Redirects to the login page when there is no session, preserving the current
- * route so the user returns to it.
- */
-export function useRequireAuth(requiredRole?: "patient" | "doctor" | "admin") {
-    const { user, isLoading } = useAuth();
-
-    useEffect(() => {
-        if (isLoading) return;
-        if (!user) {
-            if (typeof window !== "undefined") {
-                const next = encodeURIComponent(
-                    `${window.location.pathname}${window.location.search}`
-                );
-                window.location.href = `/login?next=${next}`;
-            }
-            return;
-        }
-        if (requiredRole && user.role !== requiredRole) {
-            window.location.href = "/dashboard";
-        }
-    }, [isLoading, user, requiredRole]);
-
-    return { user, isLoading };
-}
