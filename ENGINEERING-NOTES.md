@@ -969,3 +969,30 @@ One more honesty fix in the same neighbourhood: `operations.md` described
 replaced it with a `JobLock` row. The doc was describing a defect that no
 longer existed and `checkins.ts` repeated it in a comment. Both corrected - a
 stale warning about a fixed bug is its own kind of wrong.
+
+## The validation error that fired on every login
+
+While chasing a lost click in the PHQ-9 journey, the API log turned out to hold
+something louder: `ERR_ERL_DOUBLE_COUNT` on every login and registration. It had
+been there in every run, invisible because the container logs are only dumped
+when the job fails - the one step whose output would have shown it is gated on
+failure, so the only runs that print it are already investigating something
+else.
+
+The cause is a genuine mismatch between a custom store and the library's
+validation. `express-rate-limit` decides whether two limiters both counted one
+request by keying on `(store.prefix, client key)`. A class-based store is
+identified by its constructor name; this store is a structural object, so
+`constructor.name` is `Object` for every limiter, and it exposed no `prefix`
+because its namespacing lives inside `keyFor`. The general limiter that wraps
+all of `/api` and the credential limiter under it were therefore
+indistinguishable, and every request passing both was read as a double count.
+
+The fix is the property the library documents for exactly this situation:
+`prefix` mirroring what the store already writes to Redis. The validation now
+compares what it thinks it sees with what Redis actually holds, and a limiter
+genuinely mounted twice would still be caught. Verified with a live login
+through three stacked limiters: zero mentions, limit still enforced.
+
+The lesson is the same as the service worker's: a diagnostic that only runs on
+failure hides a condition that is present on success.

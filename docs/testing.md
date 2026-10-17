@@ -9,7 +9,7 @@ what it costs.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 505 tests, 41 files |
+| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 506 tests, 41 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -451,7 +451,7 @@ register an account still create their own.
 | `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
 | `plan-concurrency.test.ts` | 9 | Two editors on one plan: a stale save is refused and does not write, a current save is accepted, and exactly one of two *simultaneous* saves wins — the case a check-then-write passes serially and fails under a real race. Also that goals and `lastReviewedAt` deliberately do not move the plan version, and that the partial-save merge survived replacing the upsert |
 | `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |
-| `rate-limit-store-isolation.test.ts` | 2 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter |
+| `rate-limit-store-isolation.test.ts` | 3 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter; each store exposes the prefix the double-count check keys on, so stacked limiters are not read as double counts |
 | `realtime-contract.test.ts` | 9 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |
 | `care-checkins.test.ts` | 2 | A failed nudge hands its claim back (mood, and the post-session check-in), so the loss is a delay rather than a disappearance; the tests fail against the previous code, which swallowed the send error with the sentinel already claimed |
 | `reminders.test.ts` | 6 | Reminder window eligibility, one send per appointment, two runners racing sends once; the weekly report sends once per week, catches up a missed one, hands the week back when the send fails, and sends once under a race |
@@ -470,7 +470,7 @@ register an account still create their own.
 | `wave0-regressions.test.ts` | 41 | Token purpose separation, 2FA enforcement, credential lifecycle, clinical data lifecycle, slot and availability integrity, public data exposure, input validation, error disclosure, timezone-correct day boundaries, mood logging invariants |
 | `wellness.test.ts` | 10 | Mood logging and stats, range rejection, a repeated same-day log as an update rather than a duplicate, streak calculation and breakage, day-window averaging, ownership, unbounded history rejection |
 
-Total: 505.
+Total: 506.
 
 `care-plan.test.ts` and `wave0-regressions.test.ts` are the two largest files
 because they encode the two most expensive regressions this codebase has had —

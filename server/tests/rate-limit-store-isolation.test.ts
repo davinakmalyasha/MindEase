@@ -67,4 +67,23 @@ describe("rate limiter stores are not shared", () => {
         // other's window or counters - which is the whole point.
         expect(a).not.toBe(b);
     });
+
+    it("exposes its Redis namespace as the store prefix, which the double-count check keys on", async () => {
+        const { RedisStore } = await import("../src/middleware/redisRateLimitStore");
+
+        // `ERR_ERL_DOUBLE_COUNT` fired on every login and registration: the
+        // general limiter wraps all of `/api` above the credential limiters, so
+        // one request increments two limiters legitimately. The validation keys
+        // stores by `store.prefix`, and a structural store has no constructor
+        // name of its own and exposed no prefix - so both stores looked
+        // identical and the stacking read as a double count. The library
+        // documents `prefix` for exactly this case; with it, the check still
+        // catches a limiter mounted twice by accident.
+        const general = RedisStore.get("general");
+        const auth = RedisStore.get("auth");
+
+        expect(general.prefix).toBe("rl:general:");
+        expect(auth.prefix).toBe("rl:auth:");
+        expect(general.prefix).not.toBe(auth.prefix);
+    });
 });
