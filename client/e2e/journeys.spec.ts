@@ -52,7 +52,20 @@ async function pickFirstOfferedSlot(page: Page) {
 
     const days = await chips.count();
     for (let i = 0; i < days; i += 1) {
-        await chips.nth(i).click();
+        // Re-resolve through `nth(i)` rather than trusting the count's
+        // ordering. The picker enables every day for the beat before the slot
+        // query lands, then disables the ones with nothing open - `today` is
+        // always one of them. A click that resolved in that window pins the
+        // now-disabled chip, and Playwright retries the same element until the
+        // test times out; a short timeout plus the next iteration is the way
+        // past it. This is the same re-render race the comment below records
+        // for the step swap, one panel earlier.
+        const chip = chips.nth(i);
+        try {
+            await chip.click({ timeout: 3_000 });
+        } catch {
+            continue;
+        }
         await proceed.click();
 
         // The wizard swaps steps with an exit animation (`AnimatePresence
