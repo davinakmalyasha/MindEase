@@ -12,7 +12,7 @@ WebSocket service.
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](server/package.json)
 [![Next.js](https://img.shields.io/badge/next-16-black.svg)](client/package.json)
 [![Prisma](https://img.shields.io/badge/prisma-6.12-2D3748.svg)](server/prisma/schema.prisma)
-[![Go](https://img.shields.io/badge/realtime-go-1.26-00ADD8.svg)](server-realtime/)
+[![Go](https://img.shields.io/badge/go-1.27.2-00ADD8.svg)](server-realtime/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Security policy](https://img.shields.io/badge/security-policy-ff69b4.svg)](SECURITY.md)
 
@@ -121,7 +121,7 @@ not the only prerequisite, which used to be unstated:
 | **git**, **GNU make** | every target runs through `make` |
 | **A POSIX shell** | every recipe runs under `/bin/bash`, so on Windows that means Git Bash or WSL |
 | **Node 22** | see `.nvmrc`; both services and both Dockerfiles pin 22 |
-| **Go 1.26** | only for the realtime service |
+| **Go 1.27.2** | the API (`server-go/`) and the realtime hub both build with it |
 | **Docker + Compose ≥ 2.17** | for `make up` and `make e2e`. `>= 2.17` is what `--wait` needs |
 | **MySQL 8** and **a free port** | only if you are not using compose. Five ports are published: 3000, 5000, 8080, 3306, 6379 |
 | **~2 GB of RAM** | three images plus a database |
@@ -165,6 +165,8 @@ MindEase/
 │  │  ├─ jobs/          three cron jobs, all single-runner gated
 │  │  └─ lib/           tokens, cache, storage, payments, logging
 │  └─ tests/            519 integration tests against a real database
+├─ server-go/           The API in Go: chi + database/sql over the same MySQL
+│                       schema and migrations. See docs/go-migration.md.
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -177,7 +179,7 @@ MindEase/
 │  ├─ adr/              four records of decisions and what was rejected
 │  └─ roadmap.md        including what will never be built, and why
 ├─ scripts/             the repository's own gates; see below
-├─ .github/workflows/   ci, cd, security — 18 jobs
+├─ .github/workflows/   ci, cd, security — 19 jobs
 └─ Makefile             `make help`
 ```
 

@@ -11,18 +11,18 @@ import (
 )
 
 var knownWeak = map[string]bool{
-	"supersecret":                          true,
-	"superrefreshsecret":                   true,
-	"changeme":                             true,
-	"secret":                               true,
-	"password":                             true,
-	"change_me":                            true,
-	"change_me_access_secret":              true,
-	"change_me_refresh_secret":             true,
-	"change_me_two_factor_secret":          true,
-	"change_me_jwt_secret":                 true,
-	"replace_me":                           true,
-	"your_secret_here":                     true,
+	"supersecret":                           true,
+	"superrefreshsecret":                    true,
+	"changeme":                              true,
+	"secret":                                true,
+	"password":                              true,
+	"change_me":                             true,
+	"change_me_access_secret":               true,
+	"change_me_refresh_secret":              true,
+	"change_me_two_factor_secret":           true,
+	"change_me_jwt_secret":                  true,
+	"replace_me":                            true,
+	"your_secret_here":                      true,
 	"local_dev_two_factor_secret_change_me": true,
 }
 
@@ -39,17 +39,17 @@ type Config struct {
 	GeminiAPIKey   string
 	RedisURL       string
 
-	AiRequestTimeoutMs int
-	AiCircuitThreshold int
+	AiRequestTimeoutMs  int
+	AiCircuitThreshold  int
 	AiCircuitCooldownMs int
 
 	FrontendURL string
 	Port        int
 
-	PaymentMode       string // "midtrans" | "simulator"
-	PaymentServerKey  string
-	PaymentClientKey  string
-	PaymentBaseURL    string
+	PaymentMode      string // "midtrans" | "simulator"
+	PaymentServerKey string
+	PaymentClientKey string
+	PaymentBaseURL   string
 
 	VideoProvider string // "livekit" | "jitsi"
 	LiveKitURL    string

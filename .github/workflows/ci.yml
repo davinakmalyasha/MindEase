@@ -447,16 +447,18 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26"
-          # The same reason as `govulncheck` in security.yml: `1.26` resolves to
-          # the runner image's cached patch unless the action is told to check
-          # for the newest one, so a new standard-library advisory keeps
-          # failing until the image happens to update.
+          go-version: "1.27.2"
+          # The same reason as `govulncheck` in security.yml: a bare minor
+          # version resolves to the runner image's cached patch unless the
+          # action is told to check for the newest one, so a new
+          # standard-library advisory keeps failing until the image happens to
+          # update. The full patch now matches every `go` directive in the
+          # repository.
           check-latest: true
       - name: Lint (golangci-lint)
         # v9, not v6. v6 resolves its own binary version and picked
         # v1.64.8, which is built with go1.24 and refuses to load a module
-        # declaring `go 1.26`: it exits 3 with "the Go language version used
+        # declaring `go 1.27.2`: it exits 3 with "the Go language version used
         # to build golangci-lint is lower than the targeted Go version".
         # The version is pinned below for the same reason - a floating
         # resolver is what picked a binary that cannot read this go.mod.
@@ -470,6 +472,34 @@ jobs:
       # data races, and the suite was previously compiled without the flag.
       - name: Test with race detector
         run: go test -race -cover ./...
+
+  api-go:
+    # The Go API: vet, lint, build and tests. The Playwright suite in the
+    # `docker` job exercises its HTTP contract end to end; this job covers the
+    # pieces a browser cannot reach - the production config guards, the token
+    # purposes, and password verification against the hashes the seed writes.
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    name: API (Go vet, lint, build, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server-go
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27.2"
+          check-latest: true
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.14.0
+          working-directory: server-go
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
 
   # --------------------------------------------------------------------
   # Coverage, gated on main

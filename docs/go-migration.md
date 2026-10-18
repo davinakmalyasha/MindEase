@@ -1,10 +1,19 @@
 # Migrating the API to Go — the plan, the toolchain, and the parity strategy that makes it checkable
 
-Status: **the plan, decided. Nothing in this document is built yet.** The Node
-API is the system today, frozen at `v0.3.0` as the reference; the toolchain is
-chosen (Go **1.27.2**), the stack is locked, and the phases below are the plan
-of record. This document covers what exactly would move, what must not change,
-how each phase is verified, and the decisions already made.
+Status: **the port is built and the suite proves it.** `server-go/` is the Go
+API (30 files, ~21k lines, chi + database/sql over the same schema), and the
+full Playwright suite — 15/15, including both booking journeys that exercise
+the atomic slot claim through the UI — passes against it on a fresh seed. A
+new `api-go` CI job covers what a browser cannot reach: the production config
+guards, token purposes and password hashing, all pinned by Go unit tests.
+`server-realtime` and `server-go` both build with Go 1.27.2.
+
+What remains before `server/` can be deleted: real Gemini calls (the
+deterministic fallback branches answer today, with provenance), SMTP and
+web-push sends (rows are still written), the OpenAPI spec-diff and response
+fixtures, porting the 519 Node tests as the invariant suite, and the
+docker-compose / CD switch. Until then the Node implementation is the
+reference, the migration runner (`prisma migrate deploy`) and the seed.
 
 It exists because "rewrite the backend in Go" is a sentence that means at least
 three different projects, and only one of them is worth the cost this one would
