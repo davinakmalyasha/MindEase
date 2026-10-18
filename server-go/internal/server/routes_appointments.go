@@ -1381,10 +1381,8 @@ func (s *Server) handleApptICS(w http.ResponseWriter, r *http.Request) {
 		end = end.AddDate(0, 0, 1)
 	}
 
-	participant := "your patient"
-	if isPatient {
-		participant = apptStrOr(doctorUserName, "your doctor")
-	} else {
+	participant := apptStrOr(doctorUserName, "your doctor")
+	if !isPatient {
 		participant = apptStrOr(userName, "your patient")
 	}
 	description := fmt.Sprintf("Session with %s (%s). ", participant, consultationType)
@@ -1688,7 +1686,7 @@ func (s *Server) apptUpdateStatus(ctx context.Context, id, status string, actor 
 			h, m := apptHM(appointment.StartTime)
 			t := appointment.AppointmentDate.UTC()
 			start := time.Date(t.Year(), t.Month(), t.Day(), h, m, 0, 0, time.UTC)
-			if start.Sub(time.Now()) < 24*time.Hour {
+			if time.Until(start) < 24*time.Hour {
 				return nil, BadRequest("This session starts in less than 24 hours — please contact your doctor to reschedule or cancel")
 			}
 		} else if appointment.Status != "pending" {

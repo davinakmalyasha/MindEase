@@ -242,7 +242,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	user, err := s.userByEmail(r.Context(), email)
+	user, lookupErr := s.userByEmail(r.Context(), email)
+	if lookupErr != nil && lookupErr != sql.ErrNoRows {
+		// The controller's catch-all maps a lookup failure to 401 too, so a
+		// database error cannot be used to distinguish a real account.
+		s.Log.Error("login user lookup failed", "err", lookupErr)
+		s.Fail(w, http.StatusUnauthorized, "Invalid credentials")
+		return
+	}
 	hash := dummyPasswordHash
 	if user != nil && user.Password != nil {
 		hash = *user.Password

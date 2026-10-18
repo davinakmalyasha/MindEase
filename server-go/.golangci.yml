@@ -1,0 +1,32 @@
+# golangci-lint configuration for the Go API.
+#
+# The default linter set (errcheck, govet, ineffassign, staticcheck, unused) is
+# kept deliberately; the settings below exist because the codebase mirrors the
+# Node implementation's branches and messages, and blind rewrites of either
+# would be a behavior change wearing a lint fix.
+version: "2"
+
+linters:
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # The config loader's errors are full sentences shown to an operator
+        # at boot and end with a period on purpose.
+        - -ST1005
+        # Quickfix rewrites are style advice, not correctness. The branches
+        # here are kept shaped like their Node counterparts so a reader can
+        # diff them.
+        - -QF1001
+        - -QF1002
+  exclusions:
+    rules:
+      # Close and Rollback failures are not actionable at these call sites:
+      # nothing useful can be done with the error, and the alternative is a
+      # wrapper that logs noise for an operation whose data is already going
+      # away. Every error the caller *can* act on is checked; this is the
+      # bounded exception (matched by name, not a blanket `_ =` across the
+      # tree) rather than a per-type list that misses the next closer.
+      - linters:
+          - errcheck
+        text: "Error return value of .*\\.(Close|Rollback).* is not checked"

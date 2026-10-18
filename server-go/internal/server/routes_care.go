@@ -197,7 +197,7 @@ func careObjectBody(r *http.Request) (map[string]any, []string, string) {
 }
 
 func careJSONType(v any) string {
-	switch v.(type) {
+	switch v := v.(type) {
 	case nil:
 		return "null"
 	case bool:
@@ -211,7 +211,7 @@ func careJSONType(v any) string {
 	case map[string]any:
 		return "object"
 	case json.Delim:
-		if d, ok := v.(json.Delim); ok && d == '[' {
+		if v == '[' {
 			return "array"
 		}
 		return "object"
