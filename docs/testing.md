@@ -1,7 +1,8 @@
 # Testing
 
-Three suites and one browser suite. The browser suite is the one that exercises
-the whole system; the Go suites cover the pieces a browser cannot reach. The old
+Three suites and one browser suite. The browser suite exercises the whole
+system; the Go API suite adds a MySQL-backed integration layer for the races a
+browser only touches by luck. The old
 Node integration suite was not ported — that gap is named at the end rather than
 papered over.
 
@@ -9,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && go test ./...` | In-process; stdlib `testing`, no database | 10 tests, 3 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 21 tests, 4 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -42,12 +43,27 @@ break silently and impossible to see in a browser:
 
 ```bash
 cd server-go
-go test ./...          # the three files above
-go vet ./...           # CI runs this and golangci-lint v2
+go test ./...                                  # unit only; integration skips
+TEST_DATABASE_URL=mysql://... go test ./...    # unit + integration
+go vet ./...                                   # CI runs this and golangci-lint v2
 ```
 
-No test in this suite needs MySQL or Redis. The database paths are covered where
-they are actually exercised: through the browser against a real database.
+`integration_test.go` runs the real handler chain against MySQL. `TestMain`
+creates the database if needed, drops every table, and applies the embedded
+migrations; each test wipes the data tables first, so every assertion starts
+from a known state. The 11 integration tests pin:
+
+- refresh rotation, replay detection and the session revocation that follows it
+- the five-failure lockout
+- the atomic slot claim, plus idempotent replay returning the stored row
+- the payment `liveKey` claim, simulated settlement, and claim release
+- care-plan optimistic concurrency: of two writers with the same version,
+  exactly one wins with a 409 for the other
+- review aggregates excluding hidden reviews, and one review per appointment
+- role guards, account export headers and content, the internal job secret,
+  one-mood-per-day, and UUIDv7 identifiers
+
+Nothing in the unit files needs MySQL or Redis.
 
 ## The realtime hub
 
@@ -116,7 +132,7 @@ real client against a real server surfaces.
 | Job | What it runs |
 |---|---|
 | `docs` | `check-numbers`, the encoding guard, the workflow self-test and gate, a11y ids, CSP, i18n, UI a11y, load states, stale writes |
-| `go` (api-go) | `go vet`, golangci-lint v2.14, `go build`, `go test` |
+| `go` (api-go) | `go vet`, golangci-lint v2.14, `go build`, `go test` — unit plus the integration suite against a MySQL service container |
 | `realtime` | `go vet`, golangci-lint, build, `go test -race -cover` |
 | `client` | lint, unit tests, coverage (gated), production build |
 | `compose` | `docker compose config` |
@@ -129,19 +145,25 @@ with that tree. They analyzed source shapes (`router.get(`, `prisma.$transaction
 code ports the checks they were forcing, and the browser suite exercises the
 paths. What is gone is the static *proof* that a new route has not skipped them.
 
-## The named gap
+## What remains uncovered
 
-There is no Go integration suite against MySQL. The old server suite — 519 tests
-covering unique-constraint races, token rotation, the payment claim, the job
-claims and the export — was not ported; the browser suite covers the main flows,
-and the Go unit tests cover the guards, but a direct handler-level suite against
-a real database is the largest testing gap in the repository. It is the next
-testing work, not a claim that the coverage is equivalent.
+The integration suite is 11 tests, not 519. Ported: the races and constraints
+listed above, plus the browser flows. Still without a handler-level test:
+
+- the Midtrans signature path (the in-process simulator is covered)
+- TOTP replay protection and single-use backup codes
+- the job claim hand-back and the weekly report's catch-up semantics
+- the Redis rate-limit store's window semantics
+- trajectory math, and the admin export kinds
+
+Those are exercised by code review and partly by the journeys. Naming them is
+the honest form of the coverage claim.
 
 ## Adding a test
 
-- **Go API**: a table-driven test beside the code it pins, in the package under
-  test. No database unless the thing under test needs one.
+- **Go API**: a table-driven test beside the code it pins. Handler/database
+  behaviour goes in `integration_test.go` and needs `TEST_DATABASE_URL`; unit
+  tests need no database.
 - **Realtime**: `server-realtime/hub/*_test.go`; use real websockets and keep
   the cases concurrent where the property is a race.
 - **Web**: `client/tests/*.test.tsx` with the jsdom harness; keep them behavioural

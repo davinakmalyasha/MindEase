@@ -18,7 +18,7 @@
 - `JWT_SECRET` must be identical across API, realtime, and web middleware — changing it invalidates all sessions.
 
 ## Testing gates (before considering work done)
-- API: `cd server-go && go vet ./... && go test ./...` (no database needed).
+- API: `cd server-go && go vet ./... && go test ./...` (unit tests need no database; the integration suite runs when `TEST_DATABASE_URL` is set).
 - Realtime: `cd server-realtime && go test ./...`.
 - Web: `cd client && npm run lint && npm run build`.
 - Schema: `cd server-go && DATABASE_URL=... go run ./cmd/migrate` (baselines an old Prisma database automatically).

@@ -71,7 +71,12 @@ function goModules() {
 
 function goSuite(mod) {
     const files = walk(mod).filter((f) => f.endsWith("_test.go"));
-    return { files: files.length, tests: files.reduce((n, f) => n + (read(f).match(/^func Test/gm) || []).length, 0) };
+    // `TestMain(m *testing.M)` is harness setup, not a test; matching the
+    // testing.T parameter excludes it without hard-coding the name.
+    return {
+        files: files.length,
+        tests: files.reduce((n, f) => n + (read(f).match(/^func Test[A-Za-z0-9_]*\(t \*testing\.T/gm) || []).length, 0),
+    };
 }
 
 M.apiGoTests = () => goSuite("server-go").tests;

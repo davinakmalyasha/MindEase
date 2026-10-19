@@ -98,7 +98,7 @@ Numbers measured from the tree, not estimated.
 |---|---|
 | **44,955** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 22,719 Go |
 | **160** | API routes · **28** tables · **20** migrations |
-| **42** | Go tests in 8 files · **52** client unit tests · **12** Playwright journeys |
+| **53** | Go tests in 9 files · **52** client unit tests · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -242,9 +242,11 @@ make e2e        # the 12 Playwright journeys, stack already running and seeded
 
 The behavioural suite is the browser one: 12 Playwright tests drive the real
 client against the real stack — MySQL, Redis, the Go API — including two booking
-flows that exercise the slot claim through the UI. The Go unit tests cover the
-pieces a browser cannot reach: production config guards, token purposes and
-password verification against the seeded hashes.
+flows that exercise the slot claim through the UI. The Go tests cover what a
+browser cannot reach: production config guards, token purposes and password
+hashing as unit tests, plus a MySQL-backed integration suite that pins the
+atomic slot and payment claims, refresh rotation, the lockout, plan version
+conflicts, review aggregates and role guards.
 
 Client coverage is measured and **enforced** with floors just under the read
 baseline (2 / 75 / 69 / 2 for statements / branches / functions / lines); the

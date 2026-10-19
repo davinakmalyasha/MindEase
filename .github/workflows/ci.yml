@@ -265,15 +265,30 @@ jobs:
         run: go test -race -cover ./...
 
   api-go:
-    # The Go API: vet, lint, build and tests. The Playwright suite in the
-    # `docker` job exercises its HTTP contract end to end; this job covers the
-    # pieces a browser cannot reach - the production config guards, the token
-    # purposes, and password verification against the hashes the seed writes.
+    # The Go API: vet, lint, build, unit tests, and the integration suite
+    # against a real MySQL. The Playwright suite in the `docker` job exercises
+    # the HTTP contract end to end; this job covers the races and constraints
+    # between handlers and the database that a browser does not reliably reach.
     permissions:
       contents: read
     timeout-minutes: 15
     name: API (Go vet, lint, build, test)
     runs-on: ubuntu-latest
+    # The integration tests create and migrate their own database inside this
+    # instance; TEST_DATABASE_URL is the only wiring they need.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: mindease_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     defaults:
       run:
         working-directory: server-go
@@ -290,7 +305,10 @@ jobs:
           working-directory: server-go
       - run: go vet ./...
       - run: go build ./...
-      - run: go test ./...
+      - name: Test (unit and MySQL integration)
+        env:
+          TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
+        run: go test ./...
 
 
   docker:

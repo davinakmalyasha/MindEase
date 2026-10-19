@@ -12,9 +12,10 @@ webServer runs the Go binary locally, and the Railway config points at
 What remains for full parity, in the order it matters: real Gemini calls (the
 deterministic fallback branches answer today, with provenance), SMTP and
 web-push sends (rows are still written), the OpenAPI spec rebuild and response
-fixtures, and a Go integration suite against MySQL to replace the 519 Node
-tests that were not ported. The browser suite covers the main flows; that
-handler-level gap is named in `docs/testing.md`.
+fixtures, and a fuller port of the 519 Node tests — an 11-test MySQL
+integration suite now covers the races and guards, while the provider signature,
+TOTP replay, job-claim hand-back and trajectory cases remain uncovered (named
+in `docs/testing.md`).
 
 It exists because "rewrite the backend in Go" is a sentence that means at least
 three different projects, and only one of them is worth the cost this one would
