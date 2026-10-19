@@ -115,7 +115,14 @@ func main() {
 		startHour := 8 + (i % 6)
 		today := time.Now().In(seedLocation)
 		for day := 1; day <= 7; day++ {
-			date := time.Date(today.Year(), today.Month(), today.Day()+day, 0, 0, 0, 0, seedLocation)
+			// Anchored at UTC midnight of the WIB calendar day rather than WIB
+			// midnight. The client groups and submits the *browser's* local day
+			// and the API compares it to the WIB day; WIB midnight is 17:00Z the
+			// day before, which a browser running UTC reads as a different date,
+			// so every booking from a UTC browser failed the slot-date check.
+			// 00:00Z is 07:00 WIB, so UTC and WIB readers agree on the day.
+			// (The old host-UTC seed produced this anchor by accident.)
+			date := time.Date(today.Year(), today.Month(), today.Day()+day, 0, 0, 0, 0, time.UTC)
 			for hour := startHour; hour < startHour+3; hour++ {
 				if _, err := pool.ExecContext(ctx,
 					"INSERT INTO `ConsultationSlot` (id, doctorId, date, startTime, endTime, isBooked) VALUES (?,?,?,?,?,?)",
