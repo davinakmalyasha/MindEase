@@ -4,20 +4,14 @@ package server
 // ai.controller.ts, briefing.controller.ts, ai.service.ts and
 // preSession.service.ts.
 //
-// Simplification (the only one): this service never calls Gemini.
-//
-// Where the Node service would attempt a model call, the Go port always serves
-// the deterministic fallback branch Node uses for its degraded path, and
-// reports the same provenance: `source: "fallback"`, with `degradedReason`
-// "not_configured" when no key is configured and "error" when one is (Node
-// would have made a call there and fall back on failure; this port serves the
-// fallback deliberately). Generated briefings are persisted with
-// `briefingSource: "fallback"`, the same value Node stores on its degraded
-// path, so a cached read still reports its origin. No patient text ever
-// leaves this service, so the prompt fencing of ai.service.ts has no
-// counterpart, and the crisis patterns stay in the wellness/support domain
-// where the Node routes confine them: neither ai.controller.ts nor
-// preSession.service.ts consults the safety branch.
+// Model calls go through the configured provider (ai.go: an OpenAI-compatible
+// gateway, Command Code / DeepSeek V4.1 Flash by default). With no key, every
+// surface serves the deterministic fallback branch Node uses for its degraded
+// path and reports `source: "fallback"` with a degradedReason. Generated
+// briefings persist `briefingSource` as "model" or "fallback", so a cached read
+// still reports its origin. Patient text is fenced before it reaches a prompt;
+// the crisis patterns stay in the wellness/support domain, so neither
+// ai.controller.ts nor preSession.service.ts consults the safety branch.
 
 import (
 	"context"
@@ -307,17 +301,6 @@ func (s *Server) aiControllerFail(w http.ResponseWriter, r *http.Request, err er
 	s.Fail(w, status, message)
 }
 
-// aiDegradedReason mirrors the degraded branch of ai.service.ts. The Go port
-// never calls Gemini: an unset key is "not_configured" exactly like
-// AIService.generate; a configured key is "error", because the Node service
-// would have attempted a model call and this one serves the fallback.
-func (s *Server) aiDegradedReason() string {
-	if s.Cfg.GeminiAPIKey == "" {
-		return "not_configured"
-	}
-	return "error"
-}
-
 // aiParseJSON mirrors the service's parseJson: parse or fall back.
 func aiParseJSON(raw *string, fallback any) any {
 	if raw == nil {
@@ -339,19 +322,32 @@ type aiAppointment struct {
 	Status          string
 	DoctorSpecialty string
 	DoctorUserID    string
+	PatientName     *string
+	Notes           *string
 }
 
 func (s *Server) aiLoadAppointment(ctx context.Context, appointmentID string) (*aiAppointment, error) {
 	var a aiAppointment
+	var (
+		patientName sql.NullString
+		notes       sql.NullString
+	)
 	err := s.DB.QueryRowContext(ctx,
-		"SELECT a.userId, a.status, d.specialty, d.userId "+
-			"FROM `Appointment` a JOIN `Doctor` d ON d.id = a.doctorId WHERE a.id = ?",
-		appointmentID).Scan(&a.UserID, &a.Status, &a.DoctorSpecialty, &a.DoctorUserID)
+		"SELECT a.userId, a.status, u.name, a.notes, d.specialty, d.userId "+
+			"FROM `Appointment` a JOIN `Doctor` d ON d.id = a.doctorId "+
+			"JOIN `User` u ON u.id = a.userId WHERE a.id = ?",
+		appointmentID).Scan(&a.UserID, &a.Status, &patientName, &notes, &a.DoctorSpecialty, &a.DoctorUserID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if patientName.Valid {
+		a.PatientName = &patientName.String
+	}
+	if notes.Valid {
+		a.Notes = &notes.String
 	}
 	return &a, nil
 }
@@ -461,15 +457,7 @@ func (s *Server) aiGetQuestionsForPatient(ctx context.Context, appointmentID, us
 		}, nil
 	}
 
-	// The model path is not ported: this is
-	// AIService.generatePreSessionQuestions' fallback branch, whole.
-	questions := []string{
-		"How have you been feeling emotionally this past week?",
-		"Have you noticed any changes in your sleep or appetite?",
-		"What situations or thoughts have been most challenging lately?",
-		"What would you most like to address in this session?",
-		"Are there any coping strategies that have been helpful or unhelpful?",
-	}
+	questions, source, reason := s.aiPreSessionQuestions(ctx, appointment.DoctorSpecialty, appointment.Notes)
 	raw, err := json.Marshal(questions)
 	if err != nil {
 		return nil, err
@@ -487,7 +475,7 @@ func (s *Server) aiGetQuestionsForPatient(ctx context.Context, appointmentID, us
 		"alreadyGenerated": false,
 		// The patient is answering these before they see them, so whether they
 		// are personalised or a fixed set is worth stating.
-		"ai": map[string]any{"source": "fallback", "degradedReason": s.aiDegradedReason()},
+		"ai": aiProvenance(source, reason),
 	}, nil
 }
 
@@ -717,13 +705,14 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 			answersRaw = data.AnswersJSON
 		}
 		answers := aiParseAnswers(answersRaw)
-		briefingText := aiBuildFallbackBriefing(moodHistory, answers, assessments)
+		briefingText, source, reason := s.aiDoctorBriefing(
+			ctx, appointment.PatientName, appointment.DoctorSpecialty, moodHistory, answers, assessments)
 
 		now := time.Now().UTC()
 		if _, err := s.DB.ExecContext(ctx,
 			"INSERT INTO `PreSessionData` (`id`,`appointmentId`,`briefingText`,`briefingSource`,`createdAt`,`updatedAt`) VALUES (?,?,?,?,?,?) AS `vals` "+
 				"ON DUPLICATE KEY UPDATE `briefingText`=`vals`.`briefingText`, `briefingSource`=`vals`.`briefingSource`, `updatedAt`=`vals`.`updatedAt`",
-			newID(), appointmentID, briefingText, "fallback", now, now); err != nil {
+			newID(), appointmentID, briefingText, source, now, now); err != nil {
 			return nil, err
 		}
 
@@ -733,7 +722,7 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 		result = map[string]any{
 			"briefing":    briefingText,
 			"cached":      false,
-			"ai":          map[string]any{"source": "fallback", "degradedReason": s.aiDegradedReason()},
+			"ai":          aiProvenance(source, reason),
 			"moodHistory": aiMoodHistoryJSON(moodHistory),
 			"answers":     answers,
 			"assessments": aiAssessmentsJSON(assessments),
@@ -929,39 +918,19 @@ func (s *Server) aiUserTimezone(ctx context.Context, userID string) string {
 func (s *Server) handleAIResources(w http.ResponseWriter, r *http.Request) {
 	user := CurrentUser(r)
 
-	// Read the same window the Node controller reads (and let a database
-	// failure surface the same way); the model path is not ported, so only the
-	// fallback list below is ever returned.
-	if _, err := s.aiGetMoodHistory(r.Context(), user.ID, 14); err != nil {
+	moodHistory, err := s.aiGetMoodHistory(r.Context(), user.ID, 14)
+	if err != nil {
 		s.aiControllerFail(w, r, err, http.StatusInternalServerError, "Failed to get suggestions.")
 		return
 	}
-
-	// AIService.suggestResources' fallback branch, verbatim.
-	data := []map[string]any{
-		{
-			"title":       "Deep Breathing",
-			"description": "Try 4-7-8 breathing for 5 minutes to calm your mind.",
-			"type":        "breathing",
-		},
-		{
-			"title":       "Gratitude Journal",
-			"description": "Write down 3 things you're grateful for today.",
-			"type":        "journaling",
-		},
-		{
-			"title":       "Gentle Walk",
-			"description": "Take a 15-minute walk outside to boost your mood.",
-			"type":        "exercise",
-		},
-	}
+	data, source, reason := s.aiSuggestResources(r.Context(), moodHistory)
 
 	s.JSON(w, http.StatusOK, map[string]any{
 		"status": "success",
 		"data":   data,
 		// The UI shows a "standard guidance" state for the fallback list, so
 		// nobody mistakes a template for a personal suggestion.
-		"ai": map[string]any{"source": "fallback", "degradedReason": s.aiDegradedReason()},
+		"ai": aiProvenance(source, reason),
 	})
 }
 
@@ -1053,16 +1022,7 @@ func (s *Server) handleAIMatchDoctors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) aiMatchDoctors(ctx context.Context, query string) (map[string]any, error) {
-	// AIService.matchDoctors' fallback branch: plain keyword extraction, then
-	// the controller's keyword → specialty hint when the model gave no
-	// specialty (it never does in this port), then keyword extraction again if
-	// the first pass filtered everything out.
-	criteria := aiMatchCriteria{Keywords: aiKeywordFallback(query)}
-	if criteria.Specialty == nil {
-		if specialty, ok := aiSpecialtyHint(query); ok {
-			criteria.Specialty = &specialty
-		}
-	}
+	criteria, source, reason := s.aiExtractMatchCriteria(ctx, query)
 	if len(criteria.Keywords) == 0 {
 		criteria.Keywords = aiKeywordFallback(query)
 	}
@@ -1160,9 +1120,9 @@ func (s *Server) aiMatchDoctors(ctx context.Context, query string) (map[string]a
 			"minExperience": minExperienceOut,
 		},
 		"doctors": matched,
-		// Provenance, not `aiPowered: !!GEMINI_API_KEY` - this reports whether
-		// a model was consulted, and in this port it never is.
-		"ai": map[string]any{"source": "fallback", "degradedReason": s.aiDegradedReason()},
+		// Provenance, not `aiPowered: !!apiKey` - this reports whether a model
+		// was actually consulted.
+		"ai": aiProvenance(source, reason),
 	}, nil
 }
 

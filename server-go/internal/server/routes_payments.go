@@ -925,11 +925,9 @@ func payParsePrefs(raw sql.NullString) map[string]payChannelPrefs {
 	return prefs
 }
 
-// payCreateNotification ports the in-app half of NotificationService.create:
-// the per-type preference gate, the sanitisation choke point, the row insert
-// and the realtime event. The email copy is deliberately not sent - there is
-// no mailer in the Go service yet - so a preference that asks for email still
-// creates the in-app row exactly as Node does.
+// payCreateNotification ports NotificationService.create: the per-type
+// preference gate, the email copy when the category allows it, the sanitisation
+// choke point, the row insert, the realtime event and web push.
 func (s *Server) payCreateNotification(ctx context.Context, userID, title, message, notifType string, wantsEmail bool) {
 	if notifType == "" {
 		notifType = "system"
@@ -951,8 +949,15 @@ func (s *Server) payCreateNotification(ctx context.Context, userID, title, messa
 			return
 		}
 		if wantsEmail && channel.Email && email.Valid && email.String != "" {
-			s.Log.Debug("payment notification email skipped: mailer is not ported to the Go service yet",
-				"userId", userID, "type", notifType)
+			recipient := email.String
+			subject, html := mailNotificationTemplate(title, message)
+			go func() {
+				sendCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := s.mailSend(sendCtx, recipient, subject, html); err != nil {
+					s.Log.Warn("payment notification email failed", "userId", userID, "err", err)
+				}
+			}()
 		}
 	}
 	if !prefs[notifType].InApp {
@@ -975,6 +980,7 @@ func (s *Server) payCreateNotification(ctx context.Context, userID, title, messa
 		"type":      notifType,
 		"createdAt": nowISO(),
 	})
+	s.pushSend(ctx, userID, title, message, "/dashboard")
 }
 
 // payStripTagsPolicy is the second pass of utils/sanitize.ts: the port's UGC

@@ -50,7 +50,7 @@ Rejected on data residency, not cost. Every message a clinician receives over a
 broker leaves our infrastructure and lands in a third party's, including the
 contents of private chat and the payload of a risk alert naming a patient who
 disclosed thoughts of self-harm. We already send mood entries and pre-session
-answers to Gemini deliberately and disclose it; a realtime broker would be a
+answers to the model provider deliberately and disclose it; a realtime broker would be a
 second processor we would have to disclose, for a feature Redis already
 supports. Ably and Pusher also have per-message pricing, which turns a
 notification feature into a line item that scales with the number of clinicians.

@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/davinakmalyasha/MindEase/server-go/internal/ai"
 	"github.com/davinakmalyasha/MindEase/server-go/internal/config"
 )
 
@@ -22,11 +24,22 @@ type Server struct {
 	Redis     *redis.Client
 	Log       *slog.Logger
 	Sanitizer *bluemonday.Policy
+
+	// AI is nil when no key is configured; every AI surface then serves its
+	// deterministic fallback with source "fallback".
+	AI        *ai.Client
+	aiBreaker *aiBreaker
 }
 
 func New(cfg *config.Config, pool *sql.DB, rdb *redis.Client, log *slog.Logger) *Server {
 	policy := bluemonday.UGCPolicy()
-	return &Server{Cfg: cfg, DB: pool, Redis: rdb, Log: log, Sanitizer: policy}
+	s := &Server{Cfg: cfg, DB: pool, Redis: rdb, Log: log, Sanitizer: policy}
+	if cfg.AIAPIKey != "" && cfg.AIBaseURL != "" && cfg.AIModel != "" {
+		s.AI = ai.New(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIModel,
+			time.Duration(cfg.AiRequestTimeoutMs)*time.Millisecond)
+	}
+	s.aiBreaker = newAIBreaker(cfg.AiCircuitThreshold, time.Duration(cfg.AiCircuitCooldownMs)*time.Millisecond)
+	return s
 }
 
 func (s *Server) Mount() http.Handler {

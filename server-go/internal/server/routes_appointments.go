@@ -352,11 +352,11 @@ func apptPrefsFor(raw sql.NullString, notifType string) apptPrefs {
 	return prefs
 }
 
-// apptNotify ports NotificationService.create's in-app branch. The email and
-// web-push channels are not ported (no mailer/push service in this binary), so
-// a user who disabled in-app for a category receives nothing here. The stored
-// title and message go through the sanitizer exactly once, at this choke
-// point, like the Node service does.
+// apptNotify ports NotificationService.create's in-app branch plus web push.
+// Email is not sent from this helper (the Node booking flows that ask for it
+// pass an `email` flag; these call sites do not). The stored title and message
+// go through the sanitizer exactly once, at this choke point, like the Node
+// service does.
 func (s *Server) apptNotify(ctx context.Context, userID, title, message, notifType string) {
 	if _, known := apptDefaultPrefs[notifType]; !known {
 		// NotificationService.create stores nothing for a type outside

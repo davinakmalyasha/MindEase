@@ -100,7 +100,10 @@ services:
       # same reason; this one now matches them, and the failure mode is a loud
       # message naming the missing variable instead of a forgeable ticket.
       TWO_FACTOR_SECRET: ${TWO_FACTOR_SECRET}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-commandcode}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.commandcode.ai/provider/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-deepseek/deepseek-v4.1-flash}
       # AI call resilience: bound a single call, and stop retrying a provider
       # that is already down.
       AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-20000}

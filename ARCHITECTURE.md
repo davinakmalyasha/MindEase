@@ -43,7 +43,7 @@ the end.
              │
              ▼
       ┌──────────────┐
-      │ Gemini 2.0   │  every call carries AiResult provenance
+      │ DeepSeek 4.1 │  every call carries AiResult provenance
       │ Flash        │  circuit breaker: 5 failures / 60s
       └──────────────┘
 ```
@@ -115,7 +115,7 @@ there is no substring rule left to drift.
 Every AI call returns `AiResult<T>` carrying `source` (`model` | `fallback`) and
 an optional `degradedReason`. A bare string from an AI call path is not
 representable. Several features degrade to deterministic local output when
-Gemini is unavailable, and that is a legitimate outcome — but it was previously
+the provider is unavailable, and that is a legitimate outcome — but it was previously
 invisible, so a patient could not tell whether they were reading something
 personalised or a template.
 

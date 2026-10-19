@@ -4,8 +4,8 @@ package server
 // wellness.service.ts, clinicalSafety.service.ts, riskQueue.service.ts,
 // crisisText.service.ts, plus the fallback paths of ai.service.ts.
 //
-// The AI surface here is deliberately local-only: this service does not call
-// Gemini. Every AI-backed reply is the Node fallback branch with the same
+// Journal summaries and mood-resource suggestions use the shared AI layer;
+// without a configured key they serve the deterministic fallback with the same
 // provenance flags (`source: "fallback"` plus a `degradedReason`).
 
 import (
@@ -1028,7 +1028,7 @@ func (s *Server) handleWellnessSummarizeJournal(w http.ResponseWriter, r *http.R
 	}
 
 	rows, err := s.DB.QueryContext(r.Context(),
-		"SELECT content FROM `JournalEntry` WHERE userId = ? ORDER BY createdAt DESC LIMIT 7", user.ID)
+		"SELECT content, createdAt FROM `JournalEntry` WHERE userId = ? ORDER BY createdAt DESC LIMIT 7", user.ID)
 	if err != nil {
 		s.Log.Error("journal summarize query failed", "err", err)
 		s.Fail(w, http.StatusInternalServerError, "Failed to summarize journal.")
@@ -1036,22 +1036,30 @@ func (s *Server) handleWellnessSummarizeJournal(w http.ResponseWriter, r *http.R
 	}
 	defer rows.Close()
 
-	count := 0
+	contents := make([]string, 0, 7)
+	var oldest, newest time.Time
 	for rows.Next() {
 		var content string
-		if err := rows.Scan(&content); err != nil {
+		var createdAt time.Time
+		if err := rows.Scan(&content, &createdAt); err != nil {
 			s.Log.Error("journal summarize scan failed", "err", err)
 			s.Fail(w, http.StatusInternalServerError, "Failed to summarize journal.")
 			return
 		}
-		count++
+		contents = append(contents, content)
+		if oldest.IsZero() || createdAt.Before(oldest) {
+			oldest = createdAt
+		}
+		if newest.IsZero() || createdAt.After(newest) {
+			newest = createdAt
+		}
 	}
 	if err := rows.Err(); err != nil {
 		s.Log.Error("journal summarize rows failed", "err", err)
 		s.Fail(w, http.StatusInternalServerError, "Failed to summarize journal.")
 		return
 	}
-	if count == 0 {
+	if len(contents) == 0 {
 		s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
 			"summary": nil,
 			"count":   0,
@@ -1059,13 +1067,11 @@ func (s *Server) handleWellnessSummarizeJournal(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	summary, source, reason := s.aiJournalSummary(r.Context(), contents, oldest, newest)
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
-		"summary": wellnessJournalSummaryFallback(count),
-		"count":   count,
-		"ai": map[string]any{
-			"source":         "fallback",
-			"degradedReason": s.wellnessAIDegradedReason(),
-		},
+		"summary": summary,
+		"count":   len(contents),
+		"ai":      aiProvenance(source, reason),
 	}})
 }
 
@@ -1073,17 +1079,6 @@ func wellnessJournalSummaryFallback(count int) string {
 	return fmt.Sprintf("You wrote %d journal entries this week — an excellent habit. ", count) +
 		"Re-reading them later can reveal patterns in what lifts you up and what drains you. " +
 		"Keep going, one entry at a time."
-}
-
-// wellnessAIDegradedReason mirrors the fallback provenance of ai.service.ts.
-// The Go port never calls Gemini: an unset key is "not_configured" exactly like
-// AIService.generate; a configured key is "error", because a model call would
-// have been attempted in the Node service and this one serves the fallback.
-func (s *Server) wellnessAIDegradedReason() string {
-	if s.Cfg.GeminiAPIKey == "" {
-		return "not_configured"
-	}
-	return "error"
 }
 
 /* ------------------------------------------------------------------ *

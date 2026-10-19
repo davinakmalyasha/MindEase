@@ -36,8 +36,14 @@ type Config struct {
 	TwoFactorSecret string
 
 	GoogleClientID string
-	GeminiAPIKey   string
 	RedisURL       string
+
+	// AI provider (OpenAI-compatible). Defaults to Command Code's gateway and
+	// the DeepSeek V4.1 Flash model; AI_API_KEY enables real calls.
+	AIProvider string
+	AIBaseURL  string
+	AIAPIKey   string
+	AIModel    string
 
 	AiRequestTimeoutMs  int
 	AiCircuitThreshold  int
@@ -86,8 +92,11 @@ func Load() (*Config, error) {
 	}
 
 	c.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
-	c.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
 	c.RedisURL = os.Getenv("REDIS_URL")
+	c.AIProvider = valueOr("AI_PROVIDER", "commandcode")
+	c.AIBaseURL = valueOr("AI_BASE_URL", "https://api.commandcode.ai/provider/v1")
+	c.AIModel = valueOr("AI_MODEL", "deepseek/deepseek-v4.1-flash")
+	c.AIAPIKey = strings.TrimSpace(os.Getenv("AI_API_KEY"))
 
 	c.AiRequestTimeoutMs = positiveInt("AI_REQUEST_TIMEOUT_MS", 20_000)
 	c.AiCircuitThreshold = positiveInt("AI_CIRCUIT_THRESHOLD", 5)

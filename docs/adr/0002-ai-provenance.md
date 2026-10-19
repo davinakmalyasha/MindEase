@@ -5,7 +5,8 @@
 
 ## Context
 
-Gemini is used for five things: pre-session questions, doctor briefings, wellness
+The model provider (Gemini when this decision was recorded; Command Code /
+DeepSeek V4.1 Flash today) is used for five things: pre-session questions, doctor briefings, wellness
 suggestions, journal summaries, and the support assistant. Each one has a
 deterministic local fallback — canned questions, a fixed activity list, a
 platform summary in place of a clinical briefing, a help-topic list.

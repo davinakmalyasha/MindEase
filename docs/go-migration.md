@@ -9,9 +9,8 @@ that stack and passes all 15 browser tests in production mode, the Playwright
 webServer runs the Go binary locally, and the Railway config points at
 `server-go/Dockerfile`.
 
-What remains for full parity, in the order it matters: real Gemini calls (the
-deterministic fallback branches answer today, with provenance), the OpenAPI
-spec rebuild and response fixtures, and a fuller port of the 519 Node tests —
+What remains for full parity, in the order it matters: the OpenAPI spec
+rebuild and response fixtures, and a fuller port of the 519 Node tests —
 an 11-test MySQL integration suite now covers the races and guards, while the
 provider signature, TOTP replay, job-claim hand-back and trajectory cases
 remain uncovered (named in `docs/testing.md`). SMTP delivery and web push are
@@ -105,7 +104,7 @@ server-go/
   internal/domain/          one package per bounded area, mirroring the services
   internal/realtime/        the hub, moved from server-realtime
   internal/jobs/            scheduler + claim semantics + the internal trigger route
-  internal/ai/              Gemini client, prompt assembly, fallback chain, provenance
+  internal/ai/              provider client (OpenAI-compatible), prompt assembly, provenance
   migrations/               the same SQL files, one source of truth
   openapi/                  generated spec, diff-checked against the Node one
 ```

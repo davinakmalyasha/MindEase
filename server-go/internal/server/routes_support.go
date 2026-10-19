@@ -1,11 +1,12 @@
 package server
 
 // Port of server/src/routes/support.routes.ts, controllers/support.controller.ts
-// and services/support.service.ts. The chat's AI branch is not ported: with no
-// Gemini client in this binary the reply is always the Node fallback branch
-// (`source: "fallback"`), and the crisis/escalation rules run first, unchanged.
+// and services/support.service.ts. Crisis and escalation rules run first and
+// never consult the model; everything else asks the configured provider and
+// falls back to the canned answers with `source: "fallback"`.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/davinakmalyasha/MindEase/server-go/internal/ai"
 )
 
 func (s *Server) registerSupport(api chi.Router) {
@@ -148,14 +151,20 @@ func supportHistoryField(body map[string]any) (string, string) {
 
 // supportChatReply mirrors SupportService.chat with the AI branch degraded to
 // the fixed knowledge base: crisis first, then escalation, then canned answer.
-func (s *Server) supportChatReply(message string) (reply string, crisis bool, escalated bool, source string) {
+func (s *Server) supportChatReply(ctx context.Context, message string, history []ai.Message) (reply string, crisis bool, escalated bool, source string) {
 	clean := s.wellnessSanitize(message)
 
+	// Deterministic safety first: the model is never the thing that notices a
+	// disclosure, and crisis text does not leave the server.
 	if clinicalDetectFreeTextRisk(clean) != nil {
 		return supportCrisisReply, true, false, "fallback"
 	}
 	if clinicalEscalationPattern.MatchString(clean) {
 		return supportEscalationReply, false, true, "fallback"
+	}
+
+	if reply, source, _ := s.aiSupportChat(ctx, history, clean); source == "model" && reply != "" {
+		return reply, false, false, "model"
 	}
 
 	answer := supportDefaultReply
@@ -184,7 +193,8 @@ func (s *Server) handleSupportChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reply, crisis, escalated, source := s.supportChatReply(message)
+	reply, crisis, escalated, source := s.supportChatReply(
+		r.Context(), message, supportHistoryMessages(body))
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
 		"reply":     reply,
 		"crisis":    crisis,
@@ -372,4 +382,26 @@ func (s *Server) handleSupportSOS(w http.ResponseWriter, r *http.Request) {
 		"recorded":        recorded,
 		"message":         message,
 	})})
+}
+
+// supportHistoryMessages extracts the already-validated history for the model
+// call. supportHistoryField enforced the shape; this only maps it.
+func supportHistoryMessages(body map[string]any) []ai.Message {
+	raw, ok := body["history"].([]any)
+	if !ok {
+		return nil
+	}
+	messages := make([]ai.Message, 0, len(raw))
+	for _, item := range raw {
+		object, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := object["role"].(string)
+		content, _ := object["content"].(string)
+		if (role == "user" || role == "assistant") && content != "" {
+			messages = append(messages, ai.Message{Role: role, Content: content})
+		}
+	}
+	return messages
 }

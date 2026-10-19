@@ -23,9 +23,8 @@ import (
 
 // registerMessages ports routes/message.routes.ts and services/message.service.ts.
 // The upload route's multer limits (5MB file, 64KB fields, 8 fields, 1 file,
-// 9 parts) are enforced by hand below; S3 storage is deliberately not ported -
-// uploads always land on local disk under Cfg.UploadDir, like storage.ts's
-// fallback branch.
+// 9 parts) are enforced by hand below. Uploads go through the storage layer:
+// S3 when configured, the local Cfg.UploadDir otherwise, like storage.ts.
 func (s *Server) registerMessages(api chi.Router) {
 	writeLimiter := s.limiter(rateLimitConfig{
 		name:    "write:message",
@@ -731,8 +730,8 @@ var msgReactionAllowlist = map[string]bool{
 
 // msgIsPlatformAttachment is the message schema's attachment URL refinement:
 // a local /uploads/ path this server serves itself, or an https URL under the
-// configured S3 public base (S3 itself is not ported, but the schema keeps the
-// same gate against attacker-controlled URLs).
+// configured S3 public base, keeping the gate against attacker-controlled
+// URLs.
 func msgIsPlatformAttachment(value string) bool {
 	if strings.HasPrefix(value, "/uploads/") {
 		if strings.Contains(value, "..") || strings.Contains(value, "\\") {
