@@ -107,16 +107,6 @@ jobs:
         run: |
           node scripts/check-i18n.test.js
           node scripts/check-i18n.js
-      # InnoDB creates an index for every foreign key, so a foreign-key column with
-      # no `@@index` is not a slow query - which is exactly why it reads as an
-      # oversight. ENGINEERING-NOTES.md claimed `Review.userId` was unindexed and
-      # "currently scanned" on the account-deletion path; it is indexed, as
-      # `Review_userId_fkey`. This gate requires every such column to carry a
-      # written reason, and fails when an acknowledgement goes stale.
-      - name: Schema-index self-test, then schema-index gate
-        run: |
-          node scripts/check-schema-indexes.test.js
-          node scripts/check-schema-indexes.js
       # Every button has a name, every field error is announced, and the count of
       # sub-AA text colours has not risen.
       #
@@ -155,41 +145,8 @@ jobs:
           node scripts/check-stale-writes.test.js
           node scripts/check-stale-writes.js
 
-      # Route authorization. A missing guard is invisible in review: no type
-      # error, and no test, because there is no test that asserts the absence of
-      # an endpoint. This also pins the two deliberately public routes that
-      # return per-person rows, which is where the review-listing leak was.
-      - name: Auth-coverage self-test, then gate
-        run: |
-          node scripts/check-auth-coverage.test.js
-          node scripts/check-auth-coverage.js
 
-      # A clinical record read that leaves no trace. AuditService recorded
-      # writes and admin actions, so the question an access log exists to answer
-      # - who looked at this patient's data, and when - had no answer at all,
-      # and the absence was invisible precisely because the write side was
-      # always covered.
-      #
-      # A test cannot hold this: the audit tests still pass if a logRead call is
-      # deleted from a method that still has one, because every remaining path
-      # is still instrumented. So this reads the source.
-      - name: Read-audit self-test, then gate
-        run: |
-          node scripts/check-read-audit.test.js
-          node scripts/check-read-audit.js
 
-      # Two people editing the same plan. The plan is patient-owned *and* a
-      # clinician may contribute, so this is the normal case; with no version
-      # column the second save silently overwrote the first and answered 200.
-      #
-      # The behaviour is tested, but a test cannot hold the mechanism: a
-      # check-then-write still returns 409 in a serial suite, and only two truly
-      # simultaneous writers expose the difference. So the conditional `where` is
-      # checked as syntax.
-      - name: Optimistic-writes self-test, then gate
-        run: |
-          node scripts/check-optimistic-writes.test.js
-          node scripts/check-optimistic-writes.js
 
   # --------------------------------------------------------------------
   # Compose file validation
@@ -219,172 +176,6 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose config -q
 
-
-  server:
-    # Installs dependencies, migrates, runs 488 tests against MySQL. Generous because a cold `npm ci` plus a full suite is genuinely slow.
-    permissions:
-      contents: read
-    timeout-minutes: 25
-    name: Server (lint, typecheck, test)
-    runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: mindease_test
-        ports: ["3306:3306"]
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
-          --health-interval=10s --health-timeout=5s --health-retries=10
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: server/package-lock.json
-      - run: npm ci
-      - run: npx prisma generate
-
-      # The encoding guard is the one that is wired as a required check. It
-      # catches real damage that has happened here before: a bulk text repair
-      # left mojibake in user-facing strings, and it is cheap and currently
-      # green.
-      - name: Encoding guard (whole repo)
-        working-directory: .
-        run: node scripts/check-encoding.js
-
-      # `check-dependencies.js` used to report and never fail: it exits 0 without
-      # `--write`, and it had false positives - it did not scan
-      # `eslint.config.mjs` (so it called `@eslint/js` and `typescript-eslint`
-      # unused) and it did not know that jsdom and `@vitest/coverage-v8` are
-      # selected by configuration value rather than imported. It now walks the
-      # whole package, matches those conventions by rule, and exits 1 on a
-      # finding, with a self-test that pins each false positive from its history.
-      # Required.
-      #
-      # There used to be a third guard here, `check-operators.js`, and it is gone.
-      # It looked for a typographic dash sitting between two code tokens - the
-      # fingerprint of a bulk text repair that also rewrote a JavaScript operator,
-      # which had happened three times in this repository and once inside
-      # prisma/schema.prisma. It was wired advisory because it reported 194
-      # findings on a clean checkout, every one of them a `//` comment, a JSDoc
-      # line, JSX text or an email template.
-      #
-      # It is deleted rather than fixed because the thing it looks for is already
-      # caught, better, by two gates that were already required:
-      #
-      #   - An em dash in a TypeScript expression is not valid syntax. `tsc
-      #     --noEmit` rejects it with `TS1127: Invalid character`, which is how all
-      #     three historical incidents were found - not by this script.
-      #   - The one incident in a non-TypeScript file, schema.prisma, is caught by
-      #     `prisma validate`.
-      #
-      # And it cannot be made precise. In `const x = a — b` and in the JSX text
-      # `most people wait months — or years`, the dash sits between two word
-      # characters with spaces either side. Nothing in the line distinguishes them
-      # except that one of them is prose - which is what the compiler knows and a
-      # regex does not. A rewritten version, using the CODE_POSITION regex the
-      # original declared and never used, still reported 74 findings on an
-      # unmodified tree.
-      #
-      # The repo-wide encoding guard remains, and it is the one that catches
-      # mojibake, which is the same incident from the other direction.
-      - name: Dependency reference check
-        run: |
-          node scripts/check-dependencies.test.js
-          node scripts/check-dependencies.js
-      - name: Migration table-case check
-        # Not advisory, and not for style: a migration referenced
-        # `moodEntry` where the table is `MoodEntry`. That resolves on
-        # Windows and macOS MySQL and fails on Linux with `Unknown table` -
-        # and Docker, Railway and this service container are all Linux, so it
-        # passed every local run and broke the first deploy. It failed here
-        # instead, which is the entire point of having CI.
-        run: node scripts/check-migration-case.js
-
-      - name: UI hygiene ratchet
-        # Three things this codebase has been quietly losing ground on, and all
-        # three are invisible until someone counts them:
-        #
-        #   hardcoded UI strings  English text in JSX that `useTranslations` was
-        #                        meant to cover, so the Indonesian build silently
-        #                        falls back to English
-        #   locale bypasses       `toLocaleDateString()` and friends, which render
-        #                        in the *viewer's* locale and timezone rather than
-        #                        the one the user chose. `lib/format.ts` exists to
-        #                        centralise exactly this
-        #   <img> without alt     a screen reader announces the file path
-        #
-        # Required, with the budgets pinned where the counts stood when it was
-        # promoted. The counts may go down and never up; a counter collapsing
-        # below its floor fails too, because a walker that stops finding
-        # anything would sail under every maximum and make the gate look green.
-        #
-        # UI_HYGIENE_VERBOSE=1 lists every finding.
-        #
-        # `working-directory: .` because this job defaults to `server/` and the
-        # script lives in `client/scripts/`.
-        working-directory: .
-        run: |
-          node client/scripts/check-ui-hygiene.test.js
-          node client/scripts/check-ui-hygiene.js
-        env:
-          UI_HYGIENE_VERBOSE: ${{ vars.UI_HYGIENE_VERBOSE }}
-
-      - name: Lint
-        run: npm run lint
-      - run: npx tsc --noEmit
-      - name: Prepare test DB via migrations
-        # No `--skip-generate`: `migrate deploy` does not accept it in Prisma 6.
-        # Passing it printed the command's help text and exited 1, so this step
-        # failed without running a single migration - and because the job stops
-        # here, the drift check and all 488 tests below it never ran either. The
-        # test wipe in `tests/setup.ts` means they would have reported against
-        # an empty schema.
-        run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
-      - name: Check for schema drift (schema must match committed migrations)
-        # This is the highest-value step in the pipeline: it fails when
-        # `schema.prisma` and the committed migrations disagree, which is how a
-        # hand-written index that only exists in a migration gets silently
-        # dropped by the next `migrate dev`.
-        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel ./prisma/schema.prisma --exit-code
-        env:
-          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
-      - name: Run tests
-        # TZ is pinned to UTC: that is what GitHub runners use and what a
-        # developer machine usually does not - and the difference was hiding
-        # two real bugs rather than causing flaky ones. `features.test.ts` built
-        # an appointment window from the *host* clock while the server reads it
-        # in the *user* timezone, so it passed on a WIB machine and failed here.
-        # `joinRoom` had the mirror problem and judged the same window in the
-        # *host* zone, so booking and joining could disagree about a single
-        # appointment. Pinning it also makes any CI failure reproducible locally
-        # with TZ=UTC.
-        run: npm test
-        env:
-          # `tests/setup.ts` derives the test connection from TEST_DATABASE_URL and
-          # overwrites DATABASE_URL with it. It previously fell back to a
-          # passwordless localhost URL, which cannot authenticate against this
-          # service container — so every test in this job failed at the database
-          # wipe in beforeEach. Both variables are set to the same value so the
-          # migration step and the test run cannot disagree.
-          TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
-          DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
-          JWT_SECRET: ci-jwt-secret
-          REFRESH_SECRET: ci-refresh-secret
-          TWO_FACTOR_SECRET: ci-two-factor-secret
-          # Empty on purpose: the suite must never make a live, billable Gemini
-          # call, and the tests assert the degraded-path behaviour.
-          GEMINI_API_KEY: ""
-          NODE_ENV: test
-          TZ: UTC
 
   client:
     # Lint, unit tests and a production build. The build is the slow part.
@@ -501,88 +292,6 @@ jobs:
       - run: go build ./...
       - run: go test ./...
 
-  # --------------------------------------------------------------------
-  # Coverage, gated on main
-  #
-  # The vitest configs have produced coverage for a while - `npm run coverage`
-  # writes an HTML report - but nothing collected it, so the number existed only
-  # for whoever remembered to run it locally, and the roadmap called that the gap:
-  # there was no way to tell from a build whether an untested branch in a service
-  # that gates a disclosure queue is untested.
-  #
-  # ## Why this does not run on pull requests
-  #
-  # v8 instrumentation on top of the whole server suite is not something to pay
-  # on every push to produce a number that moves on its own. Main and the weekly
-  # run get it; a PR does not. The client half is cheap enough to run on every PR
-  # and lives in the `client` job.
-  #
-  # ## Why it can fail now
-  #
-  # The baseline has been read - 73.99% statements, 55.64% branches, 76.55%
-  # functions and 76.8% lines, with thresholds set just below in
-  # `vitest.config.ts`. The number is no longer a report nobody looks at, and a
-  # regression below the floor is a merge-time failure on main rather than a
-  # line in an artifact. The upload itself stays `continue-on-error`: an
-  # artifact-store hiccup should not redden main, the measurement should.
-  coverage:
-    if: github.event_name != 'pull_request'
-    permissions:
-      contents: read
-    timeout-minutes: 35
-    name: Coverage (server, gated on main)
-    runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: mindease_test
-        ports: ["3306:3306"]
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
-          --health-interval=10s --health-timeout=5s --health-retries=10
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: server/package-lock.json
-      - run: npm ci
-      - run: npx prisma generate
-      - name: Migrate
-        run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: mysql://root:root@localhost:3306/mindease_test
-      - name: Coverage
-        run: npm run coverage
-        env:
-          # Same wiring as the `server` job: `tests/setup.ts` reads
-          # TEST_DATABASE_URL and overwrites DATABASE_URL with it, so both are
-          # set to the same value and the migration above cannot disagree with
-          # the run below.
-          TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
-          DATABASE_URL: mysql://root:root@127.0.0.1:3306/mindease_test
-          JWT_SECRET: ci-jwt-secret
-          REFRESH_SECRET: ci-refresh-secret
-          TWO_FACTOR_SECRET: ci-two-factor-secret
-          GEMINI_API_KEY: ""
-          NODE_ENV: test
-          TZ: UTC
-      - name: Upload the coverage report
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: coverage-server
-          path: server/coverage/
-          # 14 days: long enough to compare against the previous weekly run,
-          # short enough that the reports do not accumulate indefinitely.
-          retention-days: 14
 
   docker:
     # Builds all three images, boots the stack, and uploads Playwright traces on
@@ -607,8 +316,10 @@ jobs:
     # after the server, client and realtime suites have all run.
     # `docs` is included so a stale count blocks before the expensive jobs rather
     # than after them. `api-go` is included so a broken Go build is caught by
-    # the cheap job before this one spends fifteen minutes on images.
-    needs: [docs, compose, server, client, realtime, api-go]
+    # the cheap job before this one spends fifteen minutes on images. The Node
+    # API and its coverage job are gone with server/; the Go API job covers that
+    # code and the browser suite below covers its HTTP contract.
+    needs: [docs, compose, client, realtime, api-go]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -680,22 +391,17 @@ jobs:
       # Everything around it - build, boot, the four health checks above, the
       # seed below - is required for the same reason.
       #
-      # The suite requires seeded data and nothing in compose or CI ever
-      # seeded the database, so the seed is closed first.
+      # The suite requires seeded data.
       #
-      # Seeding runs from the runner rather than inside the API container: the
-      # production image installs `--omit=dev` (so no `ts-node`) and copies only
-      # `scripts/start.sh`, not `scripts/seed.ts`. The runner has the full
-      # checkout with devDependencies, and compose publishes MySQL on 3306.
+      # The seed runs in the API image, which contains the `seed` binary: no
+      # host Node checkout is involved, and the connection string is the one the
+      # API itself uses, so the demo data is identical to `make up`.
       #
       # Note the seed creates zero reviews. It used to invent a 4.2-4.9 rating
       # for every clinician with zero reviews, which made "Top Rated" rank
       # the most-liked-looking profiles first; that data was removed because
       # demo data should not model the bug. One journey builds its own review,
       # follow-up and conversation by completing a consultation.
-      - name: Install server dependencies (for the seed)
-        working-directory: server
-        run: npm ci
       # The client's dependencies, for Playwright itself. The `client` job
       # installs them on its own runner; this job is a different runner with a
       # fresh checkout, so `npx playwright test` died on
@@ -706,10 +412,7 @@ jobs:
         working-directory: client
         run: npm ci
       - name: Seed the database
-        working-directory: server
-        env:
-          DATABASE_URL: mysql://root:mindease_secure_root@127.0.0.1:3306/mindease_db
-        run: npx prisma migrate deploy && npm run db:seed
+        run: docker compose run --rm --no-deps api seed
       - name: Install Playwright browser
         working-directory: client
         run: npx playwright install --with-deps chromium

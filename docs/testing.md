@@ -1,480 +1,151 @@
 # Testing
 
-Three suites, three languages, and one hard constraint that shapes all of them:
-**the server suite runs against a real MySQL database with real Argon2
-hashing.** That is deliberate, and the rest of this document is mostly about
-what it costs.
+Three suites and one browser suite. The browser suite is the one that exercises
+the whole system; the Go suites cover the pieces a browser cannot reach. The old
+Node integration suite was not ported — that gap is named at the end rather than
+papered over.
 
-## The three gates
+## The suites
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Server** | `cd server && npm run typecheck && npm test` | Real MySQL 8, real Argon2, Supertest over the real Express app | 519 tests, 43 files |
+| **Go API** | `cd server-go && go test ./...` | In-process; stdlib `testing`, no database | 10 tests, 3 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
-Counts are from `npx vitest list --run`, `go test -list` and the Vitest client
-run, not from prose elsewhere in the repository. If they disagree with a README
-or a diagram, that document is wrong.
+Counts are derived from the tree by `scripts/check-numbers.js`, which fails the
+build if this table disagrees with the repository.
 
-The e2e suite (`client/e2e/journeys.spec.ts`, 12 Playwright tests across 10
-`test.describe` blocks) is a fourth gate that is **not** required — see
-[Why e2e is not required](#why-e2e-is-not-required).
+The end-to-end suite is `client/e2e/journeys.spec.ts`: 12 Playwright tests in 11 describe blocks, plus three cached sign-ins in `auth.setup.ts`. It runs against
+the real stack — MySQL, Redis, the Go API, the Next client — and is a required
+step in CI's `docker` job.
 
-## Server
+## The Go API
 
-### Prerequisites
+The unit tests are deliberately narrow. They pin the properties that are easy to
+break silently and impossible to see in a browser:
 
-- Node 22+
-- MySQL 8 running and reachable, with a `mindease_test` database
-- Redis is **not** required. The code degrades to in-memory and the tests assert
-  the degraded behaviour.
-
-```bash
-cd server
-npm install
-npm run test:db          # create + sync mindease_test
-npm run db:seed          # only needed for e2e, not for `npm test`
-npm run typecheck
-npm test
-```
-
-`npm run test:db` is `prisma db push --skip-generate` against
-`mysql://root:@localhost:3306/mindease_test`. CI uses
-`prisma migrate deploy` instead — see
-[the drift gate](#the-drift-gate) for why that difference matters.
-
-### Why a real database, and why SQLite is not an option
-
-The datasource is a literal `mysql` in `schema.prisma`. That is not negotiable,
-and it is worth being explicit about why, because "use an in-memory SQLite for
-tests" is the obvious suggestion and it cannot work here:
-
-- **The provider is `mysql`.** Prisma cannot switch provider per test.
-- **Every migration is raw MySQL DDL.** Not generated — hand-written
-  `migration.sql` files with `utf8mb4_unicode_ci`, `DATETIME(3)`, engine-specific
-  index syntax and `ALTER TABLE ... ADD COLUMN` chains. None of it parses under
-  SQLite, and some of it has no SQLite equivalent at all.
-- **The properties under test are exactly the ones a fake destroys.** A
-  unique-constraint race (`MoodEntry`'s `(userId, moodDate)`, `Appointment`'s
-  `slotId`, `WaitlistEntry`'s `(doctorId, patientId)`) and an Argon2 hash round
-  trip cannot be faked. Mocking the database makes the test assert nothing.
-- **Transaction semantics matter to the wipe.** `DELETE` inside an interactive
-  transaction with `FOREIGN_KEY_CHECKS` toggled per session is MySQL-specific.
-
-So the suite is slow, and it wipes the database between tests. Both are the
-price.
-
-### The wipe
-
-`tests/setup.ts` registers `beforeEach(wipeDb)` **and** `afterEach(wipeDb)` — the
-same function, both hooks, on purpose. Every test starts from an empty database
-and leaves one behind, so a test that commits data outside the request lifecycle
-cannot contaminate its successor.
-
-```ts
-await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 0");
-    for (const table of TABLES) await tx.$executeRawUnsafe(`DELETE FROM \`${table}\``);
-    await tx.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 1");
-}, { maxWait: 15000, timeout: 60000 });
-```
-
-Three details that are load-bearing:
-
-**`DELETE`, not `TRUNCATE`.** `TRUNCATE` implicitly commits, which would
-terminate the interactive transaction mid-way. `DELETE` does not.
-
-**One connection.** `FOREIGN_KEY_CHECKS` is a session variable, so every
-statement has to share the connection the transaction is on.
-
-**`TABLES` is derived, not listed.** It reads
-`Prisma.dmmf.datamodel.models.map(m => m.name)` — the generated client, so a new
-model is wiped the day it is created. It was previously a hand-maintained array
-of 22 names and had already fallen behind: `PaymentOrder` was added and never
-added there. The failure is silent, because FK checks are disabled for the
-wipe, so a skipped table is not an error — it is an orphan row that surfaces much
-later as a count that is one too high.
-
-There is a guard on that guard: if `TABLES.length === 0` the module **throws**,
-rather than turning `wipeDb` into a no-op that lets every test run against the
-previous test's data. Far worse than a loud failure.
-
-### Why the suite is serial
-
-`vitest.config.ts` sets `pool: "forks"` and `fileParallelism: false`.
-
-File parallelism would mean multiple Vitest workers sharing one MySQL instance,
-and every one of them runs `beforeEach`/`afterEach` `DELETE FROM` across all 27
-tables. The tests would delete each other's fixtures mid-run and fail in ways
-that look like application bugs. The `forks` pool isolates module state per
-worker — necessary because `config/env.ts` captures `process.env` at import time
-and several tests mutate it.
-
-### Why the timeouts are 120 seconds
-
-```ts
-testTimeout: 120_000,
-hookTimeout: 120_000,
-```
-
-Vitest's 30 s default is sized for unit tests. Several tests perform six or more
-Argon2 hashes plus a full 27-table wipe in `beforeEach` *and* `afterEach`. On a
-loaded machine the 2FA backup-code test exceeded 30 s and failed **on a timeout**
-rather than on anything about 2FA — two security tests failing for a reason that
-had nothing to do with what they were testing, which is worse than no coverage
-at all.
-
-### How to add a test
-
-1. **Put it in the right file.** The table below is grouped by subject and the
-   boundaries are meaningful — `care-plan.test.ts` is 70 tests because the
-   ownership matrix is the bulk of the safety surface, not because it is a
-   general-purpose file.
-
-2. **Use `tests/helpers.ts`.** Do not hand-roll user creation:
-
-   ```ts
-   import { createUser, createDoctor, createAdmin, setupClient } from "./helpers";
-
-   const patient = await createUser("patient");     // registered + logged in + cookie + CSRF
-   const doctor  = await createDoctor();            // and approved, so booking works
-   ```
-
-   Each returns a Supertest `agent` carrying the CSRF cookie, the matching
-   `X-CSRF-Token` value, and the session cookie. The access token is read out of
-   the **cookie jar**, not the response body, because the cookie is the only
-   place it is delivered — `accessTokenFrom` exists to model what a browser
-   does.
-
-3. **If you touch 2FA, pin the clock.** `pinTwoFactorClock()` /
-   `unpinTwoFactorClock()` put TOTP in the middle of the *current* 30-second step.
-   Without it, an Argon2 round trip on a loaded machine can outlast the whole
-   tolerance window, `2fa/enable` returns 400, and the failure surfaces as an
-   unrelated assertion about `TOTP_REQUIRED` several tests later. Always pair
-   them.
-
-4. **If the test needs an entitlement, grant it the way the provider will.**
-   `grantPaidPackage(userId, packageId)` creates a purchase with a verified
-   `paidAt`. A patient-facing self-service purchase is deliberately refused — it
-   used to mint unlimited free therapy packages.
-
-5. **If the test needs mood history, use `createMoodEntry`.** It computes the
-   timezone-aware day key that `MoodEntry.moodDate` now requires.
-
-6. **Do not mock the service layer.** There is no repository pattern here to
-   mock behind; tests go through HTTP.
-
-7. **Assert on the status *and* the reason when the distinction matters.**
-   `security.test.ts` has a case where the expected status is 400 rather than
-   403, with a comment explaining that the patient *does* own the appointment and
-   the failure is a rule they break by asking. A status-only assertion would have
-   let the wrong fix pass.
-
-### The three meta-tests
-
-These are not tests of features. They are tests of properties of the codebase,
-and they are the reason several of the invariants in
-[`security.md`](security.md) hold rather than merely being intended.
-
-**`error-status.test.ts` (5 tests)** — walks `src/` and fails if any controller
-derives an HTTP status from a message substring, or any service throws a bare
-`new Error` carrying a status-bearing message. It strips comments first, so a
-controller *describing* the anti-pattern it was fixed for is not itself flagged.
-It also asserts that a typed error is not reclassified by its wording:
-`badRequest("Upstream said: patient record not found")` must stay 400.
-
-**`realtime-contract.test.ts` (4 tests)** — the event union lives in three
-implementations: the TypeScript `RealtimeEventType`, the Go JSON tags, and the
-client hook. Nothing pinned them, so a renamed event type compiled cleanly and
-simply stopped arriving. The test re-parses the union from source, collects every
-literal passed to `publishEvent` across `src/`, and asserts both directions:
-
-- every published type is declared (catches a renamed event)
-- every declared type is published (catches an orphan left after a delete)
-
-It also asserts the Redis envelope shape the Go `redisEvent` struct reads, and
-that the Go and client agree on the field names.
-
-**`openapi.test.ts` (7 tests)** — asserts the generated spec matches the
-registered routes, so a new endpoint without a spec entry fails in CI. Among the
-things it pins: uploads are declared `multipart` not JSON, and the payment
-webhook is documented as having no session or CSRF security.
-
-### The drift gate
-
-Not a test, but it lives in the same place and matters more than several of them:
+- **Production config guards.** `internal/config/config_test.go` proves that
+  `Load` refuses a missing, known-weak, template-placeholder or `dev_`-prefixed
+  secret in production, that the three signing secrets must differ, that the
+  payment provider must be one of the known names, and that development still
+  falls back to the simulator and jitsi.
+- **Token purposes.** `internal/server/tokens_test.go` proves an access token
+  round-trips, and that a refresh token, a pending 2FA ticket and a websocket
+  ticket are each rejected when presented as an access token — they share
+  secrets with other flows by design, so the audience check is the only thing
+  keeping them apart.
+- **Password hashing.** `argon_test.go` proves the PHC round trip, that malformed
+  hashes never verify, and that the miss-path dummy hash never returns true. The
+  seeded logins are the integration proof that the hashes the seed writes and the
+  hash the server verifies are the same format.
 
 ```bash
-npx prisma migrate diff --from-url "$DATABASE_URL" \
-  --to-schema-datamodel ./prisma/schema.prisma --exit-code
+cd server-go
+go test ./...          # the three files above
+go vet ./...           # CI runs this and golangci-lint v2
 ```
 
-It fails when `schema.prisma` and the committed migrations disagree. It has
-caught two real defects — a `Doctor.rating` default of `5.0` for clinicians with
-no reviews, and a duplicate waitlist unique key — and it is what caught the
-missing `CarePlan.userId` foreign key.
+No test in this suite needs MySQL or Redis. The database paths are covered where
+they are actually exercised: through the browser against a real database.
 
-## What running the suite against a migrated database changed
-
-This is the most useful thing this document can tell a reader, because it is a
-failure mode that is invisible until it is fixed.
-
-**The suite had never been run against a database built by `prisma migrate
-deploy`.** It ran against `db push`, which builds the schema *from
-`schema.prisma`* and therefore always agrees with it. CI migrated. The two paths
-produce different databases whenever a migration file and the datamodel disagree,
-and only one of them is what production runs.
-
-The concrete casualty, from the header comment of
-[`20260927000000_clinical_continuity/migration.sql`](../server/prisma/migrations/20260927000000_clinical_continuity/migration.sql):
-
-> `resolvedById` was missing. The datamodel declared it and
-> `riskQueue.service.ts` wrote it, but no statement here created the column, so
-> against a `migrate deploy` database every queue read and every resolve threw a
-> `PrismaClientValidationError`.
-
-Under `db push` that column existed, so 25 risk-queue tests passed. Against a
-migrated database, the entire triage worklist — the safety-critical feature — was
-broken at runtime.
-
-The same file records a second correction: `CarePlan.userId` had no foreign key
-while `SafetyPlan` below it did, and the drift gate reported the omission on
-every run.
-
-Three generalisable lessons, and they are the reason this section exists:
-
-1. **`db push` tests the datamodel. `migrate deploy` tests the migrations.**
-   Production runs `migrate deploy` as the API start script, so that is the one
-   that has to be exercised.
-2. **A test that only ever saw the schema through the ORM cannot detect a
-   column that the ORM believes in and the database lacks.** Every Prisma call
-   that mentions the field fails at the driver, not at compile time, and if the
-   field is never written on the path under test nothing surfaces.
-3. **Hand-written DDL drifts silently.** The migration files are raw SQL with no
-   compiler. The drift gate is the only automated check that they still describe
-   the schema, and it caught both of these.
-
-Because that migration had never been applied anywhere persistent, both
-corrections were edited **in place** rather than added as a follow-up migration —
-which is the right call for an unapplied file and a rewrite for an applied one.
-
-## Realtime
+## The realtime hub
 
 ```bash
 cd server-realtime
-go vet ./...
 go test -race -cover ./...
 ```
 
-32 tests across `main_test.go`, `hub/auth_test.go`, `hub/client_test.go`,
-`hub/drops_test.go` and `hub/hub_test.go`.
+The hub's tests exist for concurrency: authentication before the upgrade, origin
+allowlisting, idempotent unregister, drop counters incremented under the correct
+lock, and error propagation from the socket pumps. `-race` is the point; CI runs
+it on every push.
 
-`-race` is the point, not a habit, and it has now caught two things:
-
-- `hub_test.go`'s concurrency cases exist to catch data races in `Hub.Register`,
-  which takes caps and registers inside a single `Lock`. The suite was previously
-  compiled without the flag, so those tests ran and could not detect the thing
-  they were written for.
-- `drops_test.go` gained a case where eight goroutines publish to a stalled
-  socket at once. The drop counters were incremented inside a **read** lock, so
-  concurrent publishers raced on the same `uint64` and lost increments — on the
-  counters that exist to make a lost clinical alert visible. The comment there
-  asserted "the write lock we already hold", which is what stopped anyone
-  checking. They are `atomic.Uint64` now.
-
-Every other test in that file published from one goroutine, so the race was real
-in production and unreachable by the suite for as long as it existed.
-
-`auth_test.go` covers the JWT purpose gate — the property that stops a 7-day
-refresh token or a not-yet-2FA'd session opening a socket on a channel carrying
-private chat.
-
-The local Go toolchain and the cached build cache can disagree (`compile: version
-"goX" does not match go tool version "goY"`); `go clean -cache` resolves it.
-
-## Web
+## The web client
 
 ```bash
 cd client
-npm test          # Vitest + jsdom, 52 tests in 8 files
 npm run lint
+npm test
 npm run build
 ```
 
-| File | Tests | Covers |
-|---|---|---|
-| `tests/api-session.test.ts` | 5 | Cookie handling, token refresh, the session store |
-| `tests/notifications-store.test.tsx` | 4 | Notification list state, unread tracking |
-| `tests/locales.test.ts` | 5 | EN/ID message parity |
-| `tests/json-ld.test.ts` | 7 | SEO structured data |
+The unit tests are a jsdom harness for the session store, post-login routing,
+doctor mapping, JSON-LD, locale parity and the login form's handling of
+credentials. The build is part of the gate: a type error or a server/client
+boundary mistake fails it before a browser ever opens.
 
-The client suite was never run in CI, so these regression tests only ever ran
-locally. They run now.
+Client coverage is measured and enforced in `client/vitest.config.ts` with
+floors just under the read baseline (2 / 75 / 69 / 2). The statement figure is
+diluted by counting every app file while a handful have unit tests; the branch
+and function numbers are the ones that move with the suite.
 
-`npm run build` is a separate gate from `npm test` on purpose: `NEXT_PUBLIC_*`
-values are inlined at **build** time, so a build that succeeds with the wrong
-ones still ships the wrong ones. `docker-compose.yml` declares them as build args
-for exactly this reason.
+## The browser suite
 
-## The end-to-end journeys
+The journeys cover registration and login, the admin console, password-reset
+requests, assessments and mood, the doctor's schedule and pattern creation, the
+reviews section, the SOS modal, admin moderation and exports, the messages page,
+and a full review lifecycle (book → accept → complete → review → reply → follow-up
+→ conversation). Two of them book through the UI, which is what exercises the
+atomic slot claim against a real database.
 
-`client/e2e/journeys.spec.ts` — 12 Playwright tests in 11 `test.describe` blocks:
-the full patient flow, admin dashboard, forgot-password, assessments and mood
-factors, the printable assessment report, the doctor follow-up and availability
-pattern, the reviews section, the SOS modal, admin moderation and exports, a
-chat smoke test, and the full lifecycle — booking, completion, review, follow-up
-and conversation. Plus three cached sign-ins in `client/e2e/auth.setup.ts`, for
-fifteen tests in total.
+It requires seeded data:
 
 ```bash
-cd client && npx playwright test     # with the stack already running and seeded
+# with the stack up (make up), or MySQL/Redis running locally
+cd server-go
+DATABASE_URL=mysql://... go run ./cmd/migrate
+DATABASE_URL=mysql://... go run ./cmd/seed
+
+cd ../client
+npx playwright test
 ```
 
-They are a **required check** in the `docker` job, after the four health checks
-and the seed. The path there is worth recording, because it is the same shape as
-the `compose` story above.
+`npx playwright test` starts the Go API through `server-go/scripts/dev.sh` if
+nothing is listening on `:5000` (which loads the root `.env`), and the Next dev
+server on `:3000`. In CI the compose stack is already serving both.
 
-The suite had **never been executed by any automated process.** The `docker`
-job's first step was `docker compose build`, and it failed — so every later step
-(four health checks, the seed, all the journeys) was permanently unreachable, and
-nothing in the pipeline noticed, because a job whose first step fails just
-reports red and the unreachable steps are never examined. That same bug killed
-the `compose` validation job's motivation, which is why `compose` now runs
-first, alone, for about ten seconds: a mis-indented key in `docker-compose.yml`
-should cost ten seconds rather than a full three-job test run.
+The journeys found four product bugs that every other suite was happy with, and
+two more during the port itself: a timezone comparison that made every
+midnight-WIB slot look like the wrong date, and a picker race where today's chip
+is enabled until the slot query lands. Both are the class of defect that only a
+real client against a real server surfaces.
 
-Once the plumbing was repaired, the journeys ran on `workflow_dispatch` or an
-`e2e` label while their selectors were being exercised for the first time — a
-required-check failure then would have been indistinguishable from a
-regression. They were promoted to required after a green run, and the first
-execution of the required step in CI failed on `Cannot find module
-'@playwright/test'`: the job installs the server's dependencies for the seed
-and never the client's. That is the same shape again — a step that had been
-unreachable for as long as the suite was opt-in, and therefore never examined.
-Fifteen tests now pass in the Docker stack, in 42 seconds.
+## CI gates
 
-### What running them actually found
+| Job | What it runs |
+|---|---|
+| `docs` | `check-numbers`, the encoding guard, the workflow self-test and gate, a11y ids, CSP, i18n, UI a11y, load states, stale writes |
+| `go` (api-go) | `go vet`, golangci-lint v2.14, `go build`, `go test` |
+| `realtime` | `go vet`, golangci-lint, build, `go test -race -cover` |
+| `client` | lint, unit tests, coverage (gated), production build |
+| `compose` | `docker compose config` |
+| `docker` | builds the four images, boots the stack, probes health, seeds, runs the 12 Playwright tests in production mode |
 
-Everything below was found by the suite's first runs, and none of it by reading
-— the existing test suites were all green in every one of these states:
+Four static analyzers that scanned the Node tree — auth coverage, read-audit
+markers, optimistic-write patterns and schema index acknowledgements — retired
+with that tree. They analyzed source shapes (`router.get(`, `prisma.$transaction`,
+`@@index`) that no longer exist. Their invariants did not disappear: the handler
+code ports the checks they were forcing, and the browser suite exercises the
+paths. What is gone is the static *proof* that a new route has not skipped them.
 
-- **Every public page bounced a logged-out visitor to `/login?expired=1`**,
-  because the client validated the session on every page load and reported the
-  resulting 401 as an expiry. Registration was unreachable — the one page that
-  exists for people without an account. The journey that registers a patient
-  failed on a label that was never rendered, and the two journeys that passed
-  were the ones that sign in as a seeded account first.
-- **A hydration mismatch in `PushPromptBanner`**, from a `useState` initialiser
-  that read `navigator` — false on the server, true on the client's first render.
-  That is the same mechanism that removed the login form's submit handler in an
-  earlier bug, so it was a known shape rather than a new one.
-- **The cookie banner covered the booking wizard's Back button.** The banner is
-  fixed at the bottom-left at `z-[80]` and the dialog overlay was `z-[70]`, so a
-  patient who had not answered the consent prompt could not step back through
-  the wizard. `Dialog` is now `z-[100]`: above the passive widgets (push prompt,
-  cookie banner, support chat), below toasts, because a modal is the one surface
-  that may not be occluded.
-- **The date picker offered days the clinician had no slots on.** Fourteen
-  enabled chips, then "No open slots for this day" — a dead end that reads as a
-  broken schedule. `BookingModal` now derives `availableDates` from its slot
-  fetch, so only days with an open slot are selectable.
-- **Journey 10 had never worked.** Its selectors named controls that do not
-  exist — the rate button reads "Rate", the reply form is an inline panel rather
-  than a dialog, and its submit reads "Publish Reply" — it booked whichever
-  clinician happened to be second in the directory and then signed in as `dr2`,
-  it registered its `dialog` handler after the click that fires the prompt, and
-  it read `/appointments/my` as a bare array where the API returns
-  `{ data: { rows, total, page, totalPages } }`. It books doctor 2 by deep link
-  now: every seeded rating ties at zero, and MySQL gives no stable order for
-  ties, so "the second card" was not a person.
-- **A harness race that looked like a product bug.** The wizard swaps steps with
-  `AnimatePresence mode="wait"`, so a `count()` issued immediately after
-  Continue runs while the previous panel is still mounted. The date walk counted
-  zero time buttons for every date while the trace's DOM snapshots show them
-  rendered; waiting on the panel's own content — a time chip or its empty state
-  — is waiting for the swap.
-- **A hydration mismatch in the navbar.** `AuthContext` seeded `user` from
-  `localStorage` in a `useState` initialiser, so the first client render
-  disagreed with the server HTML on every authenticated page. It now lives in an
-  external store read through `useSyncExternalStore`; the server snapshot for
-  `isLoading` is `true` so a route guard cannot redirect before the stored
-  session is restored. Verifying it also exposed a **development service worker
-  serving stale chunks** — its cache name changes with the worker's own source
-  and its `/_next/static` rule is cache-first, which is right for production's
-  content-addressed URLs and wrong for Turbopack's stable ones. Development no
-  longer registers the worker.
-- **The first chat message was impossible from the UI.** The inbox was built
-  from message history, so a patient with a confirmed appointment saw "No
-  conversations yet", and the appointments page's "Chat" button deep-linked into
-  a thread that resolved against that same history. Messaging is gated on the
-  appointment (`canChat`), so a contacts endpoint now reads those same rows, the
-  inbox lists startable threads and the deep link resolves against them.
-- **That same Chat button was disabled for every patient.** The allowlist select
-  behind the patient's appointment list omitted the doctor's `user.id` — the
-  exact value the button deep-links with — so the control could never be enabled.
+## The named gap
 
-It also confirmed the rate-limiter design. The API enforces its real production
-limits here, because the stack runs with `NODE_ENV=production` and only the
-*server* suite bypasses them (`skipInTest`). Twelve journeys from one IP each
-logging in one to three times is far more auth traffic than a person generates
-in a quarter of an hour, so the suite is shaped wrongly for the limits rather
-than the limits being wrong — and relaxing a security control so that a test
-passes would be the wrong repair. The setup project signs in once per seeded
-role and the journeys reuse the session via `storageState`; the journeys that
-register an account still create their own.
+There is no Go integration suite against MySQL. The old server suite — 519 tests
+covering unique-constraint races, token rotation, the payment claim, the job
+claims and the export — was not ported; the browser suite covers the main flows,
+and the Go unit tests cover the guards, but a direct handler-level suite against
+a real database is the largest testing gap in the repository. It is the next
+testing work, not a claim that the coverage is equivalent.
 
-## The 43 server test files
+## Adding a test
 
-| File | Tests | What it covers |
-|---|---|---|
-| `access-log-redaction.test.ts` | 5 | **Meta-test.** Access logs carry no query-string values, so `?search=<patient email>` cannot reach the log store, while the query keys and the header redactions survive |
-| `account-export.test.ts` | 6 | Data subject access: the export covers everything account deletion destroys, the safety-plan key exists even when none was written, another patient's record is excluded, and deletion really removes the three that the export was widened for |
-| `ai-provenance.test.ts` | 16 | `AiResult` shape, prompt fencing reaching the model, circuit breaker states and transitions, timeout passed to the provider |
-| `ai-provenance-http.test.ts` | 5 | `briefingSource` persisted and returned; provenance survives to the client over HTTP |
-| `appointment.test.ts` | 9 | Booking a slot and locking it, idempotency-key replay, double-booking and overlap rejection, doctor confirmation without minting a public meeting link, slot release on cancel, reschedule to pending, ownership on cancel |
-| `auth.test.ts` | 11 | Register, weak-password rejection, no self-promotion to admin, duplicate email, wrong password, lockout after 5 failures, refresh rotation, CSRF enforcement, banned users, email OTP verification, admin route gating |
-| `care-plan.test.ts` | 70 | Ownership matrix, role gates, goals, steps, safety plan CRUD, clinician read side, review, validation |
-| `care-plan-regressions.test.ts` | 9 | A partial safety-plan save must not erase the rest; calendar date handling; the clinician read that was missing |
-| `clinical-read-audit.test.ts` | 8 | Every clinical read leaves a trace: reader and patient recorded separately, one entry per disclosure rather than one per request, no entry for a patient reading their own record, a bulk export recorded as one event with its row count, and a broken audit table still does not deny the read |
-| `crisis-triage.test.ts` | 17 | `detectFreeTextRisk` pattern behaviour, the third-party mention that informs an alert without suppressing it, `lastIndex` safety, patient-only gating, the message path end to end, markup stripping |
-| `doctor-directory.test.ts` | 8 | Public directory filtering, pagination, `/specialties` derived from data |
-| `error-status.test.ts` | 5 | **Meta-test.** No substring-derived HTTP status anywhere in `src/` |
-| `features.test.ts` | 55 | Journal, mood factors, PHQ-9/GAD-7, review replies, consultation rooms (including two participants joining at once), weekly report, doctor analytics, notification prefs, availability patterns, SOS, review reports, rebook assist, AI matching, admin exports, waitlist, follow-ups, packages, referrals, chat upgrades, away mode |
-| `hardening.test.ts` | 15 | Booking integrity, referral credits, package reservation integrity (a cancellation refunded twice; two follow-ups spending one session; accept and decline crossing), 2FA backup codes (two simultaneous spends of one code), journal ownership, waitlist maintenance |
-| `health-schema.test.ts` | 2 | `/api/health/db` reports the table count when the schema matches, and 503 with a drift status — but no table names — when a table is missing. Drops the real table rather than mocking the check, then re-applies the migration's own DDL so the file leaves the schema as it found it |
-| `internal-jobs.test.ts` | 7 | **The worker trigger.** Disabled without `JOBS_SECRET`, rejects a missing or wrong secret without running anything, runs exactly the named job, rejects an unknown name; and the dispatch seam runs locally without `JOBS_WEBHOOK_URL`, posts with the secret when configured, and refuses to call the worker unauthenticated |
-| `identifier-shape.test.ts` | 3 | **Meta-test.** Every model's primary key is UUIDv7 (or a natural opaque string key), no id-typed column is an integer, and no route schema coerces an id to a number |
-| `infra.test.ts` | 6 | Notification pagination with totals, doctor directory pagination and review counts, non-admin rejection, admin broadcast plus its audit log, GDPR data export, CORS origin allow/deny |
-| `openapi.test.ts` | 7 | **Meta-test.** Spec matches registered routes; multipart uploads; webhook security model |
-| `payment-config.test.ts` | 11 | Unknown provider is a boot error; production refuses the simulator without the explicit opt-in; production secret validation |
-| `mood-decline.test.ts` | 6 | The mood-decline rule as a matched pair — six entries decline, three entries have nothing to compare against — and the escalation it now performs: an elevated `RiskAlert` addressed to the treating clinician, at most once a week |
-| `payments.test.ts` | 21 | Package checkout, `PaymentOrder` mapping, callback idempotency per `orderId`, entitlement integrity, `sessionsLeft` decrement |
-| `phase2-integrity.test.ts` | 6 | Reschedule slot bookkeeping, away window on the public profile, honest mood re-log replacement |
-| `plan-concurrency.test.ts` | 9 | Two editors on one plan: a stale save is refused and does not write, a current save is accepted, and exactly one of two *simultaneous* saves wins — the case a check-then-write passes serially and fails under a real race. Also that goals and `lastReviewedAt` deliberately do not move the plan version, and that the partial-save merge survived replacing the upsert |
-| `rate-limit-store.test.ts` | 3 | **Meta-test.** No bare `rateLimit({` may exist, the helper injects a store, and the limiter count is pinned so adding one is a deliberate act |
-| `rate-limit-store-isolation.test.ts` | 3 | **Meta-test.** A `Store` instance is never reused across limiters, and keys are namespaced per limiter; each store exposes the prefix the double-count check keys on, so stacked limiters are not read as double counts |
-| `realtime-contract.test.ts` | 9 | **Meta-test.** Event union vs Go JSON tags vs client hook, both directions |
-| `care-checkins.test.ts` | 2 | A failed nudge hands its claim back (mood, and the post-session check-in), so the loss is a delay rather than a disappearance; the tests fail against the previous code, which swallowed the send error with the sentinel already claimed |
-| `reminders.test.ts` | 6 | Reminder window eligibility, one send per appointment, two runners racing sends once; the weekly report sends once per week, catches up a missed one, hands the week back when the send fails, and sends once under a race |
-| `risk-queue.test.ts` | 26 | `priorityFor` ordering, queue scoping and counts, acknowledge/resolve transitions and their audit entries, `assertCanTriage` |
-| `review-privacy.test.ts` | 3 | The public review listing returns a pseudonym, not the reviewer's name, id or avatar; a clinician's public reply still threads |
-| `role-guards.test.ts` | 14 | Unauthenticated callers refused; wrong role refused; the guards are actually mounted |
-| `security.test.ts` | 10 | **IDOR matrix.** Cross-patient reads, cross-doctor writes, briefing visibility |
-| `support.test.ts` | 13 | Support chat, crisis routing to hotlines, the deliberate non-disclosure exception, and the SOS delivery rule: what the patient is told is derived from what was delivered |
-| `trajectory.test.ts` | 21 | Screening trajectory: instrument selection, series ordering, insufficient-data threshold, limit, ownership |
-| `two-factor-disable.test.ts` | 7 | Disabling two-factor needs a password *and* a current code, clears every 2FA field, revokes the refresh token and every other session, and cannot be replayed once disabled |
-| `twofactor.test.ts` | 8 | TOTP enrolment, verification, replay rejection via `lastTotpStep`, backup codes |
-| `verification.test.ts` | 5 | Doctor verification workflow — hidden until approved |
-| `video-config.test.ts` | 5 | Provider parsing; unknown provider rejected rather than falling back; missing credentials reported |
-| `video-fallback.test.ts` | 4 | Degraded jitsi reporting with a reason; half-configured livekit; no token on the jitsi path |
-| `video-token.test.ts` | 12 | Room scoping, TTL bounds, refusal on a closed window, secret never in the payload, `buildGrant` shapes |
-| `wave0-regressions.test.ts` | 41 | Token purpose separation, 2FA enforcement, credential lifecycle, clinical data lifecycle, slot and availability integrity, public data exposure, input validation, error disclosure, timezone-correct day boundaries, mood logging invariants |
-| `wellness.test.ts` | 10 | Mood logging and stats, range rejection, a repeated same-day log as an update rather than a duplicate, streak calculation and breakage, day-window averaging, ownership, unbounded history rejection |
-
-Total: 519.
-
-`care-plan.test.ts` and `wave0-regressions.test.ts` are the two largest files
-because they encode the two most expensive regressions this codebase has had —
-care-plan ownership and the auth hardening wave. Neither is a dumping ground;
-both are grouped by subject and the describes are legible.
+- **Go API**: a table-driven test beside the code it pins, in the package under
+  test. No database unless the thing under test needs one.
+- **Realtime**: `server-realtime/hub/*_test.go`; use real websockets and keep
+  the cases concurrent where the property is a race.
+- **Web**: `client/tests/*.test.tsx` with the jsdom harness; keep them behavioural
+  (what the user sees) rather than implementation-detail assertions.
+- **Browser**: add a journey to `journeys.spec.ts`, reuse the cached
+  `storageState` per role, and keep the helpers' documented pitfalls in mind —
+  the picker re-renders as data lands, and `count()` does not retry.

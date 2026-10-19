@@ -4,7 +4,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/api ./cmd/api \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/migrate ./cmd/migrate \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/seed ./cmd/seed
 
 FROM alpine:3.24
 # ca-certificates is not optional: every outbound TLS call (Google's tokeninfo
@@ -15,7 +17,8 @@ FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata \
     && adduser -D -H api
 WORKDIR /app
-COPY --from=builder /out/api /usr/local/bin/api
+# Three small binaries: the server, the one-shot migration runner and the seed.
+COPY --from=builder /out/ /usr/local/bin/
 # `public/uploads` is the default UPLOAD_DIR with this WORKDIR, and compose
 # mounts its named volume exactly here. Created and owned by the runtime user
 # so the upload routes can write to it.

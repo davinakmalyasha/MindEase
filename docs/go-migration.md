@@ -1,27 +1,20 @@
 # Migrating the API to Go — the plan, the toolchain, and the parity strategy that makes it checkable
 
-Status: **the port is built and the suite proves it.** `server-go/` is the Go
-API (30 files, ~21k lines, chi + database/sql over the same schema), and the
-full Playwright suite — 15/15, including both booking journeys that exercise
-the atomic slot claim through the UI — passes against it on a fresh seed. A
-new `api-go` CI job covers what a browser cannot reach: the production config
-guards, token purposes and password hashing, all pinned by Go unit tests.
-`server-realtime` and `server-go` both build with Go 1.27.2.
-
-The runtime cutover is done as well: docker compose builds `server-go` as the
-`api` service, a one-shot `migrate` service (the Node image reduced to
-`prisma migrate deploy`) is the only migration runner, CI's Docker job boots
-that stack and passes 15/15 journeys in production mode, the Playwright
+Status: **executed.** The Node implementation is deleted. `server-go/` is the
+API — 160 route registrations, chi + database/sql over MySQL, Go 1.27.2 — and
+`server-go/migrations/*.up.sql` (with `cmd/migrate`, baselined against Prisma's
+bookkeeping table) is the only schema path. `cmd/seed` replaces the Node seed.
+Docker compose builds the Go API and a Go migrate one-shot, CI's Docker job boots
+that stack and passes all 15 browser tests in production mode, the Playwright
 webServer runs the Go binary locally, and the Railway config points at
 `server-go/Dockerfile`.
 
-What remains before `server/` can be deleted: real Gemini calls (the
+What remains for full parity, in the order it matters: real Gemini calls (the
 deterministic fallback branches answer today, with provenance), SMTP and
-web-push sends (rows are still written), the OpenAPI spec-diff and response
-fixtures, porting the 519 Node tests as the invariant suite, and moving the
-schema workflow - the SQL migrations and the seed - into `server-go/`.
-Until then the Node implementation is the reference, the migration runner and
-the seed.
+web-push sends (rows are still written), the OpenAPI spec rebuild and response
+fixtures, and a Go integration suite against MySQL to replace the 519 Node
+tests that were not ported. The browser suite covers the main flows; that
+handler-level gap is named in `docs/testing.md`.
 
 It exists because "rewrite the backend in Go" is a sentence that means at least
 three different projects, and only one of them is worth the cost this one would

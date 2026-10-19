@@ -16,7 +16,6 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-SERVER := server
 CLIENT := client
 REALTIME := server-realtime
 API_GO := server-go
@@ -44,9 +43,9 @@ COMPOSE_DB_URL ?= $(DEV_DB_URL)
 
 # Deliberately NOT exported. `dotenv.config()` does not overwrite an existing
 # process.env value, so exporting DATABASE_URL here silently beat whatever the
-# developer had put in server/.env — a correct DATABASE_URL was ignored and the
-# Makefile's value won. Each target below passes the URL explicitly instead, so
-# the file you edited is the file that is used.
+# developer had put in the root .env — a correct DATABASE_URL was ignored and
+# the Makefile's value won. Each target below passes the URL explicitly instead,
+# so the file you edited is the file that is used.
 export TEST_DATABASE_URL
 
 # `db push` is for the test database only. It is never used against anything you
@@ -113,16 +112,14 @@ doctor: ## Report whether this machine has everything the other targets need
 # ------------------------------------------------------------------- setup ----
 
 .PHONY: install
-install: ## Install dependencies for both Node services
-	cd $(SERVER) && npm ci
+install: ## Install dependencies for the client and both Go modules
 	cd $(CLIENT) && npm ci
+	cd $(API_GO) && go mod download
 	cd $(REALTIME) && go mod download
 
 .PHONY: env
-env: ## Create .env files from the examples, if they do not exist
-	@test -f .env || (cp .env.example .env && echo "created .env from .env.example")
-	@test -f $(SERVER)/.env || echo "NOTE: the server reads the root .env; server/.env is only needed to override it"
-	@test -f $(CLIENT)/.env.local || echo "NOTE: copy the NEXT_PUBLIC_* block from .env.example into $(CLIENT)/.env.local"
+env: ## Create the root .env and client/.env.local, if they do not exist
+	@node scripts/setup-env.js
 
 .PHONY: setup
 setup: install env ## Install dependencies and create env files
@@ -131,19 +128,17 @@ setup: install env ## Install dependencies and create env files
 # ------------------------------------------------------------------- gates ----
 
 .PHONY: typecheck
-typecheck: ## Typecheck the server and the client
-	cd $(SERVER) && npm run typecheck
+typecheck: ## Typecheck the client
 	cd $(CLIENT) && npx tsc --noEmit
 
 .PHONY: lint
-lint: ## Lint the server and the client
-	cd $(SERVER) && npm run lint
+lint: ## Lint the client
 	cd $(CLIENT) && npm run lint
 
 .PHONY: lint-go
-lint-go: ## Lint the realtime service (golangci-lint, as CI runs it)
+lint-go: ## Lint both Go modules (golangci-lint, as CI runs it)
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-	  cd $(REALTIME) && golangci-lint run ./...; \
+	  cd $(API_GO) && golangci-lint run ./... && cd ../$(REALTIME) && golangci-lint run ./...; \
 	else \
 	  echo "golangci-lint is not installed; running 'go vet' only."; \
 	  echo "CI pins golangci-lint 2.14.0 and runs it as a required check:"; \
@@ -152,16 +147,13 @@ lint-go: ## Lint the realtime service (golangci-lint, as CI runs it)
 	fi
 
 .PHONY: vet
-vet: ## go vet the realtime service
+vet: ## go vet both Go modules
+	cd $(API_GO) && go vet ./...
 	cd $(REALTIME) && go vet ./...
 
 .PHONY: check-encoding
 check-encoding: ## Repo-wide mojibake guard. Required in CI.
 	node scripts/check-encoding.js
-
-.PHONY: check-migration-case
-check-migration-case: ## Fail on a migration whose table casing breaks on Linux. Required in CI.
-	cd $(SERVER) && node scripts/check-migration-case.js
 
 .PHONY: check-numbers
 check-numbers: ## Fail if a documented count disagrees with the repository
@@ -191,11 +183,6 @@ check-i18n: ## Fail on a t("key") that resolves in no locale. Required in CI.
 	node scripts/check-i18n.test.js
 	node scripts/check-i18n.js
 
-.PHONY: check-schema-indexes
-check-schema-indexes: ## Fail on a foreign-key column with no index and no written reason. Required in CI.
-	node scripts/check-schema-indexes.test.js
-	node scripts/check-schema-indexes.js
-
 .PHONY: check-a11y
 check-a11y: ## Fail on an unnamed button, a silently-rendered field error, or new sub-AA text. Required in CI.
 	node scripts/check-a11y.test.js
@@ -211,23 +198,8 @@ check-stale-writes: ## Fail when a response can overwrite a newer one, or a fail
 	node scripts/check-stale-writes.test.js
 	node scripts/check-stale-writes.js
 
-.PHONY: check-auth-coverage
-check-auth-coverage: ## Fail when a route has no guard, or a public one returns another user's identity. Required in CI.
-	node scripts/check-auth-coverage.test.js
-	node scripts/check-auth-coverage.js
-
-.PHONY: check-read-audit
-check-read-audit: ## Fail when a clinical record can be read without recording who read it. Required in CI.
-	node scripts/check-read-audit.test.js
-	node scripts/check-read-audit.js
-
-.PHONY: check-optimistic-writes
-check-optimistic-writes: ## Fail when a plan write stops being conditional on the version the reader was shown. Required in CI.
-	node scripts/check-optimistic-writes.test.js
-	node scripts/check-optimistic-writes.js
-
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-migration-case check-workflows check-a11y-ids check-csp check-i18n check-schema-indexes check-a11y check-load-states check-stale-writes check-auth-coverage check-read-audit check-optimistic-writes check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-workflows check-a11y-ids check-csp check-i18n check-a11y check-load-states check-stale-writes check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client
@@ -236,16 +208,16 @@ build: ## Production-build the client
 # ------------------------------------------------------------------- tests ----
 
 .PHONY: test-db
-test-db: ## Sync the test schema. Uses `db push`; test database only.
-	cd $(SERVER) && DATABASE_URL=$(TEST_DB_URL) npx prisma db push --skip-generate
+test-db: ## Migrate the test database from the committed migrations
+	cd $(API_GO) && DATABASE_URL=$(TEST_DB_URL) go run ./cmd/migrate
 
 .PHONY: migrate
 migrate: ## Build the schema from the committed migrations. The real path.
-	cd $(SERVER) && DATABASE_URL=$(TEST_DB_URL) npx prisma migrate deploy
+	cd $(API_GO) && DATABASE_URL=$(TEST_DB_URL) go run ./cmd/migrate
 
-.PHONY: test
-test: migrate ## Run the server suite against a freshly migrated database
-	cd $(SERVER) && DATABASE_URL=$(TEST_DB_URL) TEST_DATABASE_URL=$(TEST_DB_URL) npm test
+.PHONY: test-api
+test-api: ## Run the Go API unit tests
+	cd $(API_GO) && go test ./...
 
 .PHONY: test-client
 test-client: ## Run the client unit tests
@@ -257,11 +229,7 @@ test-go: ## Run the Go tests (API and realtime) with the race detector
 	cd $(REALTIME) && go test -race -cover ./...
 
 .PHONY: test-all
-test-all: test test-client test-go ## Everything that does not need Docker
-
-.PHONY: drift
-drift: ## Fail if the database and the datamodel disagree
-	cd $(SERVER) && npx prisma migrate diff --from-url $(TEST_DB_URL) --to-schema-datamodel prisma/schema.prisma --exit-code
+test-all: test-client test-go ## Everything that does not need Docker
 
 # --------------------------------------------------------------------- dev ----
 
@@ -271,11 +239,12 @@ db: ## Bring up MySQL and Redis alone
 
 .PHONY: dev-db
 dev-db: ## Apply migrations and seed the development database
-	cd $(SERVER) && DATABASE_URL=$(DEV_DB_URL) npx prisma migrate deploy && DATABASE_URL=$(DEV_DB_URL) npm run db:seed
+	cd $(API_GO) && DATABASE_URL=$(DEV_DB_URL) go run ./cmd/migrate
+	cd $(API_GO) && DATABASE_URL=$(DEV_DB_URL) go run ./cmd/seed
 
 .PHONY: dev-api
-dev-api: ## Run the API with reload
-	cd $(SERVER) && npm run dev
+dev-api: ## Run the API (loads the root .env)
+	cd $(API_GO) && bash scripts/dev.sh
 
 .PHONY: dev-realtime
 dev-realtime: ## Run the realtime service
@@ -320,11 +289,10 @@ stack-up: ## Boot the stack without setting the local-only payment opt-in
 
 .PHONY: docker-seed
 docker-seed: ## Seed the compose database
-	@# From the host, not `docker compose exec`. The production image installs
-	@# `--omit=dev` and copies only `scripts/start.sh`, so `ts-node` and
-	@# `scripts/seed.ts` are not in it - an in-container seed cannot work. This is
-	@# also what `ci.yml` does, so the demo data is identical either way.
-	cd $(SERVER) && DATABASE_URL=$(COMPOSE_DB_URL) npm run db:seed
+	@# The API image contains the `seed` binary, so the one-shot runs in the
+	@# same network with the same credentials the API uses. `--no-deps` keeps it
+	@# from re-running the migrate service it already waited on.
+	docker compose run --rm --no-deps api seed
 	@echo ""
 	@echo "Seeded. Demo accounts are in the README."
 
@@ -356,8 +324,6 @@ verify: ## The full pre-push gate, in the order CI runs it
 	$(MAKE) check
 	@echo "==> client build"
 	$(MAKE) build
-	@echo "==> schema drift"
-	$(MAKE) drift
 	@echo "==> tests"
 	$(MAKE) test-all
 	@echo ""

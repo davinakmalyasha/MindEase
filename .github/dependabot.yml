@@ -11,41 +11,6 @@ version: 2
 
 updates:
   - package-ecosystem: npm
-    directory: /server
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    groups:
-      # Express 5, Prisma 6, Zod 4 and @types/node are the four upgrades here
-      # that are not a drop-in, so they are held back into their own PR. Every
-      # patch bump goes together and can be approved without reading it.
-      patch-dependencies:
-        dependency-type: production
-        update-types:
-          - patch
-          - minor
-        patterns:
-          - "*"
-      # Keep these out of the patch sweep, and say why inline rather than in
-      # a comment: each has a migration that is a code change, not a version
-      # change, and a grouped PR would hide it.
-      majors-and-migrations:
-        exclude-patterns:
-          - "express"
-          - "prisma"
-          - "@prisma/client"
-          - "zod"
-          - "@types/node"
-          - "typescript"
-          - "eslint"
-          - "typescript-eslint"
-          - "vitest"
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
     directory: /client
     schedule:
       interval: weekly
@@ -90,6 +55,24 @@ updates:
           - version-update:semver-major
 
   - package-ecosystem: gomod
+    directory: /server-go
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # The Go directive is 1.27.2 and the CI runner and Dockerfile pin the
+      # same version. Bumping the toolchain is a three-file change, not a
+      # version bump, so it is not left to a weekly bot.
+      - dependency-name: "go"
+        update-types:
+          - version-update:semver-minor
+
+  - package-ecosystem: gomod
     directory: /server-realtime
     schedule:
       interval: weekly
@@ -102,15 +85,15 @@ updates:
         patterns:
           - "*"
     ignore:
-      # The Go directive is 1.26 and the CI runner pins 1.26. Bumping the
-      # toolchain is a change to ci.yml and to the Dockerfile as well, so it
-      # is not something a weekly bot should do unattended.
+      # The Go directive is 1.27.2 and CI and the Dockerfile pin the same
+      # version. Bumping the toolchain is a three-file change, not a version
+      # bump, so it is not left to a weekly bot.
       - dependency-name: "go"
         update-types:
           - version-update:semver-minor
 
   - package-ecosystem: docker
-    directory: /server
+    directory: /server-go
     schedule:
       interval: weekly
       day: monday

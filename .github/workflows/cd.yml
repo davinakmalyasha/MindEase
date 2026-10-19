@@ -102,14 +102,15 @@ jobs:
   # ---------------------------------------------------------------------
   # Migrations
   #
-  # Deliberately not a separate step that runs `prisma migrate deploy` from
-  # this workflow. `server/scripts/start.sh` - the API image's entrypoint -
-  # already runs `prisma migrate deploy` before starting, so deploying the API
-  # *is* applying the migrations, using the same command in CI and in
-  # production.
+  # Deliberately not a separate step that runs migrations from this workflow.
+  # The Go API image does not migrate at boot: `cmd/migrate` is the only runner
+  # and it is applied as an explicit step (compose runs it as a one-shot before
+  # the API; production runs the same binary before the deploy). Keeping the
+  # deploy workflow out of it means there is exactly one migration path, and
+  # the health probe below still verifies the schema through `/api/health/db`.
   #
-  # A second migration path is a second thing to get wrong. `db push` is never
-  # used against production; it does not record applied migrations and would
+  # Ad-hoc DDL is never used against production; it does not record applied
+  # migrations and would
   # leave the database silently diverged from the datamodel.
   # ---------------------------------------------------------------------
 

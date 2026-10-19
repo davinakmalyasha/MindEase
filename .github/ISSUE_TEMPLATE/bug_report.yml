@@ -138,7 +138,7 @@ body:
         - label: I searched the open issues and this is not a duplicate.
           required: true
         - label: >-
-            I ran the affected suite locally (`cd server && npm test`,
+            I ran the affected suite locally (`cd server-go && go test ./...`,
             `cd client && npm test`, `cd server-realtime && go test -race ./...`)
             and it reproduces there too, if it reproduces at all.
         - label: >-

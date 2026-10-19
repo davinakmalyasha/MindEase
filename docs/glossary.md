@@ -11,7 +11,7 @@ are the exception: they are named in code, so they are defined here.
 ## AI and provenance
 
 **`AiResult<T>`**
-The return type of every method on `AIService`. `{ data: T; source: "model" | "fallback"; degradedReason?: AiDegradedReason }`. There is no method that returns a bare string, so the compiler enforces that every AI-backed feature can say where its content came from. Defined in `server/src/services/ai.service.ts:40`; the reasoning is in
+The return type of every method on `AIService`. `{ data: T; source: "model" | "fallback"; degradedReason?: AiDegradedReason }`. There is no method that returns a bare string, so the compiler enforces that every AI-backed feature can say where its content came from. Set in `server-go/internal/server/routes_ai.go`; the reasoning is in
 [ADR-0002](adr/0002-ai-provenance.md).
 
 **Provenance**

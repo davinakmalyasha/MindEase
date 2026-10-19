@@ -6,7 +6,7 @@ of those decisions: what each group of tables is for, and why the ones that look
 odd are shaped the way they are.
 
 Source of truth is
-[`server/prisma/schema.prisma`](../server/prisma/schema.prisma). Where this
+[`server-go/migrations`](../server-go/migrations). Where this
 document and the schema disagree, the schema is right.
 
 For the process and layering picture see
@@ -181,7 +181,7 @@ relationship.** This is the pattern for every actor reference in the schema —
 `AuditLog.actorId`, `RiskAlert.acknowledgedById`, `resolvedById`,
 `notifiedDoctorUserId`, `assignedDoctorUserId`, `PackagePurchase.grantedByUserId`,
 `CarePlan.doctorUserId`. The reason is in
-[`20260927000000_clinical_continuity/migration.sql`](../server/prisma/migrations/20260927000000_clinical_continuity/migration.sql)
+[`20260927000000_clinical_continuity.up.sql`](../server-go/migrations/20260927000000_clinical_continuity.up.sql)
 and it is worth restating because it looks like an oversight and is not:
 
 > actor references must outlive the actor: an account deletion anonymises the
@@ -428,7 +428,7 @@ code cannot be claimed twice. `status` is `pending | credited`.
 ## Indexes are part of the design
 
 A migration whose only content is indexes:
-[`20260930000000_query_support_indexes`](../server/prisma/migrations/20260930000000_query_support_indexes/migration.sql).
+[`20260930000000_query_support_indexes`](../server-go/migrations/20260930000000_query_support_indexes.up.sql).
 It was produced by reading every `where` and `orderBy` in the codebase against
 the datamodel, and every index it adds is annotated with the query it serves.
 

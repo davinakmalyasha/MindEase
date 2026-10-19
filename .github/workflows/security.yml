@@ -89,7 +89,7 @@ jobs:
   # repositories are, so a change to the Go service does not pay for a
   # TypeScript database and vice versa.
   codeql-js:
-    name: CodeQL (TypeScript — server, client)
+    name: CodeQL (TypeScript — client)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -107,10 +107,8 @@ jobs:
           # No build step. TypeScript is not compiled by CodeQL, and a custom
           # build command here would only make the extractor miss files.
           build-mode: none
-          # Scoped to the two directories that hold TypeScript. Including the
-          # root would pull in configuration and the Playwright spec, neither
-          # of which is a library anything calls.
-          paths: server,client
+          # Scoped to the client. The API is Go now and analyzed by the Go job.
+          paths: client
           queries: security-and-quality
       - name: Analyse
         uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
@@ -118,7 +116,7 @@ jobs:
           category: "/language:javascript-typescript"
 
   codeql-go:
-    name: CodeQL (Go — realtime)
+    name: CodeQL (Go — API + realtime)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -130,10 +128,10 @@ jobs:
         uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
         with:
           languages: go
-          # Go needs a real build for the extractor to see call graphs. A
-          # `go build ./...` in the module is enough; nothing is run.
+          # Go needs a real build for the extractor to see call graphs. Both
+          # modules build; nothing is run.
           build-mode: autobuild
-          paths: server-realtime
+          paths: server-go,server-realtime
           queries: security-and-quality
       - name: Analyse
         uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3
@@ -171,8 +169,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: server
-            dockerfile: server/Dockerfile
+          - image: server-go
+            dockerfile: server-go/Dockerfile
           - image: client
             dockerfile: client/Dockerfile
           - image: server-realtime
@@ -295,7 +293,7 @@ jobs:
   # `npm audit` runs against the lockfile only and needs no build; it is the
   # fastest useful signal in the whole workflow and runs first.
   npm-audit:
-    name: npm audit (server, client)
+    name: npm audit (client)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -304,7 +302,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - directory: server
           - directory: client
     defaults:
       run:
@@ -318,8 +315,8 @@ jobs:
           cache-dependency-path: ${{ matrix.directory }}/package-lock.json
       # `npm ci` installs exactly what is locked, which is what `npm audit`
       # reads. No postinstall scripts run that are not already in the lockfile;
-      # `--ignore-scripts` is deliberate — Prisma's client generation is not
-      # needed to audit a lockfile, and skipping the scripts means a compromised
+      # `--ignore-scripts` is deliberate: no generation step is needed to
+      # audit a lockfile, and skipping the scripts means a compromised
       # transitive package cannot execute anything just by being audited.
       - run: npm ci --ignore-scripts
       - name: Audit (${{ matrix.directory }}, shipped dependencies)
@@ -347,14 +344,11 @@ jobs:
   # reachable, which is the difference between a Go report you can act on and
   # one you cannot.
   go-vulncheck:
-    name: govulncheck (realtime)
+    name: govulncheck (API + realtime)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: server-realtime
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -371,11 +365,26 @@ jobs:
           # cached 1.26.8 hid it. The job that exists to see new advisories is
           # the one that must not cache its way past the fix.
           check-latest: true
-      - run: go mod download
-      # `./...` rather than `.`: the hub package is where the WebSocket and
-      # JWT handling lives, and auditing only the root would miss it.
-      - run: go vet ./...
-      - name: Vulnerable symbols in reachable code
+      - name: Download modules (API)
+        working-directory: server-go
+        run: go mod download
+      - name: Download modules (realtime)
+        working-directory: server-realtime
+        run: go mod download
+      - name: Vet (API)
+        working-directory: server-go
+        run: go vet ./...
+      - name: Vet (realtime)
+        working-directory: server-realtime
+        run: go vet ./...
+      # `./...` in each module rather than `.`: the hub package and the API's
+      # internal packages are where the socket and JWT handling lives.
+      - name: Vulnerable symbols in reachable code (API)
+        working-directory: server-go
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: Vulnerable symbols in reachable code (realtime)
+        working-directory: server-realtime
+        run: |
           "$(go env GOPATH)/bin/govulncheck" ./...

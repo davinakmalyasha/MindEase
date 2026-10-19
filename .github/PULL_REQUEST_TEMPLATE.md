@@ -29,39 +29,39 @@
   why in a comment rather than leaving the boxes empty.
 -->
 
-- [ ] **Schema drift** — if this touches `prisma/schema.prisma` or adds a migration:
+- [ ] **Schema** — if this adds or changes a migration:
 
       ```bash
-      cd server && npx prisma migrate deploy
-      npx prisma migrate diff --from-url "$DATABASE_URL" \
-        --to-schema-datamodel ./prisma/schema.prisma --exit-code
+      cd server-go && DATABASE_URL="$DATABASE_URL" go run ./cmd/migrate
       ```
 
-      A column or index that exists only in a migration is drift, and it is
-      what dropped `RiskAlert.resolvedById` from the triage queue.
+      New migrations go in `server-go/migrations/<version>_<name>.up.sql`; the
+      runner baselines old Prisma databases automatically. `/api/health/db`
+      answers 503 with `schema: drift` when the binary expects a table that is
+      missing.
 
-- [ ] **Error status** — if this adds or changes a service that throws:
+- [ ] **Error status** — if this adds or changes a handler:
 
       ```bash
-      cd server && npx vitest run tests/error-status.test.ts
+      cd server-go && go test ./...
       ```
 
-      Use `badRequest` / `forbidden` / `notFound` / `conflict` from
-      `utils/appError`, so the status travels on the type rather than being
-      pattern-matched out of a message.
+      Return `*AppError` (`BadRequest` / `Unauthorized` / `Forbidden` /
+      `NotFound` / `Conflict`) or `s.Fail`; anything else is a generic 500 and
+      the driver's message never reaches a caller.
 
 - [ ] **Realtime contract** — if this adds or renames a realtime event:
 
       ```bash
-      cd server && npx vitest run tests/realtime-contract.test.ts
+      cd server-realtime && go test -race ./...
       ```
 
-      One contract, three implementations: the TypeScript union, the Go JSON
-      tags, and the client fan-out map. All three are checked by one test.
+      The hub's tests pin the claims, the origin allowlist and the event
+      envelope; the browser suite drives the REST side that publishes them.
 
 ## Everything else
 
-- [ ] `cd server && npm run typecheck && npm test`
+- [ ] `cd server-go && go vet ./... && go test ./...`
 - [ ] `cd client && npm run lint && npm test && npm run build`
 - [ ] `cd server-realtime && go vet ./... && go test -race -cover ./...`
 - [ ] New user-facing strings exist in **both** `messages/en.json` and

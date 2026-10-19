@@ -17,7 +17,7 @@ import (
 // Open parses a Prisma-style `mysql://user:pass@host:port/db` URL and returns
 // a configured pool. Times are scanned as UTC, matching what Prisma writes.
 func Open(databaseURL string) (*sql.DB, error) {
-	dsn, err := dsnFromURL(databaseURL)
+	dsn, err := DSN(databaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,10 @@ func Open(databaseURL string) (*sql.DB, error) {
 	return pool, nil
 }
 
-func dsnFromURL(databaseURL string) (string, error) {
+// DSN converts the configured URL into a go-sql-driver DSN. Exported because
+// the migration runner needs the same parsing with one extra option
+// (`multiStatements`), which the serving pool must not carry.
+func DSN(databaseURL string) (string, error) {
 	u, err := url.Parse(databaseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid DATABASE_URL: %w", err)

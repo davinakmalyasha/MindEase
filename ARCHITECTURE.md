@@ -30,8 +30,8 @@ the end.
                      HTTPS  │              │  WSS
                             ▼              ▼
         ┌───────────────────────────┐   ┌────────────────────────┐
-        │ server/   Express 5 + TS   │   │ server-realtime/  Go  │
-        │ Prisma · zod · pino       │──▶│ gorilla/websocket     │
+        │ server-go/  Go 1.27 API   │   │ server-realtime/  Go  │
+        │ chi · MySQL · slog        │──▶│ gorilla/websocket     │
         │ :5000                     │   │ hub: caps, origin     │
         └────┬──────────┬───────────┘   └───────────┬────────────┘
              │          │                           │
@@ -57,10 +57,11 @@ footprint a Node process would not. See
 ## Layering
 
 ```
-routes/      HTTP shape only: path, middleware order, validation schema
-controllers/ translate req/res, funnel through publicMessageFor
-services/    all business logic and every authorisation check
-lib/         prisma, tokens, cache, circuitBreaker, date, payments
+internal/server/routes_*.go  HTTP shape only: path, middleware order, validation
+internal/server/*.go         business logic and every authorisation check
+internal/config              env parsing with the production guards
+internal/db                  pool, DSN parsing, query helpers
+internal/migrate             the only schema runner, embedded migrations
 ```
 
 Controllers contain no business logic and services contain no HTTP. The rule
@@ -103,12 +104,11 @@ a status by matching the thrown message against a list of fragments, so any new
 client-facing message silently became a 500 and any message containing a trigger
 word could not be worded freely.
 
-`publicMessageFor` decides what may be shown to a caller. Anything thrown as a
-plain `Error` is treated as internal and returns `null` — a Prisma invocation
-with model and column names is a schema-fingerprinting oracle. `statusFor`
-remains as a backstop for pre-existing plain errors, and
-`tests/error-status.test.ts` scans `src/` and fails if any service tries to
-derive a status from a message substring.
+Only a typed `*AppError` is shown to a caller with its own message and status;
+anything else is logged with the request id and answered as a generic 500. A
+driver message with table and column names is a schema-fingerprinting oracle.
+The Go port replaced the old message-matching backstop with the type system, so
+there is no substring rule left to drift.
 
 ## AI, and why provenance is contractual
 
@@ -191,7 +191,7 @@ the client says so on screen before the session starts.
 
 ## Data model notes
 
-28 models, no enums. Every status is a `String` with the legal values in a
+28 tables, no enums. Every status is a `String` with the legal values in a
 comment, which is why ordering cannot be done in SQL for `RiskAlert.level` and
 why the sort happens on a bounded page in the service.
 
@@ -213,21 +213,23 @@ never built. Its zero-trust threat model survives in the services and ADRs.
 
 | Suite | Count | Runs against |
 |---|---|---|
-| server | 427 vitest, 33 files | Real MySQL, real Argon2 |
-| client | 21 vitest, 4 files | jsdom |
-| realtime | 22 Go tests | In-memory |
-| e2e | 12 Playwright tests, 10 journeys | The compose stack, on demand |
+| Go API | 42 tests across both Go modules | Unit: config guards, tokens, hashing |
+| client | 52 vitest, 8 files | jsdom |
+| realtime | (included above) | In-memory, `-race` |
+| e2e | 12 Playwright tests, 11 journeys | The compose stack, required in CI |
 
-The server suite uses a real database and real password hashing by design. A
-unique-constraint race and a hash round trip are exactly the properties that
-cannot be faked, and mocking either makes the test assert nothing.
+The behavioural suite is the browser one: it drives the real client against
+MySQL, Redis and the Go API, including two booking flows that exercise the slot
+claim. The Go unit tests cover the pieces a browser cannot reach.
 
 Three gates are worth calling out:
 
-- **Schema drift** (`prisma migrate diff --exit-code`). It caught two latent
-  defects: a doctor rating default of 5.0 for clinicians with no reviews, and a
-  duplicate waitlist unique key.
-- **`error-status.test.ts`** scans `src/` for message-substring status
+- **Schema drift** (`/api/health/db`). It answers 503 with `schema: drift` when
+  a table the binary expects is missing, so a half-applied migration fails the
+  deploy probe rather than the first query under traffic.
+- **Token purposes**: each token carries an audience and purpose, and the Go
+  tests prove a refresh token or 2FA ticket cannot verify as an access token.
+- **The browser suite** covers the flows; the old message-substring status
   derivation.
 - **`realtime-contract.test.ts`** re-parses the event union from source and
   cross-checks the Go JSON tags and the client fanout map, so three
@@ -246,6 +248,6 @@ about ten seconds, because a mis-indented key there once made the `docker` job
 fail on its first step and left every later step silently unreachable.
 
 CD runs on merge to `main` behind a GitHub `production` environment that
-requires approval. `prisma migrate deploy` runs as the API start script — never
-`db push` — so a schema change is applied by the same command in CI and in
+requires approval. Schema changes are applied with `cmd/migrate` as a separate
+step — never ad-hoc DDL — so the same migration files run in CI and in
 production.

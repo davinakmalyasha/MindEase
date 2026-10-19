@@ -48,11 +48,11 @@ them.
 
 ```bash
 # 1. API — :5000
-cd server
-npm install
-npm run db:push          # or: npx prisma migrate deploy
-npm run db:seed
-npm run dev
+cd server-go
+go mod download
+DATABASE_URL=mysql://... go run ./cmd/migrate
+DATABASE_URL=mysql://... go run ./cmd/seed
+bash scripts/dev.sh      # loads the root .env
 
 # 2. Realtime (Go) — ws://localhost:8080/ws
 cd server-realtime
@@ -159,16 +159,17 @@ half-configured deploy that fails at the last step is the expensive kind.
 concurrent production deploys race on `prisma migrate deploy`, and a
 partially-applied migration is worse than a queued one.
 
-**The API is deployed before the realtime service**, because the API boots by
-running the migrations and the realtime service is useless until the database has
-the tables it expects.
+**The API is deployed before the realtime service**, because the realtime
+service is useless until the database has the tables it expects.
 
-**Migrations are not a separate workflow step.** `server/scripts/start.sh` — the
-image entrypoint — runs `prisma migrate deploy` before `exec node dist/index.js`.
-Deploying the API *is* applying the migrations, using the same command in CI and
-in production. `db push` is never used against production: it does not record
-applied migrations and would leave the database silently diverged from the
-datamodel.
+**Migrations are a separate step, deliberately.** The API image does not touch
+the schema at boot: `docker compose` runs a one-shot `migrate` service and the
+API waits for it, and production applies the same command (`go run ./cmd/migrate`,
+or the `migrate` binary in the image) before the deploy. The runner records
+versions in `schema_migrations` and baselines a database built by the old Prisma
+runner, so an upgrade does not replay history. Ad-hoc DDL (`db push`) is never
+used against production: it leaves the database silently diverged from the
+committed migrations.
 
 **`deploy_web` builds before deploying** (`npm run build`, then
 `vercel build --prod`, then `vercel deploy --prebuilt`). A build that fails
@@ -199,46 +200,21 @@ above. `cd.yml` does not create any of them.
 
 ## Backups and restore
 
-### What `backup.ps1` actually does
+### What to back up
 
-`server/scripts/backup.ps1`. Read it before relying on it. It is 30 lines and it
-does exactly four things:
+The database is the only state that cannot be reconstructed. A consistent dump
+is the whole recipe:
 
-```powershell
-& $MYSQLDUMP -u root --single-transaction --routines $DbName | Set-Content -file $file -Encoding UTF8
+```bash
+mysqldump -u root -p --single-transaction --routines mindease_db > mindease_db.sql
 ```
 
-1. **Locates `mysqldump`.** First tries a hardcoded Laragon path
-   (`C:\laragon\bin\mysql\mysql-8.4.10-winx64\bin\mysqldump.exe`), then falls
-   back to `mysqldump` on `PATH`, then errors out. **You will need to edit that
-   line on any machine that is not that Laragon install.**
-2. **Dumps one database to `backups/{DbName}_{yyyyMMdd_HHmmss}.sql`** with
-   `--single-transaction` (consistent snapshot without locking InnoDB) and
-   `--routines`. Defaults to `mindease_db`; there is no parameter for credentials,
-   so it relies on a passwordless local `root`.
-3. **Exits 1** if `mysqldump` returned non-zero, so a scheduled invocation
-   notices.
-4. **Applies age-based retention** — deletes `{DbName}_*.sql` files older than
-   `-Retention` days (default 7).
-
-That is all. Specifically, it does **not**:
-
-- schedule itself. There is no Task Scheduler XML, no cron entry, no GitHub
-  Action. Running it is manual unless you arrange that yourself.
-- back up `mindease_test`, `uploads/`, or Redis. Avatars live in S3 or the
-  container volume; Redis holds only cache and pub/sub, both reconstructible.
-- verify the dump. It reports a size in MB, not a table count, and never restores
-  it.
-- compress, encrypt, or ship anywhere off the machine. The `.sql` files are
-  plaintext, world-readable, and contain every risk alert, every mood note and
-  every journal entry.
-- ship to a different database or take a lock.
-
-```powershell
-cd server
-.\scripts\backup.ps1                        # defaults
-.\scripts\backup.ps1 -DbName mindease_db -OutDir D:\backups -Retention 30
-```
+Avatars live in S3 or the container volume; Redis holds only cache and pub/sub,
+both reconstructible. Nothing in this repository schedules, verifies or ships
+the dump, and the `.sql` file is plaintext containing every risk alert, mood
+note and journal entry — put it somewhere encrypted, on a different disk, and
+never commit it. (`.gitignore` refuses `*.sql` outside the migrations and
+`backups/`.)
 
 ### Restore
 

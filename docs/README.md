@@ -39,9 +39,9 @@ considered in advance.
 
 - **A privacy policy or terms of service.** This is a portfolio project with no
   operating entity behind it; a document claiming one would be fiction.
-- **API reference.** `GET /api/docs` is generated from the same Zod schemas the
-  routes validate with, and `server/tests/openapi.test.ts` fails if the two
-  drift. It documents existence and request shape, not response shape.
+- **API reference.** `GET /api/openapi.json` is a stub while the Go port's spec
+  generation is rebuilt; the request contracts are pinned by the browser suite
+  against the same client, not by a generated file.
 - **Anything the code does not do.** Every claim here is verifiable in the
   repository. Where something is uncertain or unwired, the document says so
   rather than describing an intention — see the "not built" sections of
@@ -53,5 +53,5 @@ considered in advance.
 Several documents quote counts — tables, test files, tests, models. If a number
 disagrees with the repository, the repository is right and the document is
 wrong; that is a bug to fix, not a discrepancy to reconcile. The counts were
-taken from `schema.prisma`, `npx vitest list`, `go test -list` and the workflow
-files rather than from prose.
+taken from `server-go/migrations`, the Go test runs, `npx vitest list` and the
+workflow files rather than from prose.

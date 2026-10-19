@@ -42,26 +42,21 @@ services:
       retries: 10
 
   migrate:
-    # The schema is still owned by Prisma: the SQL files and the
-    # `_prisma_migrations` bookkeeping live in server/. This one-shot service is
-    # the only thing that runs migrations, and the API waits for it to finish -
-    # so the image that serves traffic needs no Node runtime at all. Keep it
-    # that way: two migration runners recording into two bookkeeping tables is
-    # the failure mode docs/go-migration.md names.
+    # The only migration runner. The API waits for it to finish, so the
+    # serving image never touches the schema, and the old Node image is gone
+    # with the runner it used to carry. The Go runner baselines against
+    # Prisma's `_prisma_migrations` when it finds one, so existing volumes
+    # upgrade in place instead of replaying the history.
     image: mindease-migrate:${IMAGE_TAG:-latest}
-    build: ./server
+    build: ./server-go
     container_name: mindease-migrate
     restart: "no"
     environment:
       DATABASE_URL: mysql://mindease:${MYSQL_PASSWORD:-mindease_secure}@mysql:3306/mindease_db
-      NODE_ENV: production
     depends_on:
       mysql:
         condition: service_healthy
-    # `start.sh` migrates *and* boots the server; the migrate job wants only
-    # the first half. The runtime image has no npm, so the CLI is invoked the
-    # same way start.sh invokes it.
-    command: ["sh", "-c", "./node_modules/.bin/prisma migrate deploy"]
+    command: ["migrate"]
 
   api:
     # An explicit `image:` on every built service.

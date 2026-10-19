@@ -4,15 +4,14 @@
 reaches a named clinician, and the code says out loud when it cannot.**
 
 Booking, in-browser video, longitudinal clinical records, an admin console, and
-a triage queue for risk disclosures. Next.js 16, Express, Prisma/MySQL, and a Go
+a triage queue for risk disclosures. Next.js 16, a Go API, MySQL, and a Go
 WebSocket service.
 
 [![CI](https://github.com/davinakmalyasha/MindEase/actions/workflows/ci.yml/badge.svg)](https://github.com/davinakmalyasha/MindEase/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](server/package.json)
+[![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](client/package.json)
 [![Next.js](https://img.shields.io/badge/next-16-black.svg)](client/package.json)
-[![Prisma](https://img.shields.io/badge/prisma-6.12-2D3748.svg)](server/prisma/schema.prisma)
-[![Go](https://img.shields.io/badge/go-1.27.2-00ADD8.svg)](server-realtime/)
+[![Go](https://img.shields.io/badge/go-1.27.2-00ADD8.svg)](server-go/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Security policy](https://img.shields.io/badge/security-policy-ff69b4.svg)](SECURITY.md)
 
@@ -75,10 +74,9 @@ build. [CONTRIBUTING.md](CONTRIBUTING.md) has the commands.
 
 | Gate | What it caught |
 |---|---|
-| **Schema drift is a build failure.** The database is built from committed migrations; if it and the datamodel disagree by one column, the build fails. | `RiskAlert.resolvedById` — declared, written by the service, created by no migration. The triage queue threw a `PrismaClientValidationError` against any properly built database, and survived because the suite had never been run against one. |
-| **Controllers may not derive an HTTP status from a message string.** `tests/error-status.test.ts` scans `src/` and fails on a bare `new Error` whose text becomes a status code. | The class of bug where a Prisma error message shape change turns a 400 into a 500 with a stack trace in the body. |
+| **Schema drift is a build failure.** The database is built from all 20 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
 | **The realtime contract is checked across three languages.** One test compares the TypeScript event union against the Go JSON tags, the Go `criticalTypes` map and the client fan-out, in both directions. | Drift between three implementations of one contract. It found five event types in the Go table that **nothing publishes**, while `sos:alert` and `risk:alert` — the two events that service exists to deliver — were classified as droppable-and-cosmetic, so the counters built to surface lost clinical alerts reported them as routine. |
-| **Documented numbers are checked against the tree.** `scripts/check-numbers.js` re-derives every count quoted in the documentation and fails the build on a disagreement. | Fifteen counts that drifted after a previous pass corrected them all: a stale test count in two CI comments, a per-file table summing to 415 under a heading that said 427, a Prisma badge reading 6.2 against a manifest pinning 6.12. |
+| **Documented numbers are checked against the tree.** `scripts/check-numbers.js` re-derives every count quoted in the documentation and fails the build on a disagreement. | Fifteen counts that drifted after a previous pass corrected them all: a stale test count in two CI comments, a per-file table summing to 415 under a heading that said 427, a badge reading a version no manifest pinned. |
 
 ## What it does
 
@@ -98,10 +96,9 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **44,911** | lines of TypeScript, SQL and Go — 33,079 application, 10,012 tests, 1,091 migration SQL, 729 Go |
-| **128** | API routes · **28** Prisma models · **20** migrations |
-| **519** | server tests across 43 files, against a real MySQL and real Argon2 |
-| **52** | client unit tests · **32** Go tests with `-race` · **12** Playwright journeys |
+| **44,955** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 22,719 Go |
+| **160** | API routes · **28** tables · **20** migrations |
+| **42** | Go tests in 8 files · **52** client unit tests · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -152,21 +149,13 @@ Then open **http://localhost:3000**. `make help` lists everything else.
 
 ```
 MindEase/
-├─ server/              Express 5 + Prisma + MySQL. The API.
-│  ├─ prisma/
-│  │  ├─ schema.prisma  28 models, no enums — every status is a String
-│  │  └─ migrations/    17 hand-written MySQL migrations, all backticked
-│  ├─ src/
-│  │  ├─ routes/        128 router registrations across 17 files
-│  │  ├─ services/      the domain; the only layer that touches Prisma
-│  │  ├─ controllers/   HTTP shape only
-│  │  ├─ middleware/    auth, roles, CSRF, rate limits
-│  │  ├─ schemas/       zod, and the generated OpenAPI document
-│  │  ├─ jobs/          three cron jobs, all single-runner gated
-│  │  └─ lib/           tokens, cache, storage, payments, logging
-│  └─ tests/            519 integration tests against a real database
-├─ server-go/           The API in Go: chi + database/sql over the same MySQL
-│                       schema and migrations. See docs/go-migration.md.
+├─ server-go/           The API. Go 1.27, chi + database/sql over MySQL.
+│  ├─ cmd/              api, migrate (the only schema runner), seed
+│  ├─ internal/server/  routes, middleware, auth, jobs — 160 registrations
+│  ├─ internal/config/  env loading with the production guards
+│  ├─ internal/db/      pool and DSN parsing
+│  ├─ internal/migrate/ embedded runner, baselined against Prisma's table
+│  └─ migrations/       20 hand-written MySQL migrations, embedded at build time
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              37 routes; every authenticated one is a client component
 │  ├─ components/       53 components
@@ -174,12 +163,12 @@ MindEase/
 │  ├─ messages/         en.json and id.json, kept in parity by a test
 │  ├─ e2e/              12 Playwright journeys
 │  └─ tests/            52 unit tests
-├─ server-realtime/     Go WebSocket hub. 31 tests with -race.
+├─ server-realtime/     Go WebSocket hub. 32 tests with -race.
 ├─ docs/                architecture, data model, operations, testing, roadmap
-│  ├─ adr/              four records of decisions and what was rejected
+│  ├─ adr/              three records of decisions and what was rejected
 │  └─ roadmap.md        including what will never be built, and why
 ├─ scripts/             the repository's own gates; see below
-├─ .github/workflows/   ci, cd, security — 19 jobs
+├─ .github/workflows/   ci, cd, security — 17 jobs
 └─ Makefile             `make help`
 ```
 
@@ -190,7 +179,7 @@ MindEase/
 | Script | What it fails on |
 |---|---|
 | `check-numbers.js` | a documented count disagreeing with the tree. Exits **2** when an anchor stops matching, because a document that quietly stopped being checked is worse than one with a wrong number |
-| `check-encoding.js` | mojibake — the fingerprint of a bulk text repair run through a console codepage. Caught three times here, once inside `schema.prisma` |
+| `check-encoding.js` | mojibake — the fingerprint of a bulk text repair run through a console codepage. Caught three times here, once inside a schema file |
 | `check-migration-case.js` | a migration whose table casing resolves on Windows and fails on Linux |
 | `check-workflows.js` | a job without permissions or a timeout, a `needs:` that resolves to nothing, an unpinned action, a secret interpolated into a script |
 | `check-csp.js` | a malformed `Content-Security-Policy`, or one that does not permit the API the app is configured to call |
@@ -214,7 +203,7 @@ values and exits non-zero if any of them disagrees with what is written here.
 <details>
 <summary>Running the three services without Docker</summary>
 
-Needs MySQL 8 and Redis 7 already running, plus `server/.env` and
+Needs MySQL 8 and Redis 7 already running, plus the root `.env` and
 `client/.env.local` — see [docs/operations.md](docs/operations.md).
 
 ```bash
@@ -244,23 +233,24 @@ lifecycle is genuinely tested rather than seeded.
 ## Testing
 
 ```bash
-make check      # typecheck, lint, go vet, encoding guard - no database needed
-make test       # 519 server tests against a freshly migrated database
-make test-all   # server, client and Go
-make verify     # everything above plus the drift gate, in the order CI runs it
+make check      # every static gate, no database needed
+make test-api   # Go API unit tests (config guards, tokens, hashing)
+make test-go    # API + realtime Go tests
+make test-all   # client unit tests and both Go modules
+make e2e        # the 12 Playwright journeys, stack already running and seeded
 ```
 
-The server suite is integration-only: a real MySQL, real Argon2, real cookies.
-SQLite is not an option — the provider is a literal `mysql` and all 20 migrations
-are raw MySQL DDL.
+The behavioural suite is the browser one: 12 Playwright tests drive the real
+client against the real stack — MySQL, Redis, the Go API — including two booking
+flows that exercise the slot claim through the UI. The Go unit tests cover the
+pieces a browser cannot reach: production config guards, token purposes and
+password verification against the seeded hashes.
 
-Coverage is measured (`make -C server coverage`, `make -C client coverage`) and
-**enforced** with floors just under the read baseline: the server sits at
-73.99% statements / 55.64% branches / 76.55% functions / 76.8% lines, and the
-client at 2.75 / 75.77 / 69.51 / 2.75. The client's statement figure is diluted
-by counting every app file while a handful have unit tests; the branch and
-function numbers are the ones that move with the suite. The floors live in each
-`vitest.config.ts` and may only rise.
+Client coverage is measured and **enforced** with floors just under the read
+baseline (2 / 75 / 69 / 2 for statements / branches / functions / lines); the
+statement figure is diluted by counting every app file while a handful have
+unit tests, so the branch and function numbers are the ones that move with the
+suite. The floors live in `client/vitest.config.ts` and may only rise.
 
 ## Documentation
 
@@ -269,8 +259,8 @@ function numbers are the ones that move with the suite. The floors live in each
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the services fit together, and the reasoning behind the layering |
 | [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | What was wrong in this repository, how it was found, and what I still do not believe |
 | [docs/security.md](docs/security.md) | Threat model, what is deliberately not protected, and the controls that carry the weight |
-| [docs/data-model.md](docs/data-model.md) | 28 models, an ER diagram, and the decisions that are not obvious from the schema |
-| [docs/testing.md](docs/testing.md) | The gates, all 36 server test files, and how to add a test |
+| [docs/data-model.md](docs/data-model.md) | 28 tables, an ER diagram, and the decisions that are not obvious from the schema |
+| [docs/testing.md](docs/testing.md) | The gates, the three suites, and how to add a test |
 | [docs/operations.md](docs/operations.md) | Runbook: backup, secret rotation, rollback, troubleshooting |
 | [docs/glossary.md](docs/glossary.md) | The domain terms the code uses without defining |
 | [docs/roadmap.md](docs/roadmap.md) | Direction, including what is deliberately not planned |
@@ -285,7 +275,7 @@ graph LR
         W[Next.js 16 Web App<br/>:3000]
     end
     subgraph Backend
-        API[Node.js API<br/>Express + Prisma<br/>:5000]
+        API[Go API<br/>chi + MySQL<br/>:5000]
         RT[Go Realtime Service<br/>WebSocket<br/>:8080]
     end
     subgraph Data
@@ -302,7 +292,7 @@ graph LR
 ```
 
 - **Web**: Next.js 16 (App Router), React 19, TanStack Query, Tailwind, next-intl (EN/ID), dark mode
-- **API**: Express 5 + TypeScript, Prisma ORM, Zod validation, JWT rotation, CSRF, rate limiting, audit logs, pino logging, health checks
+- **API**: Go 1.27, chi, database/sql over MySQL, JWT rotation, CSRF, Redis rate limiting, audit logging, structured logs, health and schema checks
 - **Realtime**: Go microservice (`server-realtime/`) — WebSocket hub consuming Redis pub/sub events pushed by the API
 - **Auth**: email/password (Argon2), Google SSO, email verification, TOTP 2FA, login lockout, refresh-token rotation
 - **AI**: Gemini 2.0 Flash — pre-session questions, doctor briefings, wellness suggestions, journal reflections, natural-language doctor matching, support chat. Every call reports whether a model answered, and the UI says so
@@ -325,24 +315,24 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `DATABASE_URL` | server/.env | MySQL connection |
-| `JWT_SECRET` | server/.env, client/.env.local, compose | Access tokens **and** WebSocket tickets |
-| `REFRESH_SECRET` | server/.env | Refresh tokens (7d) — **must differ from `JWT_SECRET`** |
-| `TWO_FACTOR_SECRET` | server/.env, compose | Pending 2FA tickets (5m) — **required in production**, must differ from `JWT_SECRET` |
-| `GEMINI_API_KEY` | server/.env | AI features (falls back to local generation) |
-| `GOOGLE_CLIENT_ID` | server/.env | Google SSO |
-| `SMTP_HOST/PORT/USER/PASS` | server/.env | Reset/verification/booking/reminder emails (dev: printed to console) |
+| `DATABASE_URL` | .env | MySQL connection |
+| `JWT_SECRET` | .env, client/.env.local, compose | Access tokens **and** WebSocket tickets |
+| `REFRESH_SECRET` | .env | Refresh tokens (7d) — **must differ from `JWT_SECRET`** |
+| `TWO_FACTOR_SECRET` | .env, compose | Pending 2FA tickets (5m) — **required in production**, must differ from `JWT_SECRET` |
+| `GEMINI_API_KEY` | .env | AI features (falls back to local generation) |
+| `GOOGLE_CLIENT_ID` | .env | Google SSO |
+| `SMTP_HOST/PORT/USER/PASS` | .env | OTP mail. The Go port logs the code rather than delivering until SMTP is wired |
 | `REDIS_URL` | server/.env, compose | Realtime event bus + caching (silently disabled when down) |
 | `WA_GATEWAY_URL` / `WA_GATEWAY_TOKEN` | server/.env | Optional WhatsApp appointment reminders (graceful fallback when unset) |
 | `PAYMENT_PROVIDER` / `PAYMENT_SERVER_KEY` | server/.env | Package checkout. Unset → in-process simulator (refused in production) |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | server/.env | Optional web push (PWA notifications; no-op when unset) |
-| `VIDEO_PROVIDER` | server/.env | `livekit` (authenticated rooms) or `jitsi` (degraded fallback). Defaults to `jitsi` |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | .env | Push subscription storage is ported; delivery is not yet |
+| `VIDEO_PROVIDER` | .env | `livekit` (authenticated rooms) or `jitsi` (degraded fallback). Defaults to `jitsi` |
 | `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | server/.env | Required for `VIDEO_PROVIDER=livekit`; falls back to jitsi and logs why if any is missing |
 | `AI_REQUEST_TIMEOUT_MS` / `AI_CIRCUIT_THRESHOLD` / `AI_CIRCUIT_COOLDOWN_MS` | server/.env | Gemini timeout (20s) and circuit breaker (5 failures / 60s) |
-| `ALLOW_PAYMENT_SIMULATOR` | server/.env | Required to run the simulator in production. It hands out free entitlements |
+| `ALLOW_PAYMENT_SIMULATOR` | .env | Required to run the simulator in production. It hands out free entitlements |
 | `CORS_ORIGINS` / `FRONTEND_URL` | server/.env | Allowed browser origins (defaults to localhost:3000) |
 | `S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/PUBLIC_URL` | server/.env | Avatar storage (S3-compatible; local disk fallback in dev) |
-| `SENTRY_DSN` | server/.env | Error tracking (no-op when unset) |
+| `SENTRY_DSN` | .env | Error tracking (no-op when unset) |
 | `ALLOWED_ORIGINS` | realtime | Comma-separated websocket origins. `FRONTEND_URL` is added to it |
 | `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_REALTIME_URL` | client | API + WS endpoints. Inlined at **build** time, so they are docker build args, not runtime env |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | client | Google SSO button (hidden when unset) |
@@ -351,9 +341,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 
 ## Deploying
 
-Merge to `main`. `.github/workflows/cd.yml` builds the images, runs
-`prisma migrate deploy`, and deploys the API and realtime service to Railway and
-the web app to Vercel. The production job is gated on a GitHub `production`
+Merge to `main`. `.github/workflows/cd.yml` deploys the Go API (`server-go/railway.json`)
+and the realtime service to Railway and the web app to Vercel. Schema changes
+are applied as a separate step with `go run ./cmd/migrate` (the image does not
+migrate at boot). The production job is gated on a GitHub `production`
 environment that requires approval, so nothing reaches production without a
 human accepting the deploy.
 
@@ -368,21 +359,16 @@ secrets listed above. The workflow assumes they exist.
 - [ ] `JWT_SECRET` byte-identical across API, realtime and web
 - [ ] Google OAuth client configured with the production domain
 - [ ] `VIDEO_PROVIDER=livekit` with all three `LIVEKIT_*` set. On the jitsi fallback a room is an unguessable but unauthenticated URL, and the consultation screen says so before the session starts
-- [ ] Backups: Railway MySQL plugin (managed backups) or `server/scripts/backup.ps1`
-- [ ] Optional: a worker service (`npm run worker`) with `JOBS_WEBHOOK_URL` and `JOBS_SECRET` on the API, if the reminder/check-in schedule should outlive API deploys
+- [ ] Backups: Railway MySQL plugin (managed backups) or a scheduled `mysqldump`
+- [ ] Optional: a `JOBS_SECRET` so an external scheduler can trigger `/api/internal/jobs/:name`; the in-process scheduler already runs the same jobs
 
-The reminder and check-in jobs run on `node-cron` inside the API process. They
+The reminder and check-in jobs run in the Go scheduler inside the API process. They
 claim work with a conditional update, so multiple replicas are safe, and each
 job's eligibility is a window or a sentinel rather than the tick itself — a
 missed run is caught up by the next one, and a failed send hands its claim back
 instead of consuming it. What is not durable is the process: an outage covering
 a session's whole reminder window still loses that reminder. See
 [`docs/operations.md`](docs/operations.md#the-cron-jobs-and-what-is-durable-about-them).
-
-The server suite runs against a **real MySQL database with real Argon2
-hashing**. That is deliberate: a unique-constraint race and a hash round trip
-are exactly the properties that cannot be faked, and mocking either makes the
-test assert nothing. It is slow, and it wipes the database between tests.
 
 **End-to-end**: `client/e2e/journeys.spec.ts`, 12 journeys plus three cached
 sign-ins in `client/e2e/auth.setup.ts`, run against the compose stack. They are a
@@ -398,11 +384,10 @@ cd client && npx playwright test    # with the stack already running
 
 ## API documentation
 
-Interactive Swagger UI at `GET /api/docs`, generated from the same Zod schemas
-the routes validate with. `server/tests/openapi.test.ts` asserts the spec
-matches the registered routes, so a new endpoint without a spec entry fails in
-CI. It documents that endpoints exist and what they accept; it does not
-document the shape of every response.
+`GET /api/openapi.json` serves a machine-readable document; it is a stub while
+the Go port's spec generation is rebuilt, and the web client does not depend on
+it. The request contracts are pinned by the Playwright journeys against the same
+client, not by a generated file that can drift from the handlers.
 
 
 ## Key endpoints

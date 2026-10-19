@@ -10,70 +10,55 @@ they are the reason a large amount of code here looks defensive. If you are abou
 to change something and wonder why a line is shaped the way it is, one of these
 is usually the reason.
 
-**1. Schema drift is a build failure.**
-`npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel
-prisma/schema.prisma --exit-code` runs in CI. The database is built purely from
-the committed migrations; if the datamodel and those migrations disagree by so
-much as a column, the build fails.
+**1. The schema is the committed migration set.**
+`server-go/migrations/*.up.sql` is the only source of schema truth; `cmd/migrate`
+applies it and records versions in `schema_migrations`. `/api/health/db` verifies
+every table the binary expects and answers 503 with `schema: drift` when one is
+missing. There is no second datamodel file to diverge from the migrations.
 
-This caught three real bugs. One of them — `RiskAlert.resolvedById` — was
-declared in the datamodel and written by the service, but no migration created
-the column, so the triage queue threw a `PrismaClientValidationError` against
-any database built from migrations. It survived because the test suite had never
-been run against one.
+**2. Failures are typed, and the driver's text never reaches a caller.**
+Handlers return `*AppError` (`BadRequest`, `Unauthorized`, `Forbidden`,
+`NotFound`, `Conflict`), or `s.Fail` with an explicit status. Anything else is
+logged with the request id and answered as a generic 500. The reason is
+unchanged from the Node era: a SQL-driver message names tables, columns and the
+offending argument, and echoing it to an anonymous caller turns a malformed
+request into a schema-fingerprinting oracle.
 
-**Consequence for you:** an index or a column that exists only in a migration is
-drift. Declare it in `schema.prisma` too, with a comment saying which query it
-serves.
-
-**2. Controllers may not derive HTTP status from a message.**
-`server/tests/error-status.test.ts` scans `src/` and fails if a service throws a
-bare `new Error(...)` whose text a controller turns into a status code. Use
-`badRequest` / `forbidden` / `notFound` / `conflict` from `utils/appError`, so
-the status travels on the type.
-
-The reason is that `publicMessageFor` has to decide whether an arbitrary
-`Error`'s text is safe to show a client, and it does that by pattern-matching
-Prisma and driver strings. It works, but it is the kind of inference that
-produces a stack trace in a response body the first time a dependency changes
-its error format.
-
-**3. The realtime contract is checked across three languages.**
-`server/tests/realtime-contract.test.ts` re-parses the TypeScript event union,
-the Go structs' JSON tags, and the client's fan-out map, and fails if they
-disagree. Three implementations of one contract, one assertion.
+**3. The realtime contract is pinned by tests on both sides.**
+`server-realtime/hub/*_test.go` pins the JWT claims, the origin allowlist and
+the event envelope; the browser suite drives the REST side that publishes those
+events. One contract, checked where it is implemented rather than by
+re-parsing three languages in one test.
 
 ## Tests
 
 ```bash
-cd server && npm test          # 427 tests, 33 files
-cd client && npm test          # 46 tests, 6 files
+cd server-go && go test ./...          # 42 Go tests across both modules
+cd client && npm test                  # 52 tests, 8 files
 cd server-realtime && go test -race ./...
+cd client && npx playwright test       # the 12 browser journeys
 ```
 
-The server suite needs a real MySQL 8. It is not mocked, and it is not SQLite —
-the provider is a literal `mysql` in `schema.prisma` and all 15 migrations are
+The behavioural suite is the browser one, against the real stack — MySQL 8,
+Redis, the Go API. It is required in CI's `docker` job. The Go unit tests need no
+database, and all 20 migrations are
 raw MySQL DDL.
 
 ```bash
-cd server
-npm run test:db                # sync the test schema
-npm test
+cd server-go
+go test ./...                  # unit tests; no database needed
 ```
 
-**Before the first run**, and after any schema change:
+**Before a browser run**, and after any schema change:
 
 ```bash
-npx prisma migrate deploy      # builds the schema from committed migrations only
+DATABASE_URL=mysql://... go run ./cmd/migrate   # committed migrations only
+DATABASE_URL=mysql://... go run ./cmd/seed
 ```
 
-`prisma db push` is for the test database only. It is never used against
-anything you care about, and the reason is in the README's known-limitations
-section along with a migration that a `db push` would have hidden.
-
-The suite is deliberately serial (`fileParallelism: false`) and wipes every table
-before and after each test. At 427 tests that is a few minutes, not a few
-seconds. Running one file while another is running will interfere with it.
+The browser suite is serial and starts from seeded data; it is the behavioural
+gate. The old Node integration suite (519 tests, serial, wiping between tests)
+was not ported — `docs/testing.md` names that gap rather than hiding it.
 
 ## Conventions
 

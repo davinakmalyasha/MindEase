@@ -88,8 +88,7 @@ explicit `grantedByUserId`".
 
 ### 3. Durable background work — partly closed
 
-**The gap.** All three scheduled jobs are `node-cron` inside the API process
-(`reminders.ts`, `checkins.ts`). A restart, a crash, a deploy or a
+**The gap.** All three scheduled jobs run in-process inside the Go API (`jobs.go`). A restart, a crash, a deploy or a
 scale-to-zero during the scheduled minute means that tick does not happen. See
 [`operations.md`](operations.md#the-cron-jobs-and-what-is-durable-about-them).
 
@@ -108,10 +107,10 @@ is a `JobLock` row, and the documentation claiming otherwise is corrected.
 Every run logs what it sent, because a silent zero is the signature of a broken
 job.
 
-**What remains is deployment, not code.** `src/worker.ts` now runs the same
-registry on the same schedules (`npm run worker`), and the API forwards its cron
-ticks to it when `JOBS_WEBHOOK_URL`/`JOBS_SECRET` are set - so the schedule can
-outlive an API deploy without another line of code. What is not done is running
+**What remains is deployment, not code.** The Go scheduler runs the same
+registry on the same schedules, and `/api/internal/jobs/:name` accepts the same
+trigger with `JOBS_SECRET` — so an external scheduler can drive it without
+another line of code. What is not done is running
 it: that is a second service and a deploy-shape decision, carried as an optional
 item in the README's deploying checklist. The sentinel columns already are the
 durable job table; a `SELECT ... FOR UPDATE SKIP LOCKED` loop inside the jobs
@@ -142,8 +141,8 @@ import.
 because the thing it looked for is already caught, better, by two gates that
 were already required: an em dash in a TypeScript expression is `TS1127: Invalid
 character` from `tsc --noEmit` — which is how all three historical incidents
-were actually found — and the one that landed in `schema.prisma` is caught by
-`prisma validate`. In `const x = a — b` and in the JSX text `most people wait
+were actually found — and the one that landed in the old Prisma schema was caught by
+`prisma validate` — both are gone with the port. In `const x = a — b` and in the JSX text `most people wait
 months — or years`, nothing distinguishes prose from code except meaning, which
 is what the compiler has and a regex does not.
 

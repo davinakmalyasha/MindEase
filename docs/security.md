@@ -42,7 +42,7 @@ Four credentials. Which is which matters more than how many.
 
 ### Why purpose-scoped
 
-`server/src/lib/tokens.ts`. Every token carries an explicit `purpose` claim, is
+`server-go/internal/server/tokens.go`. Every token carries an explicit `purpose` claim, is
 signed with a purpose-scoped secret, and is verified **with the expected purpose
 asserted**. `verifyToken(token, "access")` fails on a refresh token, on a
 pending 2FA ticket, and on a ws-ticket. That is a type-level statement that a
@@ -217,22 +217,20 @@ the thrown *message* against a list of fragments, which coupled the HTTP
 contract to English prose: a reworded message silently changed the status, and
 a driver message containing "not found" turned an internal fault into a 404.
 Now every service throws a typed error through `badRequest` / `unauthorized` /
-`forbidden` / `notFound` / `conflict`, and `error-status.test.ts` scans `src/`
-and fails if the substring pattern is reintroduced.
+`forbidden` / `notFound` / `conflict`, and the Go error helpers only disclose a typed
+`*AppError`.
 
-**Anything thrown as a plain `Error` is treated as internal.** `publicMessageFor`
-returns `null` for it and the client gets a generic 500. A Prisma invocation
-message names models, columns, constraint names and the offending argument;
-echoing that to an anonymous caller turns a malformed request into a
-schema-fingerprinting oracle.
+**Anything not typed is treated as internal.** The Go handlers only disclose a
+message attached to an `*AppError`; every other failure is logged with the
+request id and answered as a generic 500. A MySQL driver message names tables,
+columns and the offending argument; echoing that to an anonymous caller turns a
+malformed request into a schema-fingerprinting oracle.
 
-Suppression is keyed on *ORM and driver* text (`prisma`, `invocation`, `unique
-constraint`, `foreign key`, `econnrefused`, `node_modules`, stack frames), plus
-four cheap structural tests: multi-line, over 200 characters, contains `{}<>`,
-matches a SQL statement keyword. That ordering is deliberate — services throw
-human-readable business messages ("This doctor is not accepting bookings yet")
-which *are* the API contract, so a phrase allowlist that had to enumerate every
-business message would silently hide new ones.
+The port replaced the old pattern-matching suppressor with the type system:
+human-readable business messages are constructed as `BadRequest` / `Conflict`
+values, and anything else cannot reach the response. There is no phrase
+allowlist to keep in sync, and no message text that becomes a status by
+accident.
 
 `statusFor` remains as a backstop for pre-existing plain errors and is documented
 as not-the-primary-mechanism.
@@ -640,19 +638,19 @@ every IP-keyed limit is bypassable.
 
 | Concern | File |
 |---|---|
-| Token minting and purpose separation | `server/src/lib/tokens.ts` |
-| Session validation, ban and 2FA gate | `server/src/middleware/auth.middleware.ts` |
-| CSRF double-submit | `server/src/middleware/csrf.middleware.ts` |
-| Rate limits and their Redis store | `server/src/middleware/rateLimit.middleware.ts` |
-| Middleware order | `server/src/app.ts:41` |
-| Error disclosure | `server/src/utils/appError.ts`, `server/src/app.ts:251` |
-| Free-text sanitisation | `server/src/utils/sanitize.ts` |
-| Prompt fencing and provenance | `server/src/services/ai.service.ts` |
-| Disclosure detection and escalation | `server/src/services/clinicalSafety.service.ts` |
-| Crisis text matching | `server/src/services/crisisText.service.ts` |
-| Triage queue and its authorisation | `server/src/services/riskQueue.service.ts` |
-| Video credentials | `server/src/services/video.service.ts` |
+| Token minting and purpose separation | `server-go/internal/server/tokens.go` |
+| Session validation, ban and 2FA gate | `server-go/internal/server/auth.go` |
+| CSRF double-submit | `server-go/internal/server/csrf.go` |
+| Rate limits and their Redis store | `server-go/internal/server/ratelimit.go` |
+| Middleware order | `server-go/internal/server/server.go` (`Mount`) |
+| Error disclosure | `server-go/internal/server/respond.go` |
+| Free-text sanitisation | per-domain `s.Sanitizer` (bluemonday) calls |
+| Provenance | `server-go/internal/server/routes_ai.go` (fallback-only today) |
+| Disclosure detection and escalation | `server-go/internal/server/routes_support.go`, `routes_wellness.go` |
+| Crisis text matching | `server-go/internal/server/routes_support.go` |
+| Triage queue and its authorisation | `server-go/internal/server/routes_wellness.go` |
+| Video credentials | `server-go/internal/server/routes_appointments.go` |
 | Websocket auth and purpose gate | `server-realtime/hub/auth.go` |
-| Account deletion and anonymisation | `server/src/services/account.service.ts:190` |
-| Meta-tests that keep the above honest | `server/tests/error-status.test.ts`, `security.test.ts`, `role-guards.test.ts`, `wave0-regressions.test.ts`, `video-token.test.ts`, `crisis-triage.test.ts`, `risk-queue.test.ts` |
+| Account deletion and anonymisation | `server-go/internal/server/routes_account.go` |
+| Tests that keep the above honest | `server-go/internal/*/*_test.go` (config, tokens, hashing), `server-realtime/hub/*_test.go`, and the 12 browser journeys |
 | Automated scanning | `.github/workflows/security.yml` — gitleaks over full history, CodeQL for TypeScript and Go, Trivy per image, `npm audit`, `govulncheck` |

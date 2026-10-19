@@ -80,7 +80,7 @@ const walk = (dir) => {
             // The previous version did `if (bytes.includes(0)) continue` - it
             // silently skipped such files, on the assumption that a NUL means a
             // binary file that happened to have a text extension. So
-            // `server/src/schemas/message.schema.ts` carried a literal NUL and a
+            // an earlier schema file carried a literal NUL and a
             // literal 0x1F inside a regex character class, where `[<NUL>-<0x1F>\s]`
             // was intended to read `[\x00-\x1F\s]`, and this gate reported a clean
             // tree. It was caught in CI instead, by `no-control-regex`.
