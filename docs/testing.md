@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 34 tests, 8 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 35 tests, 9 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -43,6 +43,9 @@ break silently and impossible to see in a browser:
 - **Mail and push.** `mail_test.go` proves the OTP template carries the code and
   that the notification template escapes user-controlled titles and messages;
   push is a no-op without VAPID keys, which is what lets it run in CI.
+- **The route table.** `openapi_test.go` asserts the generated document lists
+  the sampled routes, marks authenticated routes, leaves health public, and
+  carries the security schemes.
 - **The model client.** `internal/ai/client_test.go` runs against a fake
   OpenAI-compatible server: success parsing, provider errors, empty content and
   context timeouts. `ai_test.go` pins the fencing (a patient-supplied closing

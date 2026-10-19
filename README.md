@@ -98,7 +98,7 @@ Numbers measured from the tree, not estimated.
 |---|---|
 | **44,955** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 22,719 Go |
 | **160** | API routes · **28** tables · **20** migrations |
-| **66** | Go tests in 13 files · **52** client unit tests · **12** Playwright journeys |
+| **67** | Go tests in 14 files · **52** client unit tests · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -387,10 +387,12 @@ cd client && npx playwright test    # with the stack already running
 
 ## API documentation
 
-`GET /api/openapi.json` serves a machine-readable document; it is a stub while
-the Go port's spec generation is rebuilt, and the web client does not depend on
-it. The request contracts are pinned by the Playwright journeys against the same
-client, not by a generated file that can drift from the handlers.
+`GET /api/openapi.json` is generated from the live chi route table: every
+mounted route with its method, the session security schemes, and the error
+envelope. It deliberately does not restate request/response schemas — those are
+enforced in the handlers and pinned by the Playwright journeys against the same
+client, rather than a generated file that can drift from them. The old Swagger UI
+is not served.
 
 
 ## Key endpoints

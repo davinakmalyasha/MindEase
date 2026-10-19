@@ -39,9 +39,11 @@ considered in advance.
 
 - **A privacy policy or terms of service.** This is a portfolio project with no
   operating entity behind it; a document claiming one would be fiction.
-- **API reference.** `GET /api/openapi.json` is a stub while the Go port's spec
-  generation is rebuilt; the request contracts are pinned by the browser suite
-  against the same client, not by a generated file.
+- **API reference.** `GET /api/openapi.json` is generated from the mounted chi
+  route table — every route and method, with the session security schemes and the
+  error envelope — but it does not restate request/response schemas yet. The
+  request contracts are pinned by the browser suite against the same client. The
+  old Swagger UI is not served.
 - **Anything the code does not do.** Every claim here is verifiable in the
   repository. Where something is uncertain or unwired, the document says so
   rather than describing an intention — see the "not built" sections of
