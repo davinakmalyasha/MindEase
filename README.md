@@ -98,7 +98,7 @@ Numbers measured from the tree, not estimated.
 |---|---|
 | **44,955** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 22,719 Go |
 | **160** | API routes · **28** tables · **20** migrations |
-| **53** | Go tests in 9 files · **52** client unit tests · **12** Playwright journeys |
+| **56** | Go tests in 10 files · **52** client unit tests · **12** Playwright journeys |
 | **10** | ADRs and design documents · **5** services in compose |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -323,11 +323,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 | `TWO_FACTOR_SECRET` | .env, compose | Pending 2FA tickets (5m) — **required in production**, must differ from `JWT_SECRET` |
 | `GEMINI_API_KEY` | .env | AI features (falls back to local generation) |
 | `GOOGLE_CLIENT_ID` | .env | Google SSO |
-| `SMTP_HOST/PORT/USER/PASS` | .env | OTP mail. The Go port logs the code rather than delivering until SMTP is wired |
+| `SMTP_HOST/PORT/USER/PASS` | .env | OTP and notification email over SMTP; development logs the code when unset |
 | `REDIS_URL` | server/.env, compose | Realtime event bus + caching (silently disabled when down) |
 | `WA_GATEWAY_URL` / `WA_GATEWAY_TOKEN` | server/.env | Optional WhatsApp appointment reminders (graceful fallback when unset) |
 | `PAYMENT_PROVIDER` / `PAYMENT_SERVER_KEY` | server/.env | Package checkout. Unset → in-process simulator (refused in production) |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | .env | Push subscription storage is ported; delivery is not yet |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | .env | Web push delivery; dead subscriptions are pruned on 404/410 |
 | `VIDEO_PROVIDER` | .env | `livekit` (authenticated rooms) or `jitsi` (degraded fallback). Defaults to `jitsi` |
 | `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | server/.env | Required for `VIDEO_PROVIDER=livekit`; falls back to jitsi and logs why if any is missing |
 | `AI_REQUEST_TIMEOUT_MS` / `AI_CIRCUIT_THRESHOLD` / `AI_CIRCUIT_COOLDOWN_MS` | server/.env | Gemini timeout (20s) and circuit breaker (5 failures / 60s) |
@@ -354,7 +354,7 @@ First-time setup is still manual — create the Railway projects and add the
 secrets listed above. The workflow assumes they exist.
 
 **Production checklist**
-- [ ] Real SMTP configured (email flows fail loudly without it)
+- [ ] Real SMTP configured (without it, OTP and notification mail are skipped and logged; the API still answers the same neutral success, by design)
 - [ ] Redis reachable (realtime push + cache active)
 - [ ] S3-compatible storage configured (avatars persist across redeploys; Railway's filesystem is ephemeral)
 - [ ] Strong, unique `JWT_SECRET` / `REFRESH_SECRET` / `TWO_FACTOR_SECRET` — all three must differ. The server refuses to start in production if any is weak or if they collide, because a shared secret lets a credential minted for one flow verify as another

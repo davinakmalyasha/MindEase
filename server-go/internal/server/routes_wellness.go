@@ -2069,12 +2069,12 @@ func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, messag
 			return nil
 		}
 		if withEmail && channel.Email && email != "" {
-			subject, html := wellnessBuildNotificationEmail(title, message)
+			subject, html := mailNotificationTemplate(title, message)
 			recipient := email
 			go func() {
 				mailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				if err := s.wellnessMailerSend(mailCtx, recipient, subject, html); err != nil {
+				if err := s.mailSend(mailCtx, recipient, subject, html); err != nil {
 					s.Log.Error("notification email failed", "err", err)
 				}
 			}()
@@ -2098,6 +2098,7 @@ func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, messag
 		"type":      notificationType,
 		"createdAt": now.UTC().Format("2006-01-02T15:04:05.000Z"),
 	})
+	s.pushSend(ctx, userID, cleanTitle, cleanMessage, "/dashboard")
 	return nil
 }
 
@@ -2112,7 +2113,9 @@ func wellnessEsc(v string) string {
 	return replacer.Replace(v)
 }
 
-func wellnessBuildNotificationEmail(title, message string) (string, string) {
+// mailNotificationTemplate is MailerService.buildNotificationEmail; it escapes
+// the title and message, so user-controlled text cannot inject markup.
+func mailNotificationTemplate(title, message string) (string, string) {
 	subject := wellnessEsc(title) + " — MindEase"
 	html := `
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
@@ -2150,7 +2153,7 @@ func wellnessEnvelopeFrom(from string) string {
 
 // wellnessMailerSend mirrors mailer.service.ts: SMTP when configured, a
 // logged dev fallback outside production, and a loud failure in production.
-func (s *Server) wellnessMailerSend(ctx context.Context, to, subject, htmlBody string) error {
+func (s *Server) mailSend(ctx context.Context, to, subject, htmlBody string) error {
 	host := strings.TrimSpace(os.Getenv("SMTP_HOST"))
 	if host == "" {
 		if s.Cfg.IsProd {

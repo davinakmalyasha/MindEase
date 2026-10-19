@@ -166,8 +166,17 @@ func (s *Server) notifCreate(ctx context.Context, userID, title, message, notifi
 			return false, nil
 		}
 		if wantsEmail && channel.Email && recipientEmail.Valid && recipientEmail.String != "" {
-			s.Log.Debug("notification email skipped: mailer is not ported to the Go service yet",
-				"userId", userID, "type", notificationType)
+			recipient := recipientEmail.String
+			subject, html := mailNotificationTemplate(title, message)
+			// Fire-and-forget, like NotificationService.create: a slow or down
+			// mailer must not hold up the request that caused the notification.
+			go func() {
+				sendCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := s.mailSend(sendCtx, recipient, subject, html); err != nil {
+					s.Log.Warn("notification email failed", "userId", userID, "err", err)
+				}
+			}()
 		}
 	}
 	if !prefs.channelInApp(notificationType) {
@@ -190,6 +199,7 @@ func (s *Server) notifCreate(ctx context.Context, userID, title, message, notifi
 		"type":      notificationType,
 		"createdAt": nowISO(),
 	})
+	s.pushSend(ctx, userID, sanitizedTitle, sanitizedMessage, "/dashboard")
 	return true, nil
 }
 

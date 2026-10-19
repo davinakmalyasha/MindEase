@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 21 tests, 4 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 24 tests, 5 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -40,6 +40,9 @@ break silently and impossible to see in a browser:
   hashes never verify, and that the miss-path dummy hash never returns true. The
   seeded logins are the integration proof that the hashes the seed writes and the
   hash the server verifies are the same format.
+- **Mail and push.** `mail_test.go` proves the OTP template carries the code and
+  that the notification template escapes user-controlled titles and messages;
+  push is a no-op without VAPID keys, which is what lets it run in CI.
 
 ```bash
 cd server-go

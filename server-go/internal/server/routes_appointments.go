@@ -385,6 +385,7 @@ func (s *Server) apptNotify(ctx context.Context, userID, title, message, notifTy
 	s.apptPublish(userID, "notification:new", map[string]any{
 		"title": title, "message": message, "type": notifType, "createdAt": nowISO(),
 	})
+	s.pushSend(ctx, userID, title, message, "/dashboard")
 }
 
 // apptPublish sends a realtime event on the shared channel the Go realtime

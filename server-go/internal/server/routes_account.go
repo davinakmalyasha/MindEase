@@ -138,13 +138,6 @@ func accountGenerateOtp() (string, error) {
 	return strconv.FormatInt(n.Int64()+100000, 10), nil
 }
 
-func accountOtpSubject(purpose string) string {
-	if purpose == "reset" {
-		return "Your MindEase password reset code"
-	}
-	return "Verify your MindEase email"
-}
-
 // accountForLog scrubs a user-controlled value before it reaches a log line,
 // like the mailer's `forLog`: no control characters and bounded length.
 func accountForLog(v string) string {
@@ -160,12 +153,11 @@ func accountForLog(v string) string {
 	return cleaned
 }
 
-// accountSendOtp ports MailerService.send for the OTP flows. Real SMTP
-// delivery is deliberately not implemented in this port: with SMTP_HOST set the
-// call is a documented no-op that logs the recipient and subject, and with it
-// unset the Node behavior is kept - a dev log carrying the code, or the same
-// error the Node mailer raises in production.
-func (s *Server) accountSendOtp(to, subject, otp string) error {
+// accountSendOtp delivers a one-time code over SMTP when configured. Without
+// SMTP the Node behavior is kept: production error (which the callers
+// deliberately swallow), development log carrying the code.
+func (s *Server) accountSendOtp(ctx context.Context, to, purpose, otp string) error {
+	subject, html := mailOtpTemplate(purpose, otp)
 	if os.Getenv("SMTP_HOST") == "" {
 		if s.Cfg.IsProd {
 			return errors.New("SMTP is not configured (SMTP_HOST missing) but NODE_ENV=production. " +
@@ -176,8 +168,10 @@ func (s *Server) accountSendOtp(to, subject, otp string) error {
 			"devCode", accountForLog(otp), "devFallback", true)
 		return nil
 	}
-	s.Log.Info("[MAIL] SMTP delivery is a no-op in the Go port; no message was sent.",
-		"to", accountForLog(to), "subject", accountForLog(subject))
+	if err := s.mailSend(ctx, to, subject, html); err != nil {
+		s.Log.Error("[MAIL] OTP delivery failed", "to", accountForLog(to), "err", err)
+		return err
+	}
 	return nil
 }
 
@@ -280,7 +274,7 @@ func (s *Server) accountRequestPasswordReset(ctx context.Context, email string) 
 	// account.service.ts: a mail outage must not turn the anti-enumeration
 	// response into a 400 that tells the caller whether the address exists or
 	// whether SMTP is configured.
-	if err := s.accountSendOtp(user.Email, accountOtpSubject("reset"), otp); err != nil {
+	if err := s.accountSendOtp(ctx, user.Email, "reset", otp); err != nil {
 		s.Log.Warn("reset code mail failed", "err", err)
 	}
 	return nil
@@ -421,7 +415,7 @@ func (s *Server) accountRequestEmailVerification(ctx context.Context, email stri
 		return err
 	}
 	// Same swallow as the reset flow, for the same reason.
-	if err := s.accountSendOtp(user.Email, accountOtpSubject("verify"), otp); err != nil {
+	if err := s.accountSendOtp(ctx, user.Email, "verify", otp); err != nil {
 		s.Log.Warn("verification code mail failed", "err", err)
 	}
 	return nil

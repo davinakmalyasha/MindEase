@@ -408,7 +408,7 @@ safety-relevant runs on this schedule, which is what keeps that a Tier 2 item.
 | The deployed web app talks to `localhost:5000` | `NEXT_PUBLIC_*` set as environment instead of build args | They are inlined at build time |
 | Avatars 404 on some requests | S3 unset; uploads are on a local disk and the instance moved | Set the four `S3_*` variables before scaling past one replica |
 | Avatars fine until the next deploy, then all gone | Same cause — no `VOLUME` on `public/uploads` | Same |
-| Emails "sent" but nothing arrives | SMTP unset; in non-production they are printed to the console | In production the boot **throws** instead, so this means you are not in production |
+| Emails "sent" but nothing arrives | SMTP is unset. In development the OTP is logged and notification mail is skipped; in production the request still returns its neutral success, by design, so look for `OTP delivery failed` or `notification email failed` in the API log |
 | Consent OTP silently cancels a password reset | Old build; the two flows used to share one OTP slot | `resetOtp*` and `verifyOtp*` are now separate columns |
 | `node scripts/check-dependencies.js` reports an unused package | Either it really is unused, or it is referenced in a way the scanner does not match (a config value, a peer dependency) | Remove it, or reference it, or add a reason to `INDIRECT` in the script; the self-test holds each case |
 | A dev browser keeps running an old bundle after an edit | A service worker registered by an earlier dev session is serving its cached chunks | The worker is no longer registered outside production and existing ones are removed on load; a profile loaded before that change needs one manual unregister |

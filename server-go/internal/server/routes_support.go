@@ -325,8 +325,8 @@ func (s *Server) handleSupportSOS(w http.ResponseWriter, r *http.Request) {
 
 	deliveredEmail := false
 	if doctorEmail != "" {
-		subject, html := wellnessBuildNotificationEmail("SOS Alert from a patient", alertText)
-		if err := s.wellnessMailerSend(ctx, doctorEmail, subject, html); err != nil {
+		subject, html := mailNotificationTemplate("SOS Alert from a patient", alertText)
+		if err := s.mailSend(ctx, doctorEmail, subject, html); err != nil {
 			s.Log.Error("SOS email alert failed", "err", err)
 		} else {
 			deliveredEmail = true

@@ -10,12 +10,13 @@ webServer runs the Go binary locally, and the Railway config points at
 `server-go/Dockerfile`.
 
 What remains for full parity, in the order it matters: real Gemini calls (the
-deterministic fallback branches answer today, with provenance), SMTP and
-web-push sends (rows are still written), the OpenAPI spec rebuild and response
-fixtures, and a fuller port of the 519 Node tests — an 11-test MySQL
-integration suite now covers the races and guards, while the provider signature,
-TOTP replay, job-claim hand-back and trajectory cases remain uncovered (named
-in `docs/testing.md`).
+deterministic fallback branches answer today, with provenance), the OpenAPI
+spec rebuild and response fixtures, and a fuller port of the 519 Node tests —
+an 11-test MySQL integration suite now covers the races and guards, while the
+provider signature, TOTP replay, job-claim hand-back and trajectory cases
+remain uncovered (named in `docs/testing.md`). SMTP delivery and web push are
+wired: notifications, OTP mail and job reminders send when configured, and dead
+push subscriptions are pruned.
 
 It exists because "rewrite the backend in Go" is a sentence that means at least
 three different projects, and only one of them is worth the cost this one would
