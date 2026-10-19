@@ -345,14 +345,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 ## Deploying
 
 Merge to `main`. `.github/workflows/cd.yml` deploys the Go API (`server-go/railway.json`)
-and the realtime service to Railway and the web app to Vercel. Schema changes
-are applied as a separate step with `go run ./cmd/migrate` (the image does not
-migrate at boot). The production job is gated on a GitHub `production`
+and the realtime service (`server-realtime/railway.json`) to Railway and the web
+app to Vercel. The image does not migrate at boot: when the
+`PRODUCTION_DATABASE_URL` repository secret is set, the deploy applies
+`cmd/migrate` before the API; without it the API boots and `/api/health/db`
+reports `schema: drift` until the schema is applied by hand. The production job is gated on a GitHub `production`
 environment that requires approval, so nothing reaches production without a
 human accepting the deploy.
 
 First-time setup is still manual — create the Railway projects and add the
-secrets listed above. The workflow assumes they exist.
+secrets listed above, plus `PRODUCTION_DATABASE_URL` if the deploy should apply
+migrations. The workflow assumes they exist.
 
 **Production checklist**
 - [ ] Real SMTP configured (without it, OTP and notification mail are skipped and logged; the API still answers the same neutral success, by design)

@@ -164,10 +164,11 @@ service is useless until the database has the tables it expects.
 
 **Migrations are a separate step, deliberately.** The API image does not touch
 the schema at boot: `docker compose` runs a one-shot `migrate` service and the
-API waits for it, and production applies the same command (`go run ./cmd/migrate`,
-or the `migrate` binary in the image) before the deploy. The runner records
-versions in `schema_migrations` and baselines a database built by the old Prisma
-runner, so an upgrade does not replay history. Ad-hoc DDL (`db push`) is never
+API waits for it, and production runs the same command (`go run ./cmd/migrate`,
+or the `migrate` binary in the image). `cd.yml` does this automatically when the
+`PRODUCTION_DATABASE_URL` secret is present, before uploading the API. The runner
+records versions in `schema_migrations` and baselines a database built by the old
+Prisma runner, so an upgrade does not replay history. Ad-hoc DDL (`db push`) is never
 used against production: it leaves the database silently diverged from the
 committed migrations.
 

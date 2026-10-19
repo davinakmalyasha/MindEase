@@ -131,20 +131,40 @@ jobs:
           curl -fsSL https://railway.app/install.sh | sh
           echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
 
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27.2"
+          check-latest: true
+
+      # Schema first, then the service that reads it. The secret is optional so
+      # a repository that deploys elsewhere still gets a clear warning instead
+      # of a red job; without it the API boots but /api/health/db reports
+      # `schema: drift` when the database is new.
+      - name: Apply schema migrations
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ]; then
+            echo "::warning::PRODUCTION_DATABASE_URL is not set; skipping migrations"
+            exit 0
+          fi
+          cd server-go
+          DATABASE_URL="$PRODUCTION_DATABASE_URL" go run ./cmd/migrate
+
       # Deployed before the realtime service, not after: the realtime service
       # is useless until the database has the tables it expects.
       #
-      # The API itself is the Go image (`server-go/railway.json`), and it does
-      # not run migrations at boot - schema changes are applied with
-      # `prisma migrate deploy` as a separate step (docs/operations.md). The
-      # old Node image migrated inside `scripts/start.sh`; the health probe
-      # below therefore proves the service is up, not that a migration ran.
+      # The API is the Go image (`server-go/railway.json`). The image does not
+      # migrate at boot, so the step above applies the committed migrations
+      # first when PRODUCTION_DATABASE_URL is configured. The railway.json
+      # sits in the uploaded directory, which is why the CLI gets an explicit
+      # path: a monorepo root upload would find no template.
       - name: Deploy API
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           SERVICE: ${{ needs.preflight.outputs.api_service }}
         run: |
-          railway up --service "$SERVICE" --detach
+          railway up server-go --service "$SERVICE" --detach
           railway service logs --service "$SERVICE" --deployment "$(
             railway status --json --service "$SERVICE" \
               | python3 -c 'import json,sys; print(json.load(sys.stdin)["deployments"][0]["id"])'
@@ -172,7 +192,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           SERVICE: ${{ needs.preflight.outputs.realtime_service }}
-        run: railway up --service "$SERVICE" --detach
+        run: railway up server-realtime --service "$SERVICE" --detach
 
       - name: Wait for realtime to report Redis reachable
         env:
