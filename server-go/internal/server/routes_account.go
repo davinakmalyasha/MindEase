@@ -276,7 +276,14 @@ func (s *Server) accountRequestPasswordReset(ctx context.Context, email string) 
 		otpHash, now.Add(accountOtpTTL), now, user.ID); err != nil {
 		return err
 	}
-	return s.accountSendOtp(user.Email, accountOtpSubject("reset"), otp)
+	// Mail failures are swallowed here, exactly as MailerService.send is in
+	// account.service.ts: a mail outage must not turn the anti-enumeration
+	// response into a 400 that tells the caller whether the address exists or
+	// whether SMTP is configured.
+	if err := s.accountSendOtp(user.Email, accountOtpSubject("reset"), otp); err != nil {
+		s.Log.Warn("reset code mail failed", "err", err)
+	}
+	return nil
 }
 
 func (s *Server) handleAccountForgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +420,11 @@ func (s *Server) accountRequestEmailVerification(ctx context.Context, email stri
 		otpHash, now.Add(accountOtpTTL), now, user.ID); err != nil {
 		return err
 	}
-	return s.accountSendOtp(user.Email, accountOtpSubject("verify"), otp)
+	// Same swallow as the reset flow, for the same reason.
+	if err := s.accountSendOtp(user.Email, accountOtpSubject("verify"), otp); err != nil {
+		s.Log.Warn("verification code mail failed", "err", err)
+	}
+	return nil
 }
 
 func (s *Server) handleAccountResendVerification(w http.ResponseWriter, r *http.Request) {
