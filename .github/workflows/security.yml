@@ -220,7 +220,11 @@ jobs:
         # Compose service names. Each compose service now declares an explicit
         # `image: mindease-<service>:${IMAGE_TAG:-latest}`, so the tag is
         # knowable without asking docker what it called something.
-        service: [api, web, realtime]
+        #
+        # `migrate` is the Node image reduced to its one job - running the
+        # Prisma migrations the API waits on - so the old API image's
+        # dependencies are still scanned even though the API itself is Go.
+        service: [api, web, realtime, migrate]
     outputs:
       # The service name is the only thing these jobs can agree on. Each job
       # writes the reference it built and scanned, so the summary below can say

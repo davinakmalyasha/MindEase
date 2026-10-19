@@ -130,9 +130,14 @@ jobs:
           curl -fsSL https://railway.app/install.sh | sh
           echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
 
-      # Deployed before the realtime service, not after: the API boots by
-      # running the migrations, and the realtime service is useless until the
-      # database has the tables it expects.
+      # Deployed before the realtime service, not after: the realtime service
+      # is useless until the database has the tables it expects.
+      #
+      # The API itself is the Go image (`server-go/railway.json`), and it does
+      # not run migrations at boot - schema changes are applied with
+      # `prisma migrate deploy` as a separate step (docs/operations.md). The
+      # old Node image migrated inside `scripts/start.sh`; the health probe
+      # below therefore proves the service is up, not that a migration ran.
       - name: Deploy API
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -148,8 +153,9 @@ jobs:
         env:
           API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
-          # The image runs migrations before binding, so the first successful
-          # response also confirms the migration succeeded.
+          # Liveness plus the schema check, so the probe still insists the
+          # database is reachable and the schema is not behind - it just does
+          # not apply the migrations itself any more.
           for i in $(seq 1 30); do
             if curl -fsS "$API_URL/api/health" > /dev/null 2>&1; then
               echo "API is up after ${i} attempts"

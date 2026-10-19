@@ -59,15 +59,18 @@ export default defineConfig({
     ],
     webServer: [
         {
-            command: "npx ts-node src/index.ts",
-            cwd: "../server",
+            // The API is the Go service. `scripts/dev.sh` loads `server/.env`
+            // (both implementations share the signing secrets during the
+            // transition) and runs `go run ./cmd/api`. In the Docker job the
+            // compose stack is already serving this URL, so this only ever
+            // applies locally.
+            command: "bash scripts/dev.sh",
+            cwd: "../server-go",
             url: "http://localhost:5000/api/health",
             reuseExistingServer: true,
-            // A cold `ts-node` start type-checks the whole server before the
-            // first request, and on a slow dev machine that measured 119s -
-            // past the old 60s, which failed the run before a browser opened.
-            // CI builds once and boots from that, so this only ever applies
-            // locally.
+            // A cold `go run` compiles the module before the first request;
+            // the old ts-node note measured 119s on the same hardware, and
+            // this budget covers either toolchain on a slow machine.
             timeout: 180_000,
         },
         {

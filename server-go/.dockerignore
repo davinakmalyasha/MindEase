@@ -1,0 +1,6 @@
+.git
+*.exe
+Dockerfile
+.dockerignore
+PORTING.md
+.golangci.yml

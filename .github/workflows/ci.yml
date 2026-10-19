@@ -606,8 +606,9 @@ jobs:
     # `compose` first: a malformed compose file should fail here rather than
     # after the server, client and realtime suites have all run.
     # `docs` is included so a stale count blocks before the expensive jobs rather
-    # than after them.
-    needs: [docs, compose, server, client, realtime]
+    # than after them. `api-go` is included so a broken Go build is caught by
+    # the cheap job before this one spends fifteen minutes on images.
+    needs: [docs, compose, server, client, realtime, api-go]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 

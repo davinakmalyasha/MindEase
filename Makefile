@@ -19,6 +19,7 @@ SHELL := /bin/bash
 SERVER := server
 CLIENT := client
 REALTIME := server-realtime
+API_GO := server-go
 
 # --- database credentials -----------------------------------------------------
 #
@@ -251,7 +252,8 @@ test-client: ## Run the client unit tests
 	cd $(CLIENT) && npm test
 
 .PHONY: test-go
-test-go: ## Run the realtime tests with the race detector
+test-go: ## Run the Go tests (API and realtime) with the race detector
+	cd $(API_GO) && go test ./...
 	cd $(REALTIME) && go test -race -cover ./...
 
 .PHONY: test-all
