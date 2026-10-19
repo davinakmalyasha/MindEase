@@ -56,7 +56,7 @@ dump.rdb
 # A full mysqldump contains every row in cleartext, including clinical notes.
 backups/
 *.sql
-!server/prisma/migrations/**/*.sql
+!server-go/migrations/*.sql
 
 # Uploaded user content
 # Real user files must never enter version control. Only the placeholder is
