@@ -8,12 +8,20 @@ new `api-go` CI job covers what a browser cannot reach: the production config
 guards, token purposes and password hashing, all pinned by Go unit tests.
 `server-realtime` and `server-go` both build with Go 1.27.2.
 
+The runtime cutover is done as well: docker compose builds `server-go` as the
+`api` service, a one-shot `migrate` service (the Node image reduced to
+`prisma migrate deploy`) is the only migration runner, CI's Docker job boots
+that stack and passes 15/15 journeys in production mode, the Playwright
+webServer runs the Go binary locally, and the Railway config points at
+`server-go/Dockerfile`.
+
 What remains before `server/` can be deleted: real Gemini calls (the
 deterministic fallback branches answer today, with provenance), SMTP and
 web-push sends (rows are still written), the OpenAPI spec-diff and response
-fixtures, porting the 519 Node tests as the invariant suite, and the
-docker-compose / CD switch. Until then the Node implementation is the
-reference, the migration runner (`prisma migrate deploy`) and the seed.
+fixtures, porting the 519 Node tests as the invariant suite, and moving the
+schema workflow - the SQL migrations and the seed - into `server-go/`.
+Until then the Node implementation is the reference, the migration runner and
+the seed.
 
 It exists because "rewrite the backend in Go" is a sentence that means at least
 three different projects, and only one of them is worth the cost this one would
