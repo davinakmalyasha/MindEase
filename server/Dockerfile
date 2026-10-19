@@ -1,10 +1,10 @@
 # MindEase API — multi-stage build
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -35,7 +35,7 @@ RUN npx tsc --outDir dist
 # server never imports - but it is still shipped, and the CLI and client are
 # compatible within a major, so the older CLI is the better trade. Keep this in step
 # with `prisma` in package.json.
-FROM node:22-alpine AS prod-deps
+FROM node:26-alpine AS prod-deps
 ARG PRISMA_CLI_VERSION=6.12.0
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -68,7 +68,7 @@ RUN npm ci --omit=dev \
          exit 1; \
        fi
 
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 # Cron windows, room-open windows and "today" horizons are authored in WIB —
 # pin the container clock to Asia/Jakarta (tzdata needed for named zones).
