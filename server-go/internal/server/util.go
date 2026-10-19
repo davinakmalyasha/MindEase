@@ -166,6 +166,7 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
+				s.captureError(r, fmt.Errorf("panic: %v", rec))
 				s.Log.Error("panic recovered", "panic", rec, "path", r.URL.Path, "requestId", RequestID(r))
 				s.FailExtra(w, http.StatusInternalServerError, "Something went wrong. Please try again.", map[string]any{
 					"requestId": RequestID(r),

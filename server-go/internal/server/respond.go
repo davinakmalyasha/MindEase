@@ -73,6 +73,7 @@ func (s *Server) AppErr(w http.ResponseWriter, r *http.Request, err error) {
 		s.FailExtra(w, appErr.Status, appErr.Message, appErr.Extra)
 		return
 	}
+	s.captureError(r, err)
 	s.Log.Error("handler error", "err", err, "path", r.URL.Path, "requestId", RequestID(r))
 	s.FailExtra(w, http.StatusInternalServerError, "Something went wrong. Please try again.", map[string]any{
 		"requestId": RequestID(r),

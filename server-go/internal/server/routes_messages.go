@@ -1217,10 +1217,10 @@ func (s *Server) msgReadUpload(r *http.Request) (*msgUpload, string) {
 	return upload, ""
 }
 
-// msgSaveUpload is storage.ts's local-disk branch: a freshly minted UUID file
-// name (same UUIDv7 scheme as every other id), the sanitised original
-// extension, and a `/uploads/<name>` URL. S3 is intentionally not ported.
-func (s *Server) msgSaveUpload(data []byte, originalName string) (string, error) {
+// msgSaveUpload mints a UUIDv7 file name with the sanitised original
+// extension, then hands it to the storage layer: S3 when configured, the local
+// uploads directory otherwise.
+func (s *Server) msgSaveUpload(ctx context.Context, data []byte, originalName string) (string, error) {
 	extension := strings.ToLower(filepath.Ext(originalName))
 	cleaned := make([]rune, 0, len(extension))
 	for _, r := range extension {
@@ -1233,13 +1233,7 @@ func (s *Server) msgSaveUpload(data []byte, originalName string) (string, error)
 		extension = ".jpg"
 	}
 	name := newID() + extension
-	if err := os.MkdirAll(s.Cfg.UploadDir, 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(filepath.Join(s.Cfg.UploadDir, name), data, 0o644); err != nil {
-		return "", err
-	}
-	return "/uploads/" + name, nil
+	return s.saveUpload(ctx, name, data)
 }
 
 func (s *Server) handleMsgUpload(w http.ResponseWriter, r *http.Request) {
@@ -1266,7 +1260,7 @@ func (s *Server) handleMsgUpload(w http.ResponseWriter, r *http.Request) {
 		s.Fail(w, http.StatusBadRequest, "No file provided")
 		return
 	}
-	fileURL, err := s.msgSaveUpload(upload.data, upload.originalName)
+	fileURL, err := s.msgSaveUpload(r.Context(), upload.data, upload.originalName)
 	if err != nil {
 		s.msgRespondError(w, r, err, http.StatusInternalServerError, "Failed to upload attachment.")
 		return

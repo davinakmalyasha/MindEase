@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 
 	"github.com/redis/go-redis/v9"
 
@@ -26,6 +29,16 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// Error tracking is opt-in: without a DSN, sentry-go keeps a client-less hub
+	// and every capture is a no-op, which is what tests and local runs rely on.
+	if dsn := strings.TrimSpace(os.Getenv("SENTRY_DSN")); dsn != "" {
+		if err := sentry.Init(sentry.ClientOptions{Dsn: dsn, TracesSampleRate: 0}); err != nil {
+			logger.Warn("sentry init failed", "err", err)
+		} else {
+			defer sentry.Flush(2 * time.Second)
+		}
+	}
 
 	pool, err := db.Open(cfg.DatabaseURL)
 	if err != nil {
