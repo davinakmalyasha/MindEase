@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,77 @@ func TestOpenAPIDocumentListsMountedRoutes(t *testing.T) {
 	}
 	if doc.Components["securitySchemes"] == nil {
 		t.Error("the document has no security schemes")
+	}
+}
+
+func TestOpenAPIReferencesResolveAndBindResponses(t *testing.T) {
+	s := New(testConfig(t), nil, nil, itLog)
+	rec := httptest.NewRecorder()
+	s.Mount().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/openapi.json", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("openapi: %d", rec.Code)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]any `json:"schemas"`
+		} `json:"components"`
+		Paths map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("openapi is not JSON: %v", err)
+	}
+	if len(doc.Components.Schemas) < 10 {
+		t.Fatalf("components.schemas has %d entries; want the core resources", len(doc.Components.Schemas))
+	}
+
+	refs := map[string]bool{}
+	collectRefs(doc.Paths, refs)
+	for ref := range refs {
+		name := strings.TrimPrefix(ref, "#/components/schemas/")
+		if _, ok := doc.Components.Schemas[name]; !ok {
+			t.Errorf("unresolved schema reference %q", ref)
+		}
+	}
+
+	bindings := []struct{ path, method, status string }{
+		{"/users/profile", "get", "200"},
+		{"/doctors", "get", "200"},
+		{"/doctors/{id}", "get", "200"},
+		{"/wellness/mood", "get", "200"},
+		{"/notifications", "get", "200"},
+		{"/appointments/my", "get", "200"},
+		{"/auth/login", "post", "200"},
+	}
+	for _, binding := range bindings {
+		item, ok := doc.Paths[binding.path].(map[string]any)
+		if !ok {
+			t.Errorf("missing path %s", binding.path)
+			continue
+		}
+		operation, ok := item[binding.method].(map[string]any)
+		if !ok {
+			t.Errorf("missing operation %s %s", binding.method, binding.path)
+			continue
+		}
+		response, ok := operation["responses"].(map[string]any)[binding.status].(map[string]any)
+		if !ok || response["content"] == nil {
+			t.Errorf("%s %s has no response schema", binding.method, binding.path)
+		}
+	}
+}
+
+func collectRefs(value any, out map[string]bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if ref, ok := typed["$ref"].(string); ok {
+			out[ref] = true
+		}
+		for _, child := range typed {
+			collectRefs(child, out)
+		}
+	case []any:
+		for _, child := range typed {
+			collectRefs(child, out)
+		}
 	}
 }
