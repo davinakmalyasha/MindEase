@@ -5,7 +5,7 @@ MindEase is a premium, secure mental health consultation platform connecting pat
 
 The product's vision is built on three core pillars:
 1. **Low-Friction Clinical Matching**: Fast discovery of mental health professionals, structured scheduling, and seamless communication.
-2. **AI-Empowered Sessions**: Elevating the quality of consultations using Gemini to collect structured patient reflections and provide doctors with summarized briefings.
+2. **AI-Empowered Sessions**: Elevating the quality of consultations using the configured AI provider to collect structured patient reflections and provide doctors with summarized briefings.
 3. **Continuous Wellness Touchpoints**: Continuous mood tracking and personalized suggestions to encourage user engagement between sessions.
 
 ---
@@ -102,7 +102,7 @@ The platform is designed with three distinct user roles:
 
 ---
 
-### Epic 5: AI-Powered Clinical Support (Gemini Engine)
+### Epic 5: AI-Powered Clinical Support (AI Provider)
 #### Feature 5.1: Patient Pre-Session Reflections
 - **Description**: Patients reflect on their feelings prior to a session via AI-generated questions.
 - **Requirements**:
@@ -261,12 +261,12 @@ sequenceDiagram
     actor Patient
     actor Doctor
     participant API as Golang AI Service
-    participant Gemini as Gemini Pro API (gemini-2.0-flash)
+    participant AI as AI provider (Command Code, DeepSeek V4.1 Flash)
     participant DB as MySQL DB
 
     Patient->>API: Complete appointment booking (Confirmed)
-    API->>Gemini: Request Pre-Session Questions (Specialty, Notes)
-    Gemini-->>API: 5 Structured Questions (JSON format)
+    API->>AI: Request Pre-Session Questions (Specialty, Notes)
+    AI-->>API: 5 Structured Questions (JSON format)
     API->>DB: Save generated questions for Appointment ID
     API-->>Patient: Render questions in reflection card
     Patient->>API: Submit Answers
@@ -277,8 +277,8 @@ sequenceDiagram
     Doctor->>API: GET /api/ai/briefing (Appointment ID)
     API->>DB: Retrieve Patient Mood History (14 days) & Pre-Session Answers
     DB-->>API: Mood Logs & Answers Data
-    API->>Gemini: Request Briefing (Mood history & answers text)
-    Gemini-->>API: Professional briefing paragraph (3-5 sentences)
+    API->>AI: Request Briefing (Mood history & answers text)
+    AI-->>API: Professional briefing paragraph (3-5 sentences)
     API-->>Doctor: Render clinical summary on doctor dashboard
 ```
 

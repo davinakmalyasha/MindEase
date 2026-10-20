@@ -168,7 +168,7 @@ paths. What is gone is the static *proof* that a new route has not skipped them.
 
 ## What remains uncovered
 
-The integration suite is 11 tests, not 519. Ported: the races and constraints
+The integration suite is 12 tests, not 519. Ported: the races and constraints
 listed above, plus the browser flows. Still without a handler-level test:
 
 - the job claim hand-back and the weekly report's catch-up semantics

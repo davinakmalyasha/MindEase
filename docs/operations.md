@@ -11,7 +11,8 @@ this, [`security.md`](security.md) for what the deployment is defending.
 
 ### Everything at once (Docker)
 
-Five services: `mysql`, `redis`, `api`, `realtime`, `web`.
+Five long-running services: `mysql`, `redis`, `api`, `realtime`, `web`, plus a
+one-shot `migrate` container that must exit successfully before the API starts.
 
 ```bash
 cp .env.example .env       # fill in at minimum JWT_SECRET, REFRESH_SECRET, TWO_FACTOR_SECRET
@@ -23,8 +24,9 @@ stack will not start without them. `TWO_FACTOR_SECRET` does have a local default
 (`local_dev_two_factor_secret_change_me`) — it is there because its absence once
 made `docker compose up` crash-loop the API.
 
-`docker compose up --wait` waits for all five health checks. Every service
-declares one, which matters more than it looks: without the `web` healthcheck,
+`docker compose up --wait` waits for the five long-running services to report
+healthy and for `migrate` to complete. Each long-running service declares a
+healthcheck, which matters more than it looks: without the `web` healthcheck,
 compose reports the stack ready while Next.js is still compiling or has already
 crashed.
 
@@ -32,9 +34,9 @@ Two compose decisions worth knowing before you debug:
 
 - **The local stack runs the payment simulator**, with
   `ALLOW_PAYMENT_SIMULATOR=true` set explicitly, even though
-  `NODE_ENV: production`. `env.ts` refuses the simulator in production *unless*
-  that opt-in is present, so this is a deliberate local-only choice and not an
-  accident.
+  `NODE_ENV: production`. `internal/config` refuses the simulator in production
+  *unless* that opt-in is present, so this is a deliberate local-only choice and
+  not an accident.
 - **`NEXT_PUBLIC_*` values are build args, not environment variables.** They are
   inlined into the browser bundle at build time. Declaring them under
   `environment:` only sets them inside the container, where the already-built
@@ -65,7 +67,7 @@ npm install
 npm run dev
 ```
 
-Prerequisites: Node 22+, MySQL 8, Redis, Go 1.26.
+Prerequisites: Node 22+, MySQL 8, Redis, Go 1.27.2.
 
 ### Seeded accounts
 
@@ -97,11 +99,11 @@ need a review, complete a consultation as the patient and write one.
 
 The thing to internalise: **`docker-compose.yml` runs the API with
 `NODE_ENV: production`.** That is what the image is built for, so local runs
-through the same secret validation, the same payment-simulator refusal and the
-same "S3 not configured" warning as production. It is not a relaxed mode.
+through the same secret validation and the same payment-simulator refusal as
+production. It is not a relaxed mode.
 
-The three secrets are validated at boot by `config/env.ts`, which **throws** in
-production rather than warning:
+The three secrets are validated at boot by `internal/config`, which **refuses
+to start** in production rather than warning:
 
 - missing → throw
 - a known-weak default from a hardcoded list → throw
@@ -112,6 +114,7 @@ production rather than warning:
 - the payment simulator in production without `ALLOW_PAYMENT_SIMULATOR=true` →
   throw
 - an unrecognised `PAYMENT_PROVIDER` → throw
+- an unrecognised `VIDEO_PROVIDER` → throw
 
 A config error is therefore a **crash loop with a one-line reason in the logs**,
 not a degraded boot. That is the intended behaviour and the first thing to check
@@ -119,7 +122,7 @@ when a deployment will not come up.
 
 ### Production checklist
 
-- [ ] Real SMTP. `mailer.service.ts` **throws** without it in production — email flows fail loudly by design.
+- [ ] Real SMTP. In production an OTP request fails without it (the caller logs the error and keeps the neutral response); notification email is skipped and logged.
 - [ ] Redis reachable. Costs realtime push *and* the shared rate-limit counters; without it every limit is per-process.
 - [ ] S3-compatible storage. Railway's filesystem is ephemeral; see below.
 - [ ] Three strong, distinct secrets.
@@ -130,14 +133,15 @@ when a deployment will not come up.
 - [ ] Railway MySQL managed backups, **or** a scheduled `backup.ps1`.
 
 **Why S3 is called out separately from the other optional services.** Missing S3
-is not a degraded feature, it is data loss waiting to happen. `lib/storage.ts`
-falls back to the container's local disk, and `Dockerfile` creates
-`public/uploads` with no `VOLUME`, so on more than one replica an avatar
-uploaded to instance A 404s on instance B and everything is lost on the next
-deploy. `deleteFile` then silently no-ops, so the directory grows without bound.
-`env.ts` warns rather than throws here for one reason: `docker-compose.yml` sets
-`NODE_ENV: production` with no S3, and that is the documented way to run the
-project locally.
+is not a degraded feature, it is data loss waiting to happen on more than one
+replica. `saveUpload` falls back to the container's local disk (`UPLOAD_DIR`,
+default `public/uploads`); compose mounts a named volume there for local runs,
+but a Railway container's filesystem is ephemeral, so an avatar uploaded to
+instance A 404s on instance B and is lost on the next deploy. Configure the four
+required variables (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`;
+`S3_REGION` and `S3_PUBLIC_URL` are optional) before scaling past one replica.
+`internal/config` does not warn: the local stack is documented to run without
+S3.
 
 ## Deploys
 
@@ -146,7 +150,7 @@ with an optional `skip_web` input.
 
 ```
 preflight ──┬── deploy_api (Railway, env: production) ──┐
-            │     └─ railway up api ── wait /api/health ── railway up realtime ── wait /health
+            │     └─ railway up server-go ── wait /api/health ── railway up server-realtime ── wait /health
             └── deploy_web (Vercel, env: production) ────┤
                                                           └── verify (env: production)
 ```
@@ -168,7 +172,7 @@ API waits for it, and production runs the same command (`go run ./cmd/migrate`,
 or the `migrate` binary in the image). `cd.yml` does this automatically when the
 `PRODUCTION_DATABASE_URL` secret is present, before uploading the API. The runner
 records versions in `schema_migrations` and baselines a database built by the old
-Prisma runner, so an upgrade does not replay history. Ad-hoc DDL (`db push`) is never
+Prisma runner, so an upgrade does not replay history. Ad-hoc DDL is never
 used against production: it leaves the database silently diverged from the
 committed migrations.
 
@@ -276,10 +280,10 @@ There is no key-versioning or dual-key acceptance window. Rotation is a hard cut
 ## Rollback
 
 **Rolling back the API is safe if the previous release's migrations are a prefix
-of the current ones.** Because `migrate deploy` runs on boot and there is no
-down-migration, a rollback to an older image against a newer schema is only as
-safe as that image tolerates extra columns. Additive migrations are; a migration
-that drops or renames something is not.
+of the current ones.** Migration is a separate `cmd/migrate` step and there are
+no down-migrations, so a rollback to an older image against a newer schema is
+only as safe as that image tolerates extra columns. Additive migrations are; a
+migration that drops or renames something is not.
 
 If the API is failing, the usual sequence:
 
@@ -291,7 +295,7 @@ If the API is failing, the usual sequence:
 4. Confirm with a read-back of `/api/health/db`, not the deploy output.
 
 **Rolling back a migration is not a supported operation here.** There is no
-down-migration in any of the 15 migration folders and `migrate deploy` does not
+down-migration in any of the 20 migration folders and `cmd/migrate` does not
 reverse. If a migration applied cleanly and is wrong, the recovery is a forward
 migration, not a rollback.
 
@@ -300,19 +304,25 @@ or the Vercel dashboard's promote-to-production on a previous deployment.
 
 ## The cron jobs, and what is durable about them
 
-**All three scheduled jobs run inside the API process, via `node-cron`.** There
-is no queue and no worker process. What there is: each job's work is defined by
-rows and sentinels rather than by the tick that notices them, so a lost tick
-costs a delay, not the work.
+**All three scheduled jobs run inside the API process**, on a ticker loop in
+`internal/server/jobs.go` checked against the WIB wall clock. There is no queue
+and no worker process. Each job's work is defined by rows and sentinels rather
+than by the tick that notices them, so a lost tick costs a delay, not the work.
 
-| Job | Schedule | Timezone | File |
+| Job | Schedule | Timezone | Registry name |
 |---|---|---|---|
-| Appointment reminders | `*/10 * * * *` | `Asia/Jakarta` | `src/jobs/reminders.ts` |
-| Weekly report check | `0 7 * * *` | `Asia/Jakarta` | `src/jobs/reminders.ts` |
-| Care check-ins + waitlist maintenance | `0 9 * * *` | `Asia/Jakarta` | `src/jobs/checkins.ts` |
+| Appointment reminders | `*/10 * * * *` | `Asia/Jakarta` | `reminders` |
+| Weekly report check | `0 7 * * *` | `Asia/Jakarta` | `weekly-reports` |
+| Care check-ins + waitlist maintenance | `0 9 * * *` | `Asia/Jakarta` | `checkins` |
 
-All three are gated on `NODE_ENV !== "test"`, and all three run **on every
-replica**.
+All three are implemented in `internal/server/jobs.go`.
+They run unless `NODE_ENV=test` (`StartJobs` returns immediately; the Go config
+still reads `NODE_ENV`), and all three run **on every replica**.
+
+**Delivery is in-app only.** Each job writes a `Notification` row and publishes
+`notification:new`; the Node jobs also emailed, sent WhatsApp and web push.
+Transactional notifications from request handlers can still email and push, but
+the scheduled jobs do not.
 
 **A missed tick is caught up by the next one.** Every job's eligibility is a
 window or a sentinel, not "is it exactly this minute":
@@ -333,7 +343,7 @@ escalations do not run here at all: `raiseRiskAlert` is synchronous inside the
 request that observes the risk.
 
 **Every replica scans, and only the claim prevents a duplicate send.** Correctness
-comes from a conditional `updateMany`, not from the schedule:
+comes from a conditional `UPDATE ... WHERE`, not from the schedule:
 
 - reminders claim on `Appointment.reminderSentAt IS NULL`
 - check-ins claim on `User.lastMoodNudgeAt` / `lastDeclineNudgeAt` and
@@ -348,68 +358,58 @@ something has to undo it when the send fails — otherwise the sentinel stays se
 and the patient is never nudged again until the next period (three days for the
 mood nudge, never for a post-session check-in). Reminders release when every
 delivery failed; the check-in nudges and the weekly report release on any
-failure. The tests for that behaviour fail against the code that swallowed the
-error, which is how it is held in place.
+failure. `jobsReleaseClaim` hands the claim back best-effort; the release paths
+are covered by review rather than a handler-level test (see `testing.md`).
 
 **The claim is taken after the eligibility check, and that ordering is
 load-bearing.** It used to be the other way round, so a session whose calendar
 *date* fell inside the 24-hour horizon but whose *start time* did not — a
 late-evening session the next morning — burned `reminderSentAt` and was then
 skipped on every future run. The patient was never reminded and nothing reported
-the loss. `reminders.ts` says so at length where the check lives.
+the loss. `internal/server/jobs.go` says so at length where the check lives.
 
 **The locks are a scan optimisation and they no longer depend on Redis.**
-`runCareCheckins` takes an `acquireLock("care-checkins", 3600)` before reading
-anything, which saves roughly 120k queries per run at 10k patients. `cache.ts`
-falls back to a `JobLock` row when Redis cannot be reached, so the single-runner
-property survives a Redis outage; the claims remain the correctness mechanism
-either way.
+`jobsDispatch` takes `jobsAcquireLock` (key `care-checkins` for the check-ins
+job, 3600s there and 600s for the ten-minute reminder cadence) before reading
+anything, which saves roughly 120k queries per run at 10k patients. The lock
+falls back to a `JobLock` row when Redis cannot be reached, and a Redis error
+fails closed, so the single-runner property survives a Redis outage; the claims
+remain the correctness mechanism either way.
 
-**Every run logs what it sent** (`{ moodNudges, declineNudges, sessionCheckins }`
-and `{ sent, failed }`). A broken job's signature is a silent zero, and one line
-per run is the cheapest way to make that visible.
+**Every run logs what it sent** (`remindersSent`; `moodNudges`, `declineNudges`,
+`sessionCheckins`; `sent`, `failed`). A broken job's signature is a silent zero,
+and one line per run is the cheapest way to make that visible.
 
-**What remains is deployment, not code.** These jobs still stop when the
-process does. `src/worker.ts` is the process that stays up when the API is
-redeployed: `npm run worker` runs the same registry on the same schedules, and
-the API forwards its cron ticks to it when `JOBS_WEBHOOK_URL` is set
-(`JOBS_SECRET` on both sides authenticates the trigger; without it the endpoint
-does not exist). Both can run at once without duplicating sends - the claims are
-the guarantee - so the switch is safe in either order.
-
-To deploy it: a second service from the same image with command
-`npm run worker`, the same database/Redis/mailer environment as the API, and on
-the API `JOBS_WEBHOOK_URL=<worker URL>` plus `JOBS_SECRET=<random>`. Without
-those variables the API keeps running the jobs in-process, which is the
-single-service default and what local development uses. Nothing
-safety-relevant runs on this schedule, which is what keeps that a Tier 2 item.
+**What remains is a process that stays up.** The jobs are in-process, so a
+redeploy restarts the schedule; a tick lost inside the gap is caught up by the
+next run. There is no worker service. `POST /api/internal/jobs/:name`
+(`X-Jobs-Secret`, constant-time compare) runs one job by name — it exists so an
+external scheduler can trigger them, and it is what the integration suite
+exercises. Without `JOBS_SECRET` the route does not exist.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Check |
 |---|---|---|
 | API crash-loops at boot with `[config] Missing required environment variable: X` | A required secret is absent | Railway service variables; the message names the variable |
-| API crash-loops with `must differ from JWT_SECRET` | Two secrets are the same value | `env.ts` refuses this by design; a shared secret means a 2FA ticket verifies as an access token |
+| API crash-loops with `must differ from JWT_SECRET` | Two secrets are the same value | `internal/config` refuses this by design; a shared secret means a 2FA ticket verifies as an access token |
 | API crash-loops with `still uses its development fallback` | A secret starts with `dev_` | Usually a copied `.env.example` |
 | API crash-loops with `simulator in production` | `PAYMENT_PROVIDER` unset or `simulator` with no opt-in | Set real credentials, or `ALLOW_PAYMENT_SIMULATOR=true` for a demo deployment only |
 | `/api/health` 200 but `/api/health/db` 503 | The process is up, MySQL is not | `DATABASE_URL`; the service container; `mysqladmin ping` |
 | Every browser in a reconnect loop, realtime `/health` is 503 | Redis unreachable from the Go service | `REDIS_URL`. go-redis reports a bad URL only through a no-op logger, so a misconfiguration looks like an outage |
 | Realtime stays up, reports healthy, but no events arrive | `REDIS_URL` parsed into a dial string wrong | Boot now fails loudly on an unparseable URL; if it booted, suspect a channel-name or auth mismatch |
 | Realtime refuses to start with a URL error | A bare `host:port` was passed where a URL was expected, or the reverse | `redisOptions` accepts both forms and rejects other schemes |
-| Rate limits behave as though there is one user | Redis is down, so every limiter fell back to per-process memory | `lib/cache.ts` logs `Redis cache unavailable - cache disabled` |
-| Realtime `/health/db` fine but client sees stale badges | Cache TTL, or a dropped event for a slow consumer | Events are dropped, not queued; refresh the page |
-| `npm test` fails in `beforeEach` at the wipe | `TEST_DATABASE_URL` cannot authenticate | `mysql://root:@127.0.0.1:3306/mindease_test` assumes passwordless root; CI sets both it and `DATABASE_URL` to the same value |
-| `npm test` fails with `Prisma.dmmf.datamodel.models is empty` | The Prisma client was not generated | `npx prisma generate` — and note the wipe is now a no-op-with-a-crash rather than silently doing nothing |
-| `npm test` fails on every unique constraint | The test database was built with `db push` against a schema that no longer matches | `npm run test:db` again, or `migrate deploy` + the drift gate |
-| Two security tests fail on a timeout only | The 120 s timeout was reduced | It is 120 000 for both `testTimeout` and `hookTimeout` for this reason |
-| A 2FA test fails with `TOTP_REQUIRED` unexpectedly | The TOTP step advanced mid-test | `pinTwoFactorClock()` / `unpinTwoFactorClock()` |
+| Rate limits behave as though there is one user | Redis is down, so every limiter fell back to per-process memory | `internal/server/ratelimit.go` logs `rate limit redis unavailable; using in-process counter` |
+| Realtime `/health` fine but client sees stale badges | Cache TTL, or a dropped event for a slow consumer | Events are dropped, not queued; refresh the page |
+| `go test` reports the integration tests as skipped | `TEST_DATABASE_URL` is unset | Set it (for example `mysql://root:root@127.0.0.1:3306/mindease_test`); the unit tests need no database |
+| `go test` fails on a missing table or constraint | The disposable test database is stale | The integration suite wipes and re-migrates its own database; check `TEST_DATABASE_URL` points at a schema it may destroy |
 | `go test` fails with `compile: version "goX" does not match go tool version "goY"` | Stale build cache | `go clean -cache` |
 | `go test -race` reports a data race in `hub` | A real concurrency bug in the hub | Do not suppress it; that suite exists for this |
 | Compose reports ready but the web app 404s | The `web` healthcheck is missing, or Next.js has not compiled | Every service declares a healthcheck; `start_period: 20s` on `web` |
 | The deployed web app talks to `localhost:5000` | `NEXT_PUBLIC_*` set as environment instead of build args | They are inlined at build time |
 | Avatars 404 on some requests | S3 unset; uploads are on a local disk and the instance moved | Set the four `S3_*` variables before scaling past one replica |
 | Avatars fine until the next deploy, then all gone | Same cause — no `VOLUME` on `public/uploads` | Same |
-| Emails "sent" but nothing arrives | SMTP is unset. In development the OTP is logged and notification mail is skipped; in production the request still returns its neutral success, by design, so look for `OTP delivery failed` or `notification email failed` in the API log |
+| Emails are not delivered | SMTP is unset. Development logs the OTP (`devCode`) and skips notification mail; in production the OTP path returns an error that the caller logs and swallows, while notification mail is skipped and logged | Set `SMTP_*`, then look for `[MAIL] OTP delivery failed`, `reset code mail failed`, `verification code mail failed` or `notification email failed` in the API log |
 | Consent OTP silently cancels a password reset | Old build; the two flows used to share one OTP slot | `resetOtp*` and `verifyOtp*` are now separate columns |
 | `node scripts/check-dependencies.js` reports an unused package | Either it really is unused, or it is referenced in a way the scanner does not match (a config value, a peer dependency) | Remove it, or reference it, or add a reason to `INDIRECT` in the script; the self-test holds each case |
 | A dev browser keeps running an old bundle after an edit | A service worker registered by an earlier dev session is serving its cached chunks | The worker is no longer registered outside production and existing ones are removed on load; a profile loaded before that change needs one manual unregister |
@@ -421,7 +421,7 @@ safety-relevant runs on this schedule, which is what keeps that a Tier 2 item.
 | Endpoint | Checks | Meaning |
 |---|---|---|
 | `GET /api/health` | uptime, timestamp | The process is up. Cheap; no dependency probe. |
-| `GET /api/health/db` | every model in the generated client exists as a table | MySQL is reachable **and** the schema matches this build. **This is the one that matters.** |
+| `GET /api/health/db` | every table this build expects exists | MySQL is reachable **and** the schema matches this build. **This is the one that matters.** |
 | `GET /health` (realtime) | a 2-second Redis `Ping` | 503 when Redis is unreachable. It used to answer `ok` unconditionally, which made a total realtime outage look healthy to compose, Railway and any uptime monitor while every browser sat in a reconnect loop. |
 
 `/api/health/db` used to run `SELECT 1`, which proves MySQL answers and says
@@ -430,15 +430,15 @@ that actually happens on a deploy: the migration step is skipped, the API boots,
 the probe goes green, and the first request touching a new column returns a 500 —
 found by a user rather than by the endpoint that exists to be asked.
 
-It compares `INFORMATION_SCHEMA.TABLES` against `Prisma.dmmf`, so it is checking
-what *this build* expects rather than a second hand-maintained list, and the
-comparison is case-insensitive because MySQL's `lower_case_table_names` differs
-by platform — a case-sensitive check reports that every table is missing on a
-developer's Windows machine and nothing wrong on the Linux deployment.
+It compares `INFORMATION_SCHEMA.TABLES` against `expectedTables`, the table
+list this build expects, so the contract moves with the code. The comparison is
+case-insensitive because MySQL's `lower_case_table_names` differs by platform —
+a case-sensitive check reports that every table is missing on a developer's
+Windows machine and nothing wrong on the Linux deployment.
 
 The response names the count, not the tables. This endpoint is unauthenticated,
 and a list of what a deployment is missing is a map of the database; the names go
 to the log, where the operator debugging a deploy can read them.
 
-Health checks are excluded from pino access logging — otherwise they would
-dominate the log volume.
+Health checks are excluded from the access log — otherwise they would dominate
+the log volume.

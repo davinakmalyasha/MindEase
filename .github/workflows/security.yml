@@ -219,9 +219,9 @@ jobs:
         # `image: mindease-<service>:${IMAGE_TAG:-latest}`, so the tag is
         # knowable without asking docker what it called something.
         #
-        # `migrate` is the Node image reduced to its one job - running the
-        # Prisma migrations the API waits on - so the old API image's
-        # dependencies are still scanned even though the API itself is Go.
+        # `migrate` is the Go migration image built from server-go/Dockerfile
+        # (`cmd/migrate`), so the migration binary's dependencies are scanned
+        # alongside the API's even though the serving image never runs it.
         service: [api, web, realtime, migrate]
     outputs:
       # The service name is the only thing these jobs can agree on. Each job
