@@ -4,10 +4,50 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-20
 
-Everything below is unreleased and lives on
-`feat/clinical-tier1-and-docs`. `main` is at the state described as `0.2.0`.
+The backend is Go, and the schema workflow moved with it.
+
+### Changed
+
+- **The API is `server-go/`.** Express, Prisma and the Node test suite are gone.
+  The same HTTP contract now runs on chi and `database/sql` over the same MySQL
+  schema; the twelve Playwright journeys against the composed Go stack hold it
+  in place.
+- **Schema and seed are Go.** The 20 migrations are embedded `golang-migrate`
+  files with a one-time baseline for databases built by the old runner;
+  `cmd/migrate` is the only migration runner and `cmd/seed` replaces the Node
+  seed.
+- **CI, Compose and the dispatch-only CD workflow build the Go services.**
+  Migration is a separate one-shot container and deploy step; the serving image
+  never touches the schema.
+- **AI calls Command Code's OpenAI-compatible gateway** (DeepSeek V4.1 Flash)
+  on all six surfaces, with deterministic fallbacks, prompt fencing, a circuit
+  breaker and typed provenance.
+- **OpenAPI is generated from the live chi router**, with request paths,
+  security metadata and response schemas for the client-critical endpoints.
+- **SMTP mail, web push, S3-compatible uploads and Sentry** are wired.
+  Scheduled jobs deliver in-app notifications only; transactional mail from
+  request handlers works independently.
+- **Tests and gates re-established against Go**: 75 tests, including a 12-case
+  MySQL integration suite for refresh rotation and reuse, login lockout, slot
+  claims, payment settlement, care-plan versioning, review aggregates, TOTP
+  replay and backup codes, export/job secrets, mood upserts and UUIDv7.
+
+### Fixed
+
+- Midtrans signature verification now covers `status_code`; chargebacks and
+  `partial_refund` map to the states they describe. The Node implementation
+  checked `transaction_status` instead.
+- Development seed slots are anchored at UTC midnight of the WIB day, so a
+  browser running in UTC sees the weekday slots the seed intended.
+- The migration SQL files are no longer caught by the repository's blanket
+  `*.sql` ignore rule.
+
+## [0.3.0] - 2026-10-17
+
+The clinical-differentiation and hardening work that shipped between 0.2.0 and
+0.3.0.
 
 ### Added
 
@@ -157,12 +197,6 @@ Everything below is unreleased and lives on
   keyset pagination that the client polls every five seconds.
 - The care check-in job ran on every replica, unlocked, doing ~120k queries a run
   to produce the same notifications.
-
-### Known issues
-
-Carried forward in the README's known-limitations section: the payment
-idempotency race, integer ids against a UUIDv7 requirement, `node-cron` instead
-of a durable queue, and the two advisory guard scripts.
 
 ## [0.2.0] - 2026-09
 
