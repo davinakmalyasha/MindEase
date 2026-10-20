@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pquerna/otp/totp"
+
 	"github.com/davinakmalyasha/MindEase/server-go/internal/config"
 	"github.com/davinakmalyasha/MindEase/server-go/internal/db"
 	"github.com/davinakmalyasha/MindEase/server-go/internal/migrate"
@@ -911,3 +913,83 @@ func TestIntegrationIdentifiersAreUUIDv7(t *testing.T) {
 
 var uuid7Pattern = regexp.MustCompile(
 	`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func TestIntegrationTwoFactorReplayAndBackupCodes(t *testing.T) {
+	s := newIntegrationServer(t)
+	email := uniqueEmail(t)
+	seedUser(t, email, "Patient@123", "patient")
+
+	setup := newTestClient(t, s.Mount())
+	setup.login(email, "Patient@123")
+	rec, body, text := setup.request(http.MethodPost, "/api/account/2fa/setup",
+		map[string]any{"password": "Patient@123"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("2fa setup: %d %s", rec.Code, text)
+	}
+	secret, _ := dataObject(t, body)["secret"].(string)
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate TOTP: %v", err)
+	}
+
+	rec, body, text = setup.request(http.MethodPost, "/api/account/2fa/enable",
+		map[string]any{"code": code})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("2fa enable: %d %s", rec.Code, text)
+	}
+	rawCodes, ok := dataObject(t, body)["backupCodes"].([]any)
+	if !ok || len(rawCodes) < 2 {
+		t.Fatalf("backup codes = %#v; want at least two", dataObject(t, body)["backupCodes"])
+	}
+	backups := make([]string, 0, len(rawCodes))
+	for _, raw := range rawCodes {
+		value, _ := raw.(string)
+		backups = append(backups, value)
+	}
+
+	pendingToken := func() string {
+		client := newTestClient(t, s.Mount())
+		client.ensureCSRF()
+		rec, body, text := client.request(http.MethodPost, "/api/auth/login",
+			map[string]any{"email": email, "password": "Patient@123"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("2fa login: %d %s", rec.Code, text)
+		}
+		data := dataObject(t, body)
+		if required, _ := data["requires2FA"].(bool); !required {
+			t.Fatalf("login did not require a second factor: %s", text)
+		}
+		token, _ := data["twoFactorToken"].(string)
+		if token == "" {
+			t.Fatalf("login returned no pending token: %s", text)
+		}
+		return token
+	}
+	verify := func(token, candidate string) int {
+		client := newTestClient(t, s.Mount())
+		client.ensureCSRF()
+		rec, _, _ := client.request(http.MethodPost, "/api/account/2fa/verify",
+			map[string]any{"token": token, "code": candidate})
+		return rec.Code
+	}
+
+	if got := verify(pendingToken(), code); got != http.StatusOK {
+		t.Fatalf("first TOTP verification: %d, want 200", got)
+	}
+	// The same code inside the accepted step window is a replay.
+	if got := verify(pendingToken(), code); got != http.StatusUnauthorized {
+		t.Fatalf("replayed TOTP code: %d, want 401", got)
+	}
+
+	// A backup code is single-use, and consuming one must not invalidate the
+	// others.
+	if got := verify(pendingToken(), backups[0]); got != http.StatusOK {
+		t.Fatalf("first backup code: %d, want 200", got)
+	}
+	if got := verify(pendingToken(), backups[0]); got != http.StatusUnauthorized {
+		t.Fatalf("replayed backup code: %d, want 401", got)
+	}
+	if got := verify(pendingToken(), backups[1]); got != http.StatusOK {
+		t.Fatalf("second backup code: %d, want 200", got)
+	}
+}

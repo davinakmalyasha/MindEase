@@ -12,10 +12,11 @@ webServer runs the Go binary locally, and the Railway config points at
 What remains for full parity, in the order it matters: request/response
 schemas in the OpenAPI document (the route inventory and security schemes are
 generated from the live router now) and the response-fixture matrix, and a
-fuller port of the 519 Node tests —
-an 11-test MySQL integration suite now covers the races and guards, while the
-provider signature, TOTP replay, job-claim hand-back and trajectory cases
-remain uncovered (named in `docs/testing.md`). SMTP delivery and web push are
+fuller port of the 519 Node tests — a 12-test MySQL integration suite now covers
+the races and guards (including TOTP replay and single-use backup codes), and
+unit tests cover the Midtrans signature and rate-limit isolation, while the
+job-claim hand-back, trajectory and admin-export cases remain uncovered (named
+in `docs/testing.md`). SMTP delivery and web push are
 wired: notifications, OTP mail and job reminders send when configured, and dead
 push subscriptions are pruned.
 

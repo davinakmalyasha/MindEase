@@ -376,7 +376,13 @@ var payMidtransOutcomes = map[string]string{
 	"failure":        payOutcomeFailed,
 	"refund":         payOutcomeExpired,
 	"partial-refund": payOutcomePending,
-	"reversal":       payOutcomeFailed,
+	// Midtrans's documented spelling (and the chargeback states) alongside the
+	// legacy hyphenated/reversal entries, so a real callback is not rejected as
+	// an unknown status.
+	"partial_refund":     payOutcomePending,
+	"chargeback":         payOutcomeFailed,
+	"partial_chargeback": payOutcomeFailed,
+	"reversal":           payOutcomeFailed,
 }
 
 // payVerifyMidtransSignature is sha512(orderId+statusCode+grossAmount+serverKey)
@@ -395,16 +401,23 @@ func (s *Server) payParseMidtransNotification(raw string) (*payNotification, err
 		return nil, errors.New("malformed payment notification")
 	}
 	orderID, _ := payload["order_id"].(string)
-	statusCode, _ := payload["transaction_status"].(string)
+	statusCode, _ := payload["status_code"].(string)
+	transactionStatus, _ := payload["transaction_status"].(string)
 	grossAmount, _ := payload["gross_amount"].(string)
 	signature, _ := payload["signature_key"].(string)
-	if orderID == "" || statusCode == "" || grossAmount == "" || signature == "" {
+	if orderID == "" || statusCode == "" || transactionStatus == "" || grossAmount == "" || signature == "" {
 		return nil, errors.New("payment notification is missing required fields")
 	}
+	// Midtrans signs order_id + status_code + gross_amount + serverKey.
+	// `status_code` is the HTTP-like status ("200"); `transaction_status` is
+	// the lifecycle state (capture, settlement, ...). The Node implementation
+	// signed with `transaction_status` here, so a real Midtrans callback would
+	// have failed signature verification even with a correct server key. The
+	// outcome still comes from transaction_status.
 	if !payVerifyMidtransSignature(orderID, statusCode, grossAmount, signature, s.Cfg.PaymentServerKey) {
 		return nil, errors.New("payment notification signature is invalid")
 	}
-	outcome, ok := payMidtransOutcomes[statusCode]
+	outcome, ok := payMidtransOutcomes[transactionStatus]
 	if !ok {
 		return nil, fmt.Errorf("unknown payment transaction status %q", statusCode)
 	}
