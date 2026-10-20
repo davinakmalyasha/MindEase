@@ -105,7 +105,7 @@ server-go/
                             request logging with the same redaction rules
   internal/store/           sqlc-generated queries + hand-written transactions
   internal/domain/          one package per bounded area, mirroring the services
-  internal/realtime/        the hub, moved from server-realtime
+  internal/realtime/        reserved if the hub is ever merged; it remains
   internal/jobs/            scheduler + claim semantics + the internal trigger route
   internal/ai/              provider client (OpenAI-compatible), prompt assembly, provenance
   migrations/               the same SQL files, one source of truth
@@ -260,9 +260,13 @@ All decided before phase 1 begins.
 1. **Placement: `server-go/` in this repository**, side by side with `server/`,
    CI runs both. One project story, one e2e suite, one deployment pipeline.
    `server/` is deleted at cutover; its history stays.
-2. **The realtime service merges into the API binary.** One Go binary, one
-   session contract; the websocket can still listen on its own port for a
-   future split.
+2. **The realtime service stays a separate deployable (revised).** The plan
+   was to merge it into the API binary. Railway, the target platform, exposes
+   one public port per service: a merged binary would still need a second
+   service (same image, different port) or a proxy, which is more moving parts
+   than the split. The duplication the merge was meant to delete is pinned by
+   tests instead - the realtime suite validates the claims and envelope, and
+   the journeys drive the REST side that publishes them.
 3. **Router and data access: chi v5 + sqlc over `go-sql-driver/mysql`.** The
    queries are already SQL-shaped, and compile-time types over explicit SQL is
    what a port most needs to be auditable.

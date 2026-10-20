@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 42 tests, 11 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 43 tests, 11 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -76,6 +76,9 @@ from a known state. The 11 integration tests pin:
 - care-plan optimistic concurrency: of two writers with the same version,
   exactly one wins with a 409 for the other
 - review aggregates excluding hidden reviews, and one review per appointment
+- the wire shapes the client reads (profile, directory, detail, mood, journal,
+  notifications, appointments, plans, reviews, payment config), including that
+  no credential field leaks into the profile
 - TOTP verification: a replayed code inside the step window is rejected, a
   backup code is single-use, and spending one does not invalidate the others
 - role guards, account export headers and content, the internal job secret,

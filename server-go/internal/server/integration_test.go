@@ -993,3 +993,164 @@ func TestIntegrationTwoFactorReplayAndBackupCodes(t *testing.T) {
 		t.Fatalf("second backup code: %d, want 200", got)
 	}
 }
+
+func itAssertKeys(t *testing.T, object map[string]any, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		if _, present := object[key]; !present {
+			t.Errorf("response shape is missing %q (keys: %v)", key, objectKeys(object))
+		}
+	}
+}
+
+func itAssertAbsent(t *testing.T, object map[string]any, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		if _, present := object[key]; present {
+			t.Errorf("response shape leaks %q", key)
+		}
+	}
+}
+
+func objectKeys(object map[string]any) []string {
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// TestIntegrationResponseShapes pins the wire shapes the client reads. The
+// OpenAPI component schemas describe them, and this test proves the handlers
+// actually emit the fields they document (and nothing credential-shaped).
+func TestIntegrationResponseShapes(t *testing.T) {
+	s := newIntegrationServer(t)
+	email := uniqueEmail(t)
+	userID := seedUser(t, email, "Patient@123", "patient")
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Shape")
+	slotID, dayKey := seedSlot(t, doctorID, 3, "09:00", "10:00")
+	c := newTestClient(t, s.Mount())
+	c.login(email, "Patient@123")
+
+	rec, body, text := c.request(http.MethodGet, "/api/users/profile", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("profile: %d %s", rec.Code, text)
+	}
+	profile := dataObject(t, body)
+	itAssertKeys(t, profile, "id", "email", "name", "role", "provider", "createdAt")
+	itAssertAbsent(t, profile, "password", "totpSecret", "backupCodes", "resetOtpHash", "verifyOtpHash")
+
+	rec, body, text = c.request(http.MethodGet, "/api/doctors?limit=5", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("doctors: %d %s", rec.Code, text)
+	}
+	doctors := dataObject(t, body)
+	itAssertKeys(t, doctors, "rows", "total", "page", "totalPages")
+	rows, _ := doctors["rows"].([]any)
+	if len(rows) == 0 {
+		t.Fatal("doctors list is empty after seeding a clinician")
+	}
+	first := rows[0].(map[string]any)
+	itAssertKeys(t, first, "id", "specialty", "user", "_count")
+
+	rec, body, text = c.request(http.MethodGet, "/api/doctors/"+doctorID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("doctor detail: %d %s", rec.Code, text)
+	}
+	itAssertKeys(t, dataObject(t, body), "id", "specialty", "bio", "user", "consultationSlots")
+
+	rec, body, text = c.request(http.MethodPost, "/api/wellness/mood", map[string]any{"mood": 4})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mood: %d %s", rec.Code, text)
+	}
+	itAssertKeys(t, dataObject(t, body), "id", "userId", "mood", "moodDate", "replaced")
+	rec, body, text = c.request(http.MethodGet, "/api/wellness/mood", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mood list: %d %s", rec.Code, text)
+	}
+	array, _ := body["data"].([]any)
+	if len(array) != 1 {
+		t.Fatalf("mood list length = %d", len(array))
+	}
+	itAssertKeys(t, array[0].(map[string]any), "id", "userId", "mood", "moodDate")
+
+	rec, _, text = c.request(http.MethodPost, "/api/wellness/journal", map[string]any{"content": "Shape fixture entry."})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("journal create: %d %s", rec.Code, text)
+	}
+	rec, body, text = c.request(http.MethodGet, "/api/wellness/journal", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("journal list: %d %s", rec.Code, text)
+	}
+	array, _ = body["data"].([]any)
+	if len(array) != 1 {
+		t.Fatalf("journal list length = %d", len(array))
+	}
+	itAssertKeys(t, array[0].(map[string]any), "id", "userId", "content")
+
+	if _, err := itPool.Exec(
+		"INSERT INTO `Notification` (id, userId, title, message, isRead, type, createdAt) VALUES (?,?,?,?,?,?,?)",
+		newID(), userID, "Shape", "Fixture notification", false, "system", time.Now().UTC()); err != nil {
+		t.Fatalf("seed notification: %v", err)
+	}
+	rec, body, text = c.request(http.MethodGet, "/api/notifications", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("notifications: %d %s", rec.Code, text)
+	}
+	notifications := dataObject(t, body)
+	itAssertKeys(t, notifications, "rows", "total", "page", "totalPages")
+	nrows, _ := notifications["rows"].([]any)
+	if len(nrows) != 1 {
+		t.Fatalf("notification rows = %d", len(nrows))
+	}
+	itAssertKeys(t, nrows[0].(map[string]any), "id", "title", "message", "isRead")
+
+	rec, _, text = c.request(http.MethodPost, "/api/appointments/book", map[string]any{
+		"doctorId": doctorID, "appointmentDate": dayKey, "startTime": "09:00", "endTime": "10:00",
+		"consultationType": "video", "slotId": slotID,
+		"idempotencyKey": "shape-" + newID(),
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("book: %d %s", rec.Code, text)
+	}
+	rec, body, text = c.request(http.MethodGet, "/api/appointments/my", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("appointments: %d %s", rec.Code, text)
+	}
+	appointments := dataObject(t, body)
+	itAssertKeys(t, appointments, "rows", "total", "page", "totalPages")
+	arows, _ := appointments["rows"].([]any)
+	if len(arows) != 1 {
+		t.Fatalf("appointment rows = %d", len(arows))
+	}
+	itAssertKeys(t, arows[0].(map[string]any), "id", "status", "appointmentDate", "doctor")
+
+	rec, body, text = c.request(http.MethodGet, "/api/care-plan", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("care plan: %d %s", rec.Code, text)
+	}
+	itAssertKeys(t, dataObject(t, body), "id", "userId", "title", "status", "version", "goals")
+
+	rec, body, text = c.request(http.MethodGet, "/api/safety-plan", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("safety plan: %d %s", rec.Code, text)
+	}
+	if body["data"] != nil {
+		t.Fatalf("safety plan for a fresh account = %#v; want null", body["data"])
+	}
+
+	rec, body, text = c.request(http.MethodGet, "/api/reviews/doctor/"+doctorID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public reviews: %d %s", rec.Code, text)
+	}
+	if _, ok := body["pagination"].(map[string]any); !ok {
+		t.Errorf("public reviews have no pagination object: %v", objectKeys(body))
+	}
+
+	rec, body, text = c.request(http.MethodGet, "/api/payments/config", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("payment config: %d %s", rec.Code, text)
+	}
+	config := dataObject(t, body)
+	itAssertKeys(t, config, "mode", "simulated")
+}
