@@ -8,6 +8,7 @@ a triage queue for risk disclosures. Next.js 16, a Go API, MySQL, and a Go
 WebSocket service.
 
 [![CI](https://github.com/davinakmalyasha/MindEase/actions/workflows/ci.yml/badge.svg)](https://github.com/davinakmalyasha/MindEase/actions/workflows/ci.yml)
+[![Security](https://github.com/davinakmalyasha/MindEase/actions/workflows/security.yml/badge.svg)](https://github.com/davinakmalyasha/MindEase/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](client/package.json)
 [![Next.js](https://img.shields.io/badge/next-16-black.svg)](client/package.json)
@@ -342,16 +343,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 | `NEXT_PUBLIC_SITE_URL` | client | Canonical site URL for SEO/OG metadata |
 | `NEXT_PUBLIC_SENTRY_DSN` | client | Client error tracking |
 
-## Deploying
+## Deployment (not configured)
 
-Merge to `main`. `.github/workflows/cd.yml` deploys the Go API (`server-go/railway.json`)
-and the realtime service (`server-realtime/railway.json`) to Railway and the web
-app to Vercel. The image does not migrate at boot: when the
-`PRODUCTION_DATABASE_URL` repository secret is set, the deploy applies
-`cmd/migrate` before the API; without it the API boots and `/api/health/db`
-reports `schema: drift` until the schema is applied by hand. The production job is gated on a GitHub `production`
-environment that requires approval, so nothing reaches production without a
-human accepting the deploy.
+This repository is a portfolio project and is **not deployed**. The CD workflow
+is manual (`workflow_dispatch`) so a deployment is a deliberate action rather
+than a side effect of a merge; without credentials its preflight fails safely
+before touching anything.
+
+The intended shape is the one `.github/workflows/cd.yml` encodes: the Go API
+(`server-go/railway.json`) and realtime service (`server-realtime/railway.json`)
+on Railway, the web app on Vercel. The API image does not migrate at boot: when
+`PRODUCTION_DATABASE_URL` is present the deploy applies `cmd/migrate` first,
+otherwise `/api/health/db` reports `schema: drift` until it is applied by hand.
+The `production` environment adds the approval gate.
 
 First-time setup is still manual — create the Railway projects and add the
 secrets listed above, plus `PRODUCTION_DATABASE_URL` if the deploy should apply

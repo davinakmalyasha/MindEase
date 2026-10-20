@@ -141,7 +141,7 @@ project locally.
 
 ## Deploys
 
-`.github/workflows/cd.yml` runs on merge to `main`, and on `workflow_dispatch`
+`.github/workflows/cd.yml` runs only on `workflow_dispatch` (this repository is not deployed)
 with an optional `skip_web` input.
 
 ```
@@ -156,8 +156,8 @@ preflight ──┬── deploy_api (Railway, env: production) ──┐
 half-configured deploy that fails at the last step is the expensive kind.
 
 **`concurrency: group: production-deploy, cancel-in-progress: false`.** Two
-concurrent production deploys race on `prisma migrate deploy`, and a
-partially-applied migration is worse than a queued one.
+concurrent production deploys race on `cmd/migrate`, and a partially-applied
+migration is worse than a queued one.
 
 **The API is deployed before the realtime service**, because the realtime
 service is useless until the database has the tables it expects.

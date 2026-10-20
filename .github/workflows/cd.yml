@@ -1,16 +1,14 @@
 name: CD
 
-# Deploys on merge to main, behind a required approval.
+# Manual deployment, behind a required approval.
 #
-# AGENTS.md forbids mutating production without explicit approval, so the
-# production job runs in a `production` environment with required reviewers. The
-# workflow can be dispatched for real, but nothing reaches production until a
-# human accepts the deploy job. Create that environment with required reviewers
-# in repo settings; until you do, GitHub allows the deploy with no prompt, so
-# this is the one piece of setup that matters.
+# This repository is a portfolio project and is not deployed. The workflow is
+# kept ready so a deployment is a deliberate dispatch rather than a side effect
+# of a merge; AGENTS.md forbids mutating production without explicit approval,
+# so the deploy jobs run in a `production` environment with required reviewers.
+# Create that environment with required reviewers in repo settings before the
+# first dispatch.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       skip_web:
@@ -20,8 +18,7 @@ on:
 
 concurrency:
   # One deploy at a time. Two concurrent production deploys race on
-  # `prisma migrate deploy`, and a partially-applied migration is worse than a
-  # queued one.
+  # `cmd/migrate`, and a partially-applied migration is worse than a queued one.
   group: production-deploy
   cancel-in-progress: false
 
