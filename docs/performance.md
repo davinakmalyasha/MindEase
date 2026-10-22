@@ -10,7 +10,7 @@ not a capacity guarantee, and there is no deployment behind them.
 | Component | Value |
 |---|---|
 | Host | Windows 11 Home, AMD Ryzen 5 7520U (4 cores / 8 threads), 7.9 GB RAM |
-| API | Go 1.27.0, single process unless noted; local `database/sql` pool |
+| API | Go 1.27.0 (measured); the repository now pins 1.27.3 for CVE-2026-111943; single process unless noted |
 | MySQL | 9.6 (Laragon), same host |
 | Redis | 8.10.1, same host |
 | Load generator | k6 0.57.0, same host |

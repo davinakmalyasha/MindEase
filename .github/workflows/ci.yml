@@ -238,18 +238,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           # The same reason as `govulncheck` in security.yml: a bare minor
           # version resolves to the runner image's cached patch unless the
           # action is told to check for the newest one, so a new
           # standard-library advisory keeps failing until the image happens to
-          # update. The full patch now matches every `go` directive in the
-          # repository.
+          # update. The full patch now matches both modules' toolchain lines.
           check-latest: true
       - name: Lint (golangci-lint)
         # v9, not v6. v6 resolves its own binary version and picked
         # v1.64.8, which is built with go1.24 and refuses to load a module
-        # declaring `go 1.27.2`: it exits 3 with "the Go language version used
+        # declaring `go 1.27`: it exits 3 with "the Go language version used
         # to build golangci-lint is lower than the targeted Go version".
         # The version is pinned below for the same reason - a floating
         # resolver is what picked a binary that cannot read this go.mod.
@@ -296,7 +295,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           check-latest: true
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9

@@ -67,7 +67,7 @@ npm install
 npm run dev
 ```
 
-Prerequisites: Node 22+, MySQL 8, Redis, Go 1.27.2.
+Prerequisites: Node 22+, MySQL 8, Redis, Go 1.27.3.
 
 ### Seeded accounts
 
@@ -451,9 +451,14 @@ the log volume.
 `/api`. It is disabled unless `METRICS_ADDR` is set, for example:
 
 ```bash
+export METRICS_TOKEN="$(openssl rand -hex 16)"
 cd server-go
-METRICS_ADDR=127.0.0.1:9091 METRICS_TOKEN=local-scrape bash scripts/dev.sh
-curl -H "Authorization: Bearer local-scrape" http://127.0.0.1:9091/metrics
+METRICS_ADDR=127.0.0.1:9091 bash scripts/dev.sh
+
+# The token goes in a variable, not in a curl argument, so the example is
+# never a literal Authorization header.
+AUTH="Authorization: Bearer ${METRICS_TOKEN}"
+curl -H "$AUTH" http://127.0.0.1:9091/metrics
 ```
 
 The registry includes Go runtime and process metrics, HTTP request

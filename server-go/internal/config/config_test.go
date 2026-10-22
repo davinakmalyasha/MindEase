@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,11 +53,18 @@ func TestLoadAllowsDevFallbacksOutsideProduction(t *testing.T) {
 	}
 }
 
+func setProductionSigningSecrets(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("a", 32))
+	t.Setenv("REFRESH_SECRET", strings.Repeat("b", 32))
+	t.Setenv("TWO_FACTOR_SECRET", strings.Repeat("c", 32))
+}
+
 func TestProductionRequiresDistinctSigningSecrets(t *testing.T) {
 	t.Setenv("NODE_ENV", "production")
-	t.Setenv("JWT_SECRET", "9d2f6a1c4b7e8f0a1b3c5d7e")
-	t.Setenv("REFRESH_SECRET", "9d2f6a1c4b7e8f0a1b3c5d7e")
-	t.Setenv("TWO_FACTOR_SECRET", "9d2f6a1c4b7e8f0a1b3c5d7e")
+	secret := strings.Repeat("s", 32)
+	t.Setenv("JWT_SECRET", secret)
+	t.Setenv("REFRESH_SECRET", secret)
+	t.Setenv("TWO_FACTOR_SECRET", secret)
 	if _, err := Load(); err == nil {
 		t.Fatal("expected identical signing secrets to be refused in production")
 	}
@@ -135,9 +143,7 @@ func TestDatabaseTLSRejectsUnknownModes(t *testing.T) {
 
 func TestProductionMetricsNeedAToken(t *testing.T) {
 	t.Setenv("NODE_ENV", "production")
-	t.Setenv("JWT_SECRET", "9d2f6a1c4b7e8f0a1b3c5d7e")
-	t.Setenv("REFRESH_SECRET", "8c1e5b9a3d6f0a2b4c7e9d1f")
-	t.Setenv("TWO_FACTOR_SECRET", "7b0d4a8e2c5f9b1d3e6a8c0f")
+	setProductionSigningSecrets(t)
 	t.Setenv("PAYMENT_PROVIDER", "")
 	t.Setenv("PAYMENT_SERVER_KEY", "")
 	t.Setenv("ALLOW_PAYMENT_SIMULATOR", "true")

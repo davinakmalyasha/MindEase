@@ -1,6 +1,8 @@
 module github.com/davinakmalyasha/MindEase/server-realtime
 
-go 1.27.2
+go 1.27
+
+toolchain go1.27.3
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.2

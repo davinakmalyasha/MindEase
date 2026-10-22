@@ -356,7 +356,7 @@ jobs:
           # Matches ci.yml and the `go` directives in the two Go modules. A
           # mismatch makes the analysis describe a toolchain the services are
           # not built with.
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           # `1.26` alone resolves against the runner's *cached* toolchain, so it
           # stops at whichever patch that image happens to carry. Seven
           # standard-library advisories (GO-2026-6603 through GO-2026-6617)

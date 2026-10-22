@@ -12,7 +12,7 @@ WebSocket service.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](client/package.json)
 [![Next.js](https://img.shields.io/badge/next-16-black.svg)](client/package.json)
-[![Go](https://img.shields.io/badge/go-1.27.2-00ADD8.svg)](server-go/)
+[![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)](server-go/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Security policy](https://img.shields.io/badge/security-policy-ff69b4.svg)](SECURITY.md)
 
@@ -131,7 +131,7 @@ not the only prerequisite, which used to be unstated:
 | **git**, **GNU make** | every target runs through `make` |
 | **A POSIX shell** | every recipe runs under `/bin/bash`, so on Windows that means Git Bash or WSL |
 | **Node 22** | see `.nvmrc`; both services and both Dockerfiles pin 22 |
-| **Go 1.27.2** | the API (`server-go/`) and the realtime hub both build with it |
+| **Go 1.27.3** | the API (`server-go/`) and the realtime hub both build with it |
 | **Docker + Compose ≥ 2.17** | for `make up` and `make e2e`. `>= 2.17` is what `--wait` needs |
 | **MySQL 8** and **a free port** | only if you are not using compose. Five ports are published: 3000, 5000, 8080, 3306, 6379 |
 | **~2 GB of RAM** | three images plus a database |

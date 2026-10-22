@@ -65,8 +65,8 @@ updates:
         patterns:
           - "*"
     ignore:
-      # The Go directive is 1.27.2 and the CI runner and Dockerfile pin the
-      # same version. Bumping the toolchain is a three-file change, not a
+      # The toolchain is pinned to 1.27.3 in both go.mod files, the CI
+      # runner and the Dockerfiles. Bumping it is a coordinated change, not a
       # version bump, so it is not left to a weekly bot.
       - dependency-name: "go"
         update-types:
@@ -85,9 +85,9 @@ updates:
         patterns:
           - "*"
     ignore:
-      # The Go directive is 1.27.2 and CI and the Dockerfile pin the same
-      # version. Bumping the toolchain is a three-file change, not a version
-      # bump, so it is not left to a weekly bot.
+      # The toolchain is pinned to 1.27.3 in both go.mod files, CI and the
+      # Dockerfiles. Bumping it is a coordinated change, not a version bump,
+      # so it is not left to a weekly bot.
       - dependency-name: "go"
         update-types:
           - version-update:semver-minor

@@ -1,0 +1,9 @@
+# False positives from 7f3d73a, removed from the working tree but present in
+# that commit's history. Every entry is either a documentation placeholder
+# (`local-scrape` in a curl example) or a test fixture that was replaced with
+# generated values. Gitleaks fingerprints: commit:file:rule:line.
+7f3d73a720bd8f8fa2c763eb950cb401a203654a:docs/operations.md:curl-auth-header:456
+7f3d73a720bd8f8fa2c763eb950cb401a203654a:docs/performance.md:curl-auth-header:131
+7f3d73a720bd8f8fa2c763eb950cb401a203654a:server-go/internal/config/config_test.go:generic-api-key:138
+7f3d73a720bd8f8fa2c763eb950cb401a203654a:server-go/internal/config/config_test.go:generic-api-key:139
+7f3d73a720bd8f8fa2c763eb950cb401a203654a:server-go/internal/config/config_test.go:generic-api-key:140
