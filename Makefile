@@ -231,6 +231,24 @@ test-go: ## Run the Go tests (API and realtime) with the race detector
 .PHONY: test-all
 test-all: test-client test-go ## Everything that does not need Docker
 
+# ------------------------------------------------------------------- perf ----
+
+# The stack must be up and seeded (`make up`). k6 runs in the compose `perf`
+# profile, so nothing is installed on the host. Results are comparative, not a
+# capacity guarantee; see docs/performance.md.
+
+.PHONY: perf-smoke
+perf-smoke: ## Load-test smoke check against the composed stack
+	docker compose --profile perf run --rm k6 run /scripts/smoke.js
+
+.PHONY: perf-load
+perf-load: ## Mixed-read load at the default 10 VUs
+	docker compose --profile perf run --rm k6
+
+.PHONY: perf-load-150
+perf-load-150: ## Mixed-read saturation run at 150 VUs
+	docker compose --profile perf run --rm -e VUS=150 k6
+
 # --------------------------------------------------------------------- dev ----
 
 .PHONY: db

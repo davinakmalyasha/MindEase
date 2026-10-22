@@ -71,6 +71,7 @@ func (s *Server) generalLimiter() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			path := r.URL.Path
 			if strings.HasPrefix(path, "/api/health") ||
+				path == "/api/readyz" ||
 				path == "/api/csrf-token" ||
 				strings.HasPrefix(path, "/api/internal") {
 				next.ServeHTTP(w, r)
@@ -103,6 +104,9 @@ func (s *Server) bump(name, key string, window time.Duration, delta int) (int, i
 			return int(count), reset
 		}
 		s.Log.Warn("rate limit redis unavailable; using in-process counter", "limiter", name, "err", err)
+		if s.metrics != nil {
+			s.metrics.rateLimitFallbacks.Inc()
+		}
 	}
 	return memBump(fullKey, window, delta)
 }

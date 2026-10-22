@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var knownWeak = map[string]bool{
@@ -67,6 +68,19 @@ type Config struct {
 	DatabaseURL string
 	UploadDir   string
 	JobsSecret  string
+
+	// Connection pool. The defaults match the Go port's original hard-coded
+	// values; they are configurable because the safe ceiling is a property of
+	// the deployment (replicas x MaxOpen must fit the database's limit).
+	DBMaxOpenConns    int
+	DBMaxIdleConns    int
+	DBConnMaxLifetime time.Duration
+	DBConnMaxIdleTime time.Duration
+	DatabaseTLS       string
+	RequestTimeout    time.Duration
+	MetricsAddr       string
+	MetricsToken      string
+	PprofEnabled      bool
 }
 
 func Load() (*Config, error) {
@@ -120,6 +134,44 @@ func Load() (*Config, error) {
 	c.DatabaseURL = valueOr("DATABASE_URL", "mysql://mindease:mindease@localhost:3306/mindease")
 	c.UploadDir = valueOr("UPLOAD_DIR", "public/uploads")
 	c.JobsSecret = strings.TrimSpace(os.Getenv("JOBS_SECRET"))
+
+	if c.DBMaxOpenConns, err = boundedInt("DB_MAX_OPEN_CONNS", 20, 1, 10_000); err != nil {
+		return nil, err
+	}
+	if c.DBMaxIdleConns, err = boundedInt("DB_MAX_IDLE_CONNS", 10, 0, 10_000); err != nil {
+		return nil, err
+	}
+	if c.DBMaxIdleConns > c.DBMaxOpenConns {
+		return nil, fmt.Errorf("[config] DB_MAX_IDLE_CONNS (%d) cannot exceed DB_MAX_OPEN_CONNS (%d).", c.DBMaxIdleConns, c.DBMaxOpenConns)
+	}
+	if c.DBConnMaxLifetime, err = durationOr("DB_CONN_MAX_LIFETIME", 30*time.Minute); err != nil {
+		return nil, err
+	}
+	if c.DBConnMaxIdleTime, err = durationOr("DB_CONN_MAX_IDLE_TIME", 5*time.Minute); err != nil {
+		return nil, err
+	}
+	c.DatabaseTLS = strings.ToLower(strings.TrimSpace(os.Getenv("DATABASE_TLS")))
+	switch c.DatabaseTLS {
+	case "", "true", "false", "skip-verify", "preferred":
+	default:
+		return nil, fmt.Errorf("[config] DATABASE_TLS=%q is not supported (want true, false, preferred, skip-verify, or empty).", c.DatabaseTLS)
+	}
+	if c.RequestTimeout, err = durationOr("REQUEST_TIMEOUT", 45*time.Second); err != nil {
+		return nil, err
+	}
+	if c.RequestTimeout < time.Second {
+		return nil, fmt.Errorf("[config] REQUEST_TIMEOUT must be at least 1s.")
+	}
+
+	c.MetricsAddr = strings.TrimSpace(os.Getenv("METRICS_ADDR"))
+	c.MetricsToken = strings.TrimSpace(os.Getenv("METRICS_TOKEN"))
+	c.PprofEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("PPROF_ENABLED")), "true")
+	if c.PprofEnabled && c.MetricsAddr == "" {
+		return nil, fmt.Errorf("[config] PPROF_ENABLED=true requires METRICS_ADDR; pprof is never served on the public API listener.")
+	}
+	if isProd && c.MetricsAddr != "" && c.MetricsToken == "" {
+		return nil, fmt.Errorf("[config] METRICS_ADDR is set in production without METRICS_TOKEN. Refusing to expose metrics and pprof unauthenticated.")
+	}
 	return c, nil
 }
 
@@ -214,6 +266,30 @@ func positiveInt(name string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func boundedInt(name string, fallback, min, max int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < min || n > max {
+		return 0, fmt.Errorf("[config] %s=%q must be an integer between %d and %d.", name, raw, min, max)
+	}
+	return n, nil
+}
+
+func durationOr(name string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("[config] %s=%q must be a positive duration such as 30m or 45s.", name, raw)
+	}
+	return d, nil
 }
 
 func valueOr(name, fallback string) string {

@@ -131,6 +131,7 @@ when a deployment will not come up.
 - [ ] `VIDEO_PROVIDER=livekit` with all three `LIVEKIT_*` set.
 - [ ] Backups configured — see below.
 - [ ] Railway MySQL managed backups, **or** a scheduled `backup.ps1`.
+- [ ] Private metrics listener with `METRICS_TOKEN` if `METRICS_ADDR` is set (production refuses to start otherwise).
 
 **Why S3 is called out separately from the other optional services.** Missing S3
 is not a degraded feature, it is data loss waiting to happen on more than one
@@ -422,6 +423,7 @@ exercises. Without `JOBS_SECRET` the route does not exist.
 |---|---|---|
 | `GET /api/health` | uptime, timestamp | The process is up. Cheap; no dependency probe. |
 | `GET /api/health/db` | every table this build expects exists | MySQL is reachable **and** the schema matches this build. **This is the one that matters.** |
+| `GET /api/readyz` | a 2-second MySQL ping; Redis reported as `ok`/`degraded`/`disabled` | The load-balancer probe. MySQL is required; Redis degradation does not remove the replica from rotation. |
 | `GET /health` (realtime) | a 2-second Redis `Ping` | 503 when Redis is unreachable. It used to answer `ok` unconditionally, which made a total realtime outage look healthy to compose, Railway and any uptime monitor while every browser sat in a reconnect loop. |
 
 `/api/health/db` used to run `SELECT 1`, which proves MySQL answers and says
@@ -442,3 +444,25 @@ to the log, where the operator debugging a deploy can read them.
 
 Health checks are excluded from the access log — otherwise they would dominate
 the log volume.
+
+## Metrics and profiling
+
+`/metrics` is a Prometheus endpoint on a **separate listener**, never on
+`/api`. It is disabled unless `METRICS_ADDR` is set, for example:
+
+```bash
+cd server-go
+METRICS_ADDR=127.0.0.1:9091 METRICS_TOKEN=local-scrape bash scripts/dev.sh
+curl -H "Authorization: Bearer local-scrape" http://127.0.0.1:9091/metrics
+```
+
+The registry includes Go runtime and process metrics, HTTP request
+counters/histograms by route pattern, in-flight requests, the `database/sql`
+pool (open/in-use/idle/max, cumulative waits and wait time), job runs and
+rate-limit fallbacks. In production a token is mandatory; the config refuses to
+start otherwise. pprof is an additional opt-in (`PPROF_ENABLED=true`) on the
+same private listener.
+
+Pool settings and the replica arithmetic are in
+[`scaling.md`](scaling.md); measured results are in
+[`performance.md`](performance.md).

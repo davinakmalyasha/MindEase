@@ -135,7 +135,7 @@ func (s *Server) bodyLimit(next http.Handler) http.Handler {
 // duration, mirroring the pino-http serialiser's privacy choices.
 func (s *Server) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/health") {
+		if strings.HasPrefix(r.URL.Path, "/api/health") || r.URL.Path == "/api/readyz" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -160,6 +160,20 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		}
 		s.Log.Log(r.Context(), logLevelFor(rec.status), "request", attrs...)
 	})
+}
+
+// timeoutMiddleware bounds every request, including handlers that would
+// otherwise keep running after the client has gone. http.TimeoutHandler is
+// used rather than a context-only deadline because several handlers do work
+// that does not consult the context (sanitising, template building); the
+// response is a deterministic 503 instead of a connection reset.
+func timeoutMiddleware(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if d <= 0 {
+			return next
+		}
+		return http.TimeoutHandler(next, d, `{"status":"error","error":"Request timed out"}`)
+	}
 }
 
 func (s *Server) recoverer(next http.Handler) http.Handler {

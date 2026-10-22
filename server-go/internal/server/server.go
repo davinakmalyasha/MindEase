@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -32,11 +33,13 @@ type Server struct {
 
 	// openAPIDoc is built once from the mounted route table before serving.
 	openAPIDoc map[string]any
+	metrics    *serverMetrics
 }
 
 func New(cfg *config.Config, pool *sql.DB, rdb *redis.Client, log *slog.Logger) *Server {
 	policy := bluemonday.UGCPolicy()
 	s := &Server{Cfg: cfg, DB: pool, Redis: rdb, Log: log, Sanitizer: policy}
+	s.metrics = newServerMetrics(pool)
 	if cfg.AIAPIKey != "" && cfg.AIBaseURL != "" && cfg.AIModel != "" {
 		s.AI = ai.New(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIModel,
 			time.Duration(cfg.AiRequestTimeoutMs)*time.Millisecond)
@@ -47,7 +50,12 @@ func New(cfg *config.Config, pool *sql.DB, rdb *redis.Client, log *slog.Logger) 
 
 func (s *Server) Mount() http.Handler {
 	r := chi.NewRouter()
-	r.Use(s.requestID, s.securityHeaders, s.cors, s.bodyLimit, s.accessLog, s.recoverer)
+	// Order matters: the access log and metrics recorder sit outside the
+	// timeout handler, so a timed-out request is recorded as the 503 the
+	// client actually received. The timeout handler sits outside the
+	// recoverer, which turns a panic into the recorded 500.
+	r.Use(s.requestID, s.securityHeaders, s.cors, s.bodyLimit,
+		s.accessLog, s.metricsMiddleware, timeoutMiddleware(s.Cfg.RequestTimeout), s.recoverer)
 
 	r.Handle("/uploads/*", s.uploadsHandler())
 
@@ -56,6 +64,7 @@ func (s *Server) Mount() http.Handler {
 
 	api.Get("/health", s.healthHandler)
 	api.Get("/health/db", s.healthDBHandler)
+	api.Get("/readyz", s.readyHandler)
 	api.Get("/csrf-token", s.csrfTokenHandler)
 	api.Get("/openapi.json", s.openAPIHandler)
 
@@ -92,6 +101,40 @@ func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		"status":    "ok",
 		"uptime":    uptimeSeconds(),
 		"timestamp": nowISO(),
+	})
+}
+
+// readyHandler is the load-balancer probe. MySQL is required; Redis is
+// reported but not fatal, because taking every replica out of rotation during
+// a Redis outage would turn a degraded feature into a full outage.
+func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
+	dbCtx, dbCancel := context.WithTimeout(r.Context(), 2*time.Second)
+	dbOK := false
+	if s.DB != nil {
+		dbOK = s.DB.PingContext(dbCtx) == nil
+	}
+	dbCancel()
+
+	// Redis gets its own budget: a slow Redis must not consume the time the
+	// database probe needs, because the database is the readiness requirement.
+	redisState := "disabled"
+	if s.Redis != nil {
+		redisCtx, redisCancel := context.WithTimeout(r.Context(), time.Second)
+		redisState = "ok"
+		if err := s.Redis.Ping(redisCtx).Err(); err != nil {
+			redisState = "degraded"
+		}
+		redisCancel()
+	}
+
+	if !dbOK {
+		s.JSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status": "error", "db": "unreachable", "redis": redisState,
+		})
+		return
+	}
+	s.JSON(w, http.StatusOK, map[string]any{
+		"status": "ok", "db": "ok", "redis": redisState,
 	})
 }
 

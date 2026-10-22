@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -40,7 +41,13 @@ func main() {
 		}
 	}
 
-	pool, err := db.Open(cfg.DatabaseURL)
+	pool, err := db.OpenWithOptions(cfg.DatabaseURL, db.Options{
+		MaxOpenConns:    cfg.DBMaxOpenConns,
+		MaxIdleConns:    cfg.DBMaxIdleConns,
+		ConnMaxLifetime: cfg.DBConnMaxLifetime,
+		ConnMaxIdleTime: cfg.DBConnMaxIdleTime,
+		TLS:             cfg.DatabaseTLS,
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -95,9 +102,46 @@ func main() {
 		}
 	}()
 
+	// The scrape and profiling listener is separate from the public API on
+	// purpose: /metrics and /debug/pprof must never be reachable through the
+	// same port that serves patient traffic. Off unless METRICS_ADDR is set;
+	// production additionally requires METRICS_TOKEN (validated in config).
+	var adminServer *http.Server
+	if cfg.MetricsAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", srv.MetricsHandler(cfg.MetricsToken))
+		if cfg.PprofEnabled {
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		}
+		adminServer = &http.Server{
+			Addr:              cfg.MetricsAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+		go func() {
+			logger.Info("admin listener started", "addr", cfg.MetricsAddr, "pprof", cfg.PprofEnabled)
+			if err := adminServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("admin listener failed", "err", err)
+				stop()
+			}
+		}()
+	}
+
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	if adminServer != nil {
+		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("admin shutdown failed", "err", err)
+		}
+	}
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 	}

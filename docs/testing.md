@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 43 tests, 11 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 57 tests, 13 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -51,6 +51,11 @@ break silently and impossible to see in a browser:
   proves the signature covers `status_code` (not `transaction_status`), maps
   outcomes from the transaction status, and rejects unknown states;
   `ratelimit_test.go` proves stacked limiters keep separate counters.
+- **Pool and transport settings.** `internal/db/db_test.go` proves the pool
+  options are bounded and that TLS cannot be silently dropped from a raw DSN;
+  `observability_test.go` covers the metrics token, route-pattern labels,
+  timeout middleware and readiness failure; `config_test.go` covers the new
+  pool/timeout/metrics guards.
 - **The model client.** `internal/ai/client_test.go` runs against a fake
   OpenAI-compatible server: success parsing, provider errors, empty content and
   context timeouts. `ai_test.go` pins the fencing (a patient-supplied closing
@@ -67,7 +72,7 @@ go vet ./...                                   # CI runs this and golangci-lint 
 `integration_test.go` runs the real handler chain against MySQL. `TestMain`
 creates the database if needed, drops every table, and applies the embedded
 migrations; each test wipes the data tables first, so every assertion starts
-from a known state. The 11 integration tests pin:
+from a known state. The 12 integration tests pin:
 
 - refresh rotation, replay detection and the session revocation that follows it
 - the five-failure lockout
@@ -165,6 +170,23 @@ with that tree. They analyzed source shapes (`router.get(`, `prisma.$transaction
 `@@index`) that no longer exist. Their invariants did not disappear: the handler
 code ports the checks they were forcing, and the browser suite exercises the
 paths. What is gone is the static *proof* that a new route has not skipped them.
+
+## Performance tests
+
+`perf/k6/` is a load suite, not part of CI: it needs a seeded, running stack and
+a machine whose numbers mean something. It is runnable through the compose
+`perf` profile (`docker compose --profile perf run --rm k6`) or with a local
+`k6` install:
+
+- `smoke.js` — one VU, five iterations; login, readiness, directory, detail.
+- `load.js` — mixed cached and authenticated reads, 20s ramp / 60s hold; `VUS`
+  overrides the target for a saturation run.
+- `multi-replica.js` — sends the same session to two API processes and checks
+  that both accept it.
+
+The measured results, the pool-cap experiment and the caveats are in
+[`performance.md`](performance.md). The load scripts vary `X-Forwarded-For` per
+iteration so the IP limiter does not dominate the result; no limit is disabled.
 
 ## What remains uncovered
 

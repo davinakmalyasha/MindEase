@@ -4,6 +4,38 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Configurable connection pool.** `DB_MAX_OPEN_CONNS`, `DB_MAX_IDLE_CONNS`,
+  `DB_CONN_MAX_LIFETIME` and `DB_CONN_MAX_IDLE_TIME` replace the hard-coded
+  values; invalid or unsafe combinations are a boot error. `DATABASE_TLS`
+  selects MySQL TLS (`true`, `preferred`, `skip-verify`).
+- **Observability on a private listener.** `/metrics` exposes HTTP latency,
+  in-flight requests, the `database/sql` pool, job runs and limiter fallbacks.
+  pprof is an additional opt-in, and production refuses to start with a metrics
+  address and no token.
+- **`/api/readyz`.** MySQL is required; Redis is reported as degraded without
+  removing the replica from rotation.
+- **Request deadlines.** `REQUEST_TIMEOUT` (45s by default) bounds every handler
+  on top of the existing HTTP server timeouts.
+- **Load and multi-process evidence.** `perf/k6` contains smoke, mixed-read and
+  two-replica scripts, plus a compose `perf` profile. Two API processes accept
+  each other's sessions (153/153 checks). Results and methodology are in
+  [`docs/performance.md`](docs/performance.md).
+- **A scaling decision record.** [`docs/scaling.md`](docs/scaling.md) and
+  [ADR-0004](docs/adr/0004-scaling-model.md) cover pool arithmetic, replication,
+  sharding, multiple processes and the provider map. The least-privilege MySQL
+  split is in [`docs/sql/least-privilege.sql`](docs/sql/least-privilege.sql).
+
+### Changed
+
+- `server-go/scripts/dev.sh` preserves an explicitly exported `PORT`, so a
+  second replica runs without editing the shared `.env`.
+- Tests grew to 89 (18 files), including pool/TLS configuration, the metrics
+  token, timeout middleware and readiness.
+
 ## [0.4.0] - 2026-10-20
 
 The backend is Go, and the schema workflow moved with it.

@@ -97,10 +97,10 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **44,955** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 22,719 Go |
+| **46,699** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 24,463 Go |
 | **160** | API routes · **28** tables · **20** migrations |
-| **75** | Go tests in 16 files · **52** client unit tests · **12** Playwright journeys |
-| **10** | ADRs and design documents · **5** services in compose |
+| **89** | Go tests in 18 files · **52** client unit tests · **12** Playwright journeys |
+| **4** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
 exits non-zero if any disagrees with what is written here.
@@ -108,6 +108,18 @@ exits non-zero if any disagrees with what is written here.
 **Also worth reading:** [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) — the two
 bugs this repository's own clinical safety path contained, how a 400-test suite
 missed both, and which parts of the design I still do not believe.
+
+### Measured performance
+
+The API is benchmarked, not just described. On a four-core laptop with the API,
+MySQL, Redis and k6 sharing the machine: **448 req/s at 50 VUs (p95 12 ms)** and
+**1,024 req/s at 150 VUs (p95 89 ms, p99 152 ms)**, with zero failed requests.
+Capping the pool at five connections raised wait events 60× and p99 by 39% at
+150 VUs, which is the evidence behind the configurable pool and the scaling
+boundary. A second API process accepted sessions minted by the first (153/153
+checks). Method and caveats: [docs/performance.md](docs/performance.md);
+the scaling model and provider map: [docs/scaling.md](docs/scaling.md).
+Reproduce with `make up` followed by `make perf-smoke` / `make perf-load`.
 
 ## Quick start
 
@@ -165,8 +177,9 @@ MindEase/
 │  ├─ e2e/              12 Playwright journeys
 │  └─ tests/            52 unit tests
 ├─ server-realtime/     Go WebSocket hub. 32 tests with -race.
-├─ docs/                architecture, data model, operations, testing, roadmap
-│  ├─ adr/              three records of decisions and what was rejected
+├─ perf/k6/             smoke, mixed-read load and two-process replica scripts
+├─ docs/                architecture, data model, operations, testing, performance, scaling
+│  ├─ adr/              four records of decisions and what was rejected
 │  └─ roadmap.md        including what will never be built, and why
 ├─ scripts/             the repository's own gates; see below
 ├─ .github/workflows/   ci, cd, security — 17 jobs
@@ -264,10 +277,12 @@ suite. The floors live in `client/vitest.config.ts` and may only rise.
 | [docs/security.md](docs/security.md) | Threat model, what is deliberately not protected, and the controls that carry the weight |
 | [docs/data-model.md](docs/data-model.md) | 28 tables, an ER diagram, and the decisions that are not obvious from the schema |
 | [docs/testing.md](docs/testing.md) | The gates, the three suites, and how to add a test |
+| [docs/performance.md](docs/performance.md) | k6 load results, the pool experiment, and how to reproduce them |
+| [docs/scaling.md](docs/scaling.md) | Pools, replicas, sharding, multiple processes, and the provider map |
 | [docs/operations.md](docs/operations.md) | Runbook: backup, secret rotation, rollback, troubleshooting |
 | [docs/glossary.md](docs/glossary.md) | The domain terms the code uses without defining |
 | [docs/roadmap.md](docs/roadmap.md) | Direction, including what is deliberately not planned |
-| [docs/adr/](docs/adr/) | Why the realtime service, the provenance type, and the payment abstraction are shaped as they are |
+| [docs/adr/](docs/adr/) | Why the realtime service, the provenance type, the payment abstraction and the scaling boundary are shaped as they are |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 
 ## Architecture
@@ -319,6 +334,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 | Variable | Where | Purpose |
 |---|---|---|
 | `DATABASE_URL` | .env | MySQL connection |
+| `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_*` | .env | Per-process pool (20 / 10 / 30m / 5m). Fleet total is replicas × MaxOpen |
+| `DATABASE_TLS` | .env | MySQL TLS mode: `true`, `preferred`, `skip-verify`, or empty. Use `true` against a managed database |
+| `REQUEST_TIMEOUT` | .env | Per-request deadline (45s), enforced around every handler |
+| `METRICS_ADDR` / `METRICS_TOKEN` / `PPROF_ENABLED` | .env | Private metrics/pprof listener. Production requires a token; never served on the API port |
 | `JWT_SECRET` | .env, client/.env.local, compose | Access tokens **and** WebSocket tickets |
 | `REFRESH_SECRET` | .env | Refresh tokens (7d) — **must differ from `JWT_SECRET`** |
 | `TWO_FACTOR_SECRET` | .env, compose | Pending 2FA tickets (5m) — **required in production**, must differ from `JWT_SECRET` |
@@ -420,7 +439,7 @@ is not served.
 | Push | `/api/push/{public-key,subscribe,unsubscribe}` |
 | Realtime | `/api/realtime/ticket` (short-lived WebSocket ticket) |
 | Admin | `/api/admin/{stats,users,audit-logs,doctors/applications,broadcast,review-reports,reviews/:id/hide,export/:kind}` |
-| System | `/api/health`, `/api/health/db`, `/api/csrf-token`, `/api/docs` |
+| System | `/api/health`, `/api/health/db`, `/api/readyz`, `/api/csrf-token`, `/api/docs` |
 
 ## Security features
 
@@ -430,7 +449,9 @@ IDOR authorization checks · HTML sanitization · admin audit trail · GDPR acco
 deletion + data export · TOTP 2FA · email verification · JWT role claims enforced
 in middleware · websocket authentication before upgrade, with a token-purpose
 gate · websocket origin checks · room-scoped short-lived video tokens ·
-fail-fast secret validation in production.
+fail-fast secret validation in production · per-request deadlines · private
+metrics/pprof with a production token requirement · optional TLS to MySQL and a
+two-identity least-privilege split (`docs/sql/least-privilege.sql`).
 
 `RiskAlert` rows survive account deletion in anonymised form. The fact that a
 patient disclosed thoughts of self-harm and a clinician was paged is clinically
@@ -459,6 +480,11 @@ Stated rather than hidden. Each of these is a decision or a gap, not an accident
   ping; the Node jobs also emailed, sent WhatsApp and web push. Transactional
   email from request handlers (OTP, payment and clinical notifications) is
   wired separately.
+- **No read-replica or sharding code path.** The measured runs do not justify
+  either, so the single-primary decision is recorded in
+  [ADR-0004](docs/adr/0004-scaling-model.md) with the thresholds that would
+  change it. The API is replica-safe and a two-process run is part of
+  [`perf/k6`](perf/k6), but a replica read/write split is not implemented.
 - **Two large files are deliberately not decomposed.**
   `client/app/dashboard/profile/page.tsx` and `client/components/doctors/DoctorProfile.tsx`
   are each over 600 lines. Low value relative to the regression risk.

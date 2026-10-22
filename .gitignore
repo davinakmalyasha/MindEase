@@ -57,6 +57,7 @@ dump.rdb
 backups/
 *.sql
 !server-go/migrations/*.sql
+!docs/sql/*.sql
 
 # Uploaded user content
 # Real user files must never enter version control. Only the placeholder is

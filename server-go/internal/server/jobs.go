@@ -307,7 +307,12 @@ func (s *Server) jobsDispatch(ctx context.Context, name string) error {
 		return nil
 	}
 	defer s.jobsReleaseLock(lock)
-	return s.jobsRunByName(ctx, name)
+	if err := s.jobsRunByName(ctx, name); err != nil {
+		s.observeJob(name, false)
+		return err
+	}
+	s.observeJob(name, true)
+	return nil
 }
 
 /* ------------------------------------------------------------------ *

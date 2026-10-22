@@ -109,6 +109,19 @@ services:
       AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-20000}
       AI_CIRCUIT_THRESHOLD: ${AI_CIRCUIT_THRESHOLD:-5}
       AI_CIRCUIT_COOLDOWN_MS: ${AI_CIRCUIT_COOLDOWN_MS:-60000}
+      # Per-process connection budget. The total is replicas x MaxOpen, so it
+      # must stay under MySQL's max_connections (151 by default). These are the
+      # Go port's original hard-coded values.
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-20}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-10}
+      DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-30m}
+      DB_CONN_MAX_IDLE_TIME: ${DB_CONN_MAX_IDLE_TIME:-5m}
+      DATABASE_TLS: ${DATABASE_TLS:-}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-45s}
+      # Private scrape listener; never exposed on the public API port.
+      METRICS_ADDR: ${METRICS_ADDR:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      PPROF_ENABLED: ${PPROF_ENABLED:-false}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       REDIS_URL: redis://:${REDIS_PASSWORD:-mindease_local_redis}@redis:6379
       # Video transport, and the credentials for it. The API mints the room
@@ -151,6 +164,9 @@ services:
         condition: service_completed_successfully
     ports:
       - "5000:5000"
+      # Metrics/pprof are opt-in via METRICS_ADDR; this mapping only makes the
+      # private listener reachable from the host for local inspection.
+      - "127.0.0.1:9091:9091"
     volumes:
       - uploads_data:/app/public/uploads
     healthcheck:
@@ -237,6 +253,27 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # Load tests. Not started by `docker compose up`; run with:
+  #   docker compose --profile perf run --rm k6
+  # against a seeded stack. The script varies X-Forwarded-For per iteration so
+  # each simulated client has its own rate-limit bucket; the limiters
+  # themselves are covered by their own tests, and production mode trusts the
+  # proxy's XFF header (compose sets NODE_ENV=production).
+  k6:
+    image: grafana/k6:0.57.0
+    profiles: ["perf"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      BASE_URL: http://api:5000
+      PERF_EMAIL: ${PERF_EMAIL:-patient@mindease.app}
+      PERF_PASSWORD: ${PERF_PASSWORD:-Patient@123}
+    volumes:
+      - ./perf/k6:/scripts:ro
+    command: ["run", "/scripts/load.js"]
+    restart: "no"
 
 volumes:
   mysql_data:

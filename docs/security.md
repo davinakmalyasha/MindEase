@@ -490,6 +490,34 @@ every request schema, the exact cookie and CSRF header names, and the fact that
 the payment webhook is signature-authenticated rather than session-authenticated.
 An exemption removes a ceiling rather than adding one.
 
+## Operational surface
+
+These are the controls that matter once the service is running, rather than at
+the request boundary.
+
+- **Metrics and profiling are not on the public listener.** `/metrics` and
+  `/debug/pprof` are served on `METRICS_ADDR`, a separate HTTP server. pprof is
+  off unless `PPROF_ENABLED=true`, and production refuses to start with a
+  metrics address but no `METRICS_TOKEN`. The metric labels are route patterns,
+  method and status — never a user id, email or query value.
+- **MySQL TLS is a configuration choice, not a code change.** `DATABASE_TLS=true`
+  verifies the server certificate; `preferred` upgrades when possible;
+  `skip-verify` exists for controlled development only. Redis already accepts
+  `rediss://`.
+- **The serving identity cannot change the schema.** The two-role split in
+  [`sql/least-privilege.sql`](sql/least-privilege.sql) gives the API DML only
+  and `cmd/migrate` the DDL it needs. The app user has no `GRANT OPTION`, `FILE`,
+  `PROCESS`, `SUPER` or cross-schema rights.
+- **Every request has a deadline and a body ceiling.** `REQUEST_TIMEOUT` bounds
+  handlers (AI calls have their own shorter timeout), JSON bodies are capped at
+  1 MB, and multipart routes enforce their own per-file and field limits.
+  `/api/readyz` reports MySQL as required and Redis as degraded, so a Redis
+  outage does not take every replica out of rotation.
+- **The edge and the database provider carry what the app cannot.** TLS
+  termination, WAF/DDoS, private networking, point-in-time recovery and backup
+  retention belong to the hosting layer; this repository documents the required
+  shape but does not pretend to implement it.
+
 ## What is NOT protected
 
 Stated plainly, because a threat model that lists only defences is marketing.

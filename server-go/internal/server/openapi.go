@@ -15,6 +15,7 @@ import (
 var openAPIPublicRoutes = map[string]bool{
 	"GET /health":                            true,
 	"GET /health/db":                         true,
+	"GET /readyz":                            true,
 	"GET /csrf-token":                        true,
 	"GET /openapi.json":                      true,
 	"POST /auth/register":                    true,
