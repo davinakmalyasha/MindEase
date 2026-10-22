@@ -1023,6 +1023,288 @@ func objectKeys(object map[string]any) []string {
 // TestIntegrationResponseShapes pins the wire shapes the client reads. The
 // OpenAPI component schemas describe them, and this test proves the handlers
 // actually emit the fields they document (and nothing credential-shaped).
+func seedAssessment(t *testing.T, userID, kind string, score int, severity string, createdAt time.Time) string {
+	t.Helper()
+	id := newID()
+	_, err := itPool.ExecContext(context.Background(),
+		"INSERT INTO `Assessment` (id, userId, type, answersJson, score, severity, createdAt) VALUES (?,?,?,?,?,?,?)",
+		id, userID, kind, "{}", score, severity, createdAt)
+	if err != nil {
+		t.Fatalf("seed assessment: %v", err)
+	}
+	return id
+}
+
+// seedConfirmedAppointmentSoon creates a session two hours from now, with the
+// appointment date anchored at UTC midnight of its WIB day - the same shape the
+// seed and booking path write.
+func seedConfirmedAppointmentSoon(t *testing.T, userID, doctorID string) string {
+	t.Helper()
+	start := time.Now().In(itLocation).Add(2 * time.Hour)
+	date := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
+	id := newID()
+	_, err := itPool.ExecContext(context.Background(),
+		"INSERT INTO `Appointment` (id, userId, doctorId, appointmentDate, startTime, endTime, consultationType, status, createdAt, updatedAt) "+
+			"VALUES (?,?,?,?,?,?,?,?,?,?)",
+		id, userID, doctorID, date, start.Format("15:04"), start.Add(time.Hour).Format("15:04"),
+		"video", "confirmed", now, now)
+	if err != nil {
+		t.Fatalf("seed confirmed appointment: %v", err)
+	}
+	return id
+}
+
+func notificationCount(t *testing.T, userID string) int {
+	t.Helper()
+	var count int
+	if err := itPool.QueryRow("SELECT COUNT(*) FROM `Notification` WHERE userId = ?", userID).Scan(&count); err != nil {
+		t.Fatalf("count notifications for %s: %v", userID, err)
+	}
+	return count
+}
+
+func TestIntegrationReminderClaimAndHandBack(t *testing.T) {
+	s := newIntegrationServer(t)
+	ctx := context.Background()
+
+	patientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	doctorUserID, doctorID := seedDoctor(t, uniqueEmail(t), "Dr Reminder")
+	first := seedConfirmedAppointmentSoon(t, patientID, doctorID)
+
+	due, sent, err := s.jobsRemindersTick(ctx)
+	if err != nil {
+		t.Fatalf("first reminder tick: %v", err)
+	}
+	if due != 1 || sent != 1 {
+		t.Fatalf("first tick: due=%d sent=%d, want 1/1", due, sent)
+	}
+	var reminderSent sql.NullTime
+	if err := itPool.QueryRow("SELECT reminderSentAt FROM `Appointment` WHERE id = ?", first).Scan(&reminderSent); err != nil {
+		t.Fatalf("read claim: %v", err)
+	}
+	if !reminderSent.Valid {
+		t.Fatal("a delivered reminder did not stamp reminderSentAt")
+	}
+	if got := notificationCount(t, patientID) + notificationCount(t, doctorUserID); got != 2 {
+		t.Fatalf("first run created %d notifications, want 2", got)
+	}
+
+	// The claim is what makes a second run silent, not the clock.
+	due, sent, err = s.jobsRemindersTick(ctx)
+	if err != nil {
+		t.Fatalf("second reminder tick: %v", err)
+	}
+	if due != 0 || sent != 0 {
+		t.Fatalf("second tick: due=%d sent=%d, want 0/0", due, sent)
+	}
+	if got := notificationCount(t, patientID) + notificationCount(t, doctorUserID); got != 2 {
+		t.Fatalf("second run duplicated notifications: %d", got)
+	}
+
+	// Force both in-app deliveries to fail. The claim must be handed back, or
+	// a transient database problem silently consumes the only reminder.
+	second := seedConfirmedAppointmentSoon(t, patientID, doctorID)
+	if _, err := itPool.ExecContext(ctx,
+		"CREATE TRIGGER `integration_fail_notification` BEFORE INSERT ON `Notification` "+
+			"FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced notification failure'"); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+	due, sent, err = s.jobsRemindersTick(ctx)
+	if err != nil {
+		t.Fatalf("failing reminder tick: %v", err)
+	}
+	if due != 1 || sent != 0 {
+		t.Fatalf("failing tick: due=%d sent=%d, want 1/0", due, sent)
+	}
+	var retryClaim sql.NullTime
+	if err := itPool.QueryRow("SELECT reminderSentAt FROM `Appointment` WHERE id = ?", second).Scan(&retryClaim); err != nil {
+		t.Fatalf("read released claim: %v", err)
+	}
+	if retryClaim.Valid {
+		t.Fatal("a failed delivery kept reminderSentAt; the next run would never retry")
+	}
+
+	// With delivery working again, the retry succeeds.
+	if _, err := itPool.ExecContext(ctx, "DROP TRIGGER IF EXISTS `integration_fail_notification`"); err != nil {
+		t.Fatalf("drop failure trigger: %v", err)
+	}
+	due, sent, err = s.jobsRemindersTick(ctx)
+	if err != nil {
+		t.Fatalf("retry tick: %v", err)
+	}
+	if due != 1 || sent != 1 {
+		t.Fatalf("retry tick: due=%d sent=%d, want 1/1", due, sent)
+	}
+	if err := itPool.QueryRow("SELECT reminderSentAt FROM `Appointment` WHERE id = ?", second).Scan(&retryClaim); err != nil {
+		t.Fatalf("read retried claim: %v", err)
+	}
+	if !retryClaim.Valid {
+		t.Fatal("the retried reminder did not stamp reminderSentAt")
+	}
+}
+
+func TestIntegrationWeeklyReportClaimsOncePerWeek(t *testing.T) {
+	s := newIntegrationServer(t)
+	ctx := context.Background()
+	email := uniqueEmail(t)
+	patientID := seedUser(t, email, "Patient@123", "patient")
+	if _, err := itPool.ExecContext(ctx,
+		"UPDATE `User` SET weeklyReportEnabled = TRUE, lastWeeklyReportAt = NULL WHERE id = ?", patientID); err != nil {
+		t.Fatalf("enable weekly report: %v", err)
+	}
+
+	sent, failed, _, err := s.jobsWeeklyReportsTick(ctx)
+	if err != nil {
+		t.Fatalf("first weekly tick: %v", err)
+	}
+	if sent != 1 || failed != 0 {
+		t.Fatalf("first weekly tick: sent=%d failed=%d, want 1/0", sent, failed)
+	}
+	if got := notificationCount(t, patientID); got != 1 {
+		t.Fatalf("first weekly tick created %d notifications, want 1", got)
+	}
+	var stamped sql.NullTime
+	if err := itPool.QueryRow("SELECT lastWeeklyReportAt FROM `User` WHERE id = ?", patientID).Scan(&stamped); err != nil {
+		t.Fatalf("read weekly claim: %v", err)
+	}
+	if !stamped.Valid {
+		t.Fatal("weekly report did not stamp lastWeeklyReportAt")
+	}
+
+	// The same week is claimed; a second run is silent.
+	sent, failed, _, err = s.jobsWeeklyReportsTick(ctx)
+	if err != nil {
+		t.Fatalf("second weekly tick: %v", err)
+	}
+	if sent != 0 || failed != 0 {
+		t.Fatalf("second weekly tick: sent=%d failed=%d, want 0/0", sent, failed)
+	}
+	if got := notificationCount(t, patientID); got != 1 {
+		t.Fatalf("second weekly tick duplicated the report: %d notifications", got)
+	}
+
+	// A missed Monday is caught up by the next daily run: the sentinel is
+	// older than this week's start, so the claim reopens.
+	if _, err := itPool.ExecContext(ctx,
+		"UPDATE `User` SET lastWeeklyReportAt = ? WHERE id = ?",
+		time.Now().UTC().AddDate(0, 0, -8), patientID); err != nil {
+		t.Fatalf("simulate missed week: %v", err)
+	}
+	sent, failed, _, err = s.jobsWeeklyReportsTick(ctx)
+	if err != nil {
+		t.Fatalf("catch-up weekly tick: %v", err)
+	}
+	if sent != 1 || failed != 0 {
+		t.Fatalf("catch-up tick: sent=%d failed=%d, want 1/0", sent, failed)
+	}
+	if got := notificationCount(t, patientID); got != 2 {
+		t.Fatalf("catch-up tick produced %d notifications, want 2", got)
+	}
+}
+
+func TestIntegrationAssessmentTrajectoryWindowAndDirection(t *testing.T) {
+	s := newIntegrationServer(t)
+	email := uniqueEmail(t)
+	patientID := seedUser(t, email, "Patient@123", "patient")
+	now := time.Now().UTC()
+	seedAssessment(t, patientID, "phq9", 4, "minimal", now.AddDate(0, 0, -20))
+	seedAssessment(t, patientID, "phq9", 9, "mild", now.AddDate(0, 0, -10))
+	seedAssessment(t, patientID, "phq9", 15, "moderately severe", now.AddDate(0, 0, -2))
+
+	c := newTestClient(t, s.Mount())
+	c.login(email, "Patient@123")
+
+	rec, body, text := c.request(http.MethodGet, "/api/wellness/assessments/trajectory?type=phq9", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("trajectory: %d %s", rec.Code, text)
+	}
+	data := dataObject(t, body)
+	summary, ok := data["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("trajectory summary missing: %#v", data)
+	}
+	if summary["sittings"] != float64(3) {
+		t.Fatalf("sittings = %v, want 3", summary["sittings"])
+	}
+	if summary["first"] != float64(4) || summary["latest"] != float64(15) || summary["totalChange"] != float64(11) {
+		t.Fatalf("unexpected trajectory summary: %#v", summary)
+	}
+	if summary["direction"] != "worsening" {
+		t.Fatalf("direction = %v, want worsening", summary["direction"])
+	}
+	points, ok := data["points"].([]any)
+	if !ok || len(points) != 3 {
+		t.Fatalf("points = %#v, want 3", data["points"])
+	}
+	third := points[2].(map[string]any)
+	if third["score"] != float64(15) || third["changeFromPrevious"] != float64(6) {
+		t.Fatalf("latest point = %#v, want score 15 and change 6", third)
+	}
+	if points[0].(map[string]any)["changeFromPrevious"] != nil {
+		t.Fatalf("the first point should have no previous change: %#v", points[0])
+	}
+
+	// The window must take the newest sittings. Ordering before LIMIT is what
+	// makes `latest` the current score rather than an old one.
+	rec, body, text = c.request(http.MethodGet, "/api/wellness/assessments/trajectory?type=phq9&limit=2", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("limited trajectory: %d %s", rec.Code, text)
+	}
+	limited := dataObject(t, body)["summary"].(map[string]any)
+	if limited["sittings"] != float64(2) || limited["first"] != float64(9) || limited["latest"] != float64(15) {
+		t.Fatalf("limited window = %#v, want the newest two sittings", limited)
+	}
+	// Two sittings is not enough for a direction; the API says so instead of
+	// drawing a confident trend from noise.
+	if limited["direction"] != "insufficient-data" {
+		t.Fatalf("limited direction = %v, want insufficient-data", limited["direction"])
+	}
+}
+
+func TestIntegrationAdminExportKinds(t *testing.T) {
+	s := newIntegrationServer(t)
+	adminEmail := uniqueEmail(t)
+	seedUser(t, adminEmail, "Admin@123", "admin")
+	patientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr Export")
+	seedCompletedAppointment(t, patientID, doctorID)
+
+	c := newTestClient(t, s.Mount())
+	c.login(adminEmail, "Admin@123")
+
+	bookingsHeader := "id,patient,patientEmail,doctor,date,time,type,status,price,createdAt"
+	cases := []struct {
+		kind     string
+		filename string
+		header   string
+	}{
+		{"users", "mindease-users.csv", "id,name,email,role,provider,banned,createdAt"},
+		{"revenue", "mindease-revenue.csv", "doctorId,doctor,completedBookings,revenue,rate"},
+		{"bookings", "mindease-bookings.csv", bookingsHeader},
+		// An unlisted kind deliberately falls through to the bookings
+		// dataset rather than returning an error.
+		{"not-a-real-kind", "mindease-bookings.csv", bookingsHeader},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			rec, _, text := c.request(http.MethodGet, "/api/admin/export/"+tc.kind, nil)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s export: %d %s", tc.kind, rec.Code, text)
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/csv") {
+				t.Fatalf("%s Content-Type = %q", tc.kind, got)
+			}
+			if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, tc.filename) {
+				t.Fatalf("%s Content-Disposition = %q, want %s", tc.kind, got, tc.filename)
+			}
+			if !strings.HasPrefix(text, tc.header) {
+				t.Fatalf("%s CSV does not start with the expected header:\n%s", tc.kind, text)
+			}
+		})
+	}
+}
+
 func TestIntegrationResponseShapes(t *testing.T) {
 	s := newIntegrationServer(t)
 	email := uniqueEmail(t)

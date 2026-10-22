@@ -99,7 +99,7 @@ Numbers measured from the tree, not estimated.
 |---|---|
 | **46,699** | lines of TypeScript, Go and SQL — 19,335 application, 1,049 tests, 1,852 migration SQL, 24,463 Go |
 | **160** | API routes · **28** tables · **20** migrations |
-| **89** | Go tests in 18 files · **52** client unit tests · **12** Playwright journeys |
+| **93** | Go tests in 18 files · **52** client unit tests · **12** Playwright journeys |
 | **4** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Every figure above is measured, not estimated. `make numbers` re-derives them and
@@ -260,7 +260,8 @@ flows that exercise the slot claim through the UI. The Go tests cover what a
 browser cannot reach: production config guards, token purposes and password
 hashing as unit tests, plus a MySQL-backed integration suite that pins the
 atomic slot and payment claims, refresh rotation, the lockout, plan version
-conflicts, review aggregates and role guards.
+conflicts, review aggregates, role guards, the reminder claim hand-back, the
+weekly report catch-up, trajectory windows and every admin export kind.
 
 Client coverage is measured and **enforced** with floors just under the read
 baseline (2 / 75 / 69 / 2 for statements / branches / functions / lines); the

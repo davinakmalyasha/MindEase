@@ -33,8 +33,10 @@ All notable changes to this project. Format follows
 
 - `server-go/scripts/dev.sh` preserves an explicitly exported `PORT`, so a
   second replica runs without editing the shared `.env`.
-- Tests grew to 89 (18 files), including pool/TLS configuration, the metrics
-  token, timeout middleware and readiness.
+- Tests grew to 93 (18 files), including pool/TLS configuration,
+  the metrics token, timeout middleware and readiness. The MySQL integration
+  suite grew to 16: the previously uncovered reminder claim hand-back, weekly
+  report catch-up, trajectory window and admin export kinds now have tests.
 
 ## [0.4.0] - 2026-10-20
 

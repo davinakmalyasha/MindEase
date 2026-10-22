@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 57 tests, 13 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 61 tests, 13 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -72,7 +72,7 @@ go vet ./...                                   # CI runs this and golangci-lint 
 `integration_test.go` runs the real handler chain against MySQL. `TestMain`
 creates the database if needed, drops every table, and applies the embedded
 migrations; each test wipes the data tables first, so every assertion starts
-from a known state. The 12 integration tests pin:
+from a known state. The 16 integration tests pin:
 
 - refresh rotation, replay detection and the session revocation that follows it
 - the five-failure lockout
@@ -88,6 +88,13 @@ from a known state. The 12 integration tests pin:
   backup code is single-use, and spending one does not invalidate the others
 - role guards, account export headers and content, the internal job secret,
   one-mood-per-day, and UUIDv7 identifiers
+- the reminder claim: a delivered reminder stamps once, a second run is silent,
+  and a forced double delivery failure hands the claim back so the retry works
+- the weekly report: one report per week, and a missed week fires on the next
+  daily run
+- the assessment trajectory window (newest scores, not oldest) and its
+  `insufficient-data` verdict
+- every admin CSV export kind, including the unlisted-kind bookings fall-through
 
 Nothing in the unit files needs MySQL or Redis.
 
@@ -190,15 +197,13 @@ iteration so the IP limiter does not dominate the result; no limit is disabled.
 
 ## What remains uncovered
 
-The integration suite is 12 tests, not 519. Ported: the races and constraints
+The integration suite is 16 tests, not 519. Ported: the races and constraints
 listed above, plus the browser flows. Still without a handler-level test:
 
-- the job claim hand-back and the weekly report's catch-up semantics
-- trajectory math, and the admin export kinds
 - the Redis rate-limit store's actual window math (the in-memory fallback's
   isolation is covered)
 
-Those are exercised by code review and partly by the journeys. Naming them is
+That one is exercised by code review and partly by the journeys. Naming it is
 the honest form of the coverage claim.
 
 ## Adding a test
