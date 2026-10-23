@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "demo": "node scripts/demo.js",
     "check:encoding": "node ../scripts/check-encoding.js",
     "check:deps": "node scripts/check-dependencies.js",
     "coverage": "vitest run --coverage"

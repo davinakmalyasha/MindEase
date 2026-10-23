@@ -24,6 +24,10 @@ All notable changes to this project. Format follows
   two-replica scripts, plus a compose `perf` profile. Two API processes accept
   each other's sessions (153/153 checks). Results and methodology are in
   [`docs/performance.md`](docs/performance.md).
+- **A recorded demo.** [`docs/screenshots/demo.gif`](docs/screenshots/demo.gif)
+  is a 58-second tour of the seeded app: patient sign-in, clinician discovery,
+  a booking review, then the clinician risk queue. `client/scripts/demo.js`
+  reproduces it and writes the GIF.
 - **A scaling decision record.** [`docs/scaling.md`](docs/scaling.md) and
   [ADR-0004](docs/adr/0004-scaling-model.md) cover pool arithmetic, replication,
   sharding, multiple processes and the provider map. The least-privilege MySQL
