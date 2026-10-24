@@ -4,6 +4,16 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Client runtime and CI moved to **Node 24 LTS** (Node 25 was deferred as a
+  non-LTS line).
+- `@sentry/browser` moved to 11.8.0 and `lucide-react` to 1.60.0. Lucide 1.x
+  removed brand icons, so the four social glyphs are now local SVGs (Simple
+  Icons, CC0; LinkedIn from Font Awesome Free) with accessible link labels.
+
 ## [0.5.0] - 2026-10-24
 
 Observability, measured scaling evidence, and a recorded demo.

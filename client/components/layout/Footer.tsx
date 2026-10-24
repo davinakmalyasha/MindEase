@@ -2,17 +2,13 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { ArrowRight, Heart, Mail, Phone, MapPin } from "lucide-react";
 import {
-    Facebook,
-    Instagram,
-    Twitter,
-    Linkedin,
-    ArrowRight,
-    Heart,
-    Mail,
-    Phone,
-    MapPin
-} from "lucide-react";
+    FacebookIcon,
+    InstagramIcon,
+    LinkedInIcon,
+    XIcon,
+} from "@/components/icons/BrandIcons";
 
 export default function Footer() {
     return (
@@ -68,12 +64,12 @@ export default function Footer() {
                         </p>
                         <div className="flex gap-4">
                             {[
-                                { Icon: Facebook, href: "https://facebook.com/mindease.id" },
-                                { Icon: Instagram, href: "https://instagram.com/mindease.id" },
-                                { Icon: Twitter, href: "https://twitter.com/mindease" },
-                                { Icon: Linkedin, href: "https://linkedin.com/company/mindease" }
-                            ].map(({ Icon, href }, i) => (
-                                <Link key={i} href={href} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-indigo-600 hover:text-white transition-all transform hover:-translate-y-1">
+                                { Icon: FacebookIcon, href: "https://facebook.com/mindease.id", label: "Facebook" },
+                                { Icon: InstagramIcon, href: "https://instagram.com/mindease.id", label: "Instagram" },
+                                { Icon: XIcon, href: "https://twitter.com/mindease", label: "X (Twitter)" },
+                                { Icon: LinkedInIcon, href: "https://linkedin.com/company/mindease", label: "LinkedIn" }
+                            ].map(({ Icon, href, label }) => (
+                                <Link key={label} href={href} aria-label={label} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-indigo-600 hover:text-white transition-all transform hover:-translate-y-1">
                                     <Icon className="w-5 h-5" />
                                 </Link>
                             ))}
