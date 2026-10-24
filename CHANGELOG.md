@@ -4,7 +4,9 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-24
+
+Observability, measured scaling evidence, and a recorded demo.
 
 ### Added
 
@@ -41,6 +43,17 @@ All notable changes to this project. Format follows
   the metrics token, timeout middleware and readiness. The MySQL integration
   suite grew to 16: the previously uncovered reminder claim hand-back, weekly
   report catch-up, trajectory window and admin export kinds now have tests.
+- Client dependencies moved to React 19.3.1, Next 16.4.3, Playwright 1.64.1 and
+  the grouped TanStack Query, zod and next-intl patches. The API moved to
+  Prometheus 1.25.0; the realtime module now matches the API's JWT and Redis
+  versions.
+
+### Security
+
+- **Next.js 16.4.3** for GHSA-2464-fhr4-w9xw, a critical image-optimization
+  RCE, plus the accompanying App Router advisories fixed in 16.4.1.
+  `eslint-config-next` was aligned to the same version. React was aligned to
+  19.3.1 when react-dom moved, because that package requires it.
 
 ## [0.4.0] - 2026-10-20
 
