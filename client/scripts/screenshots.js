@@ -367,7 +367,14 @@ async function main() {
 
   // A caption index, so the README does not have to hardcode a list that will
   // drift from the directory.
-  const lines = ["# Screenshots", "", "Captured by `client/scripts/screenshots.js` against a seeded stack.", ""];
+  const lines = [
+    "# Screenshots",
+    "",
+    "Captured by `client/scripts/screenshots.js` against a seeded stack.",
+    "",
+    "The animated tour is [`demo.gif`](demo.gif), recorded by `client/scripts/demo.js`.",
+    "",
+  ];
   for (const s of captured.sort((a, b) => a.name.localeCompare(b.name))) {
     lines.push(`## ${s.name}`, "", s.caption || "", "");
   }

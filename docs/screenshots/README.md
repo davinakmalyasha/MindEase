@@ -2,6 +2,8 @@
 
 Captured by `client/scripts/screenshots.js` against a seeded stack.
 
+The animated tour is [`demo.gif`](demo.gif), recorded by `client/scripts/demo.js`.
+
 ## admin-assessments
 
 Assessment review.
