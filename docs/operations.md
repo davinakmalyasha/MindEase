@@ -67,7 +67,7 @@ npm install
 npm run dev
 ```
 
-Prerequisites: Node 22+, MySQL 8, Redis, Go 1.27.3.
+Prerequisites: Node 24 LTS, MySQL 8, Redis, Go 1.27.3.
 
 ### Seeded accounts
 

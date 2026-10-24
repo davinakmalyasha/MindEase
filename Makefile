@@ -85,8 +85,8 @@ doctor: ## Report whether this machine has everything the other targets need
 	@printf "  %-22s" "node"; \
 	  if command -v node >/dev/null 2>&1; then \
 	    v=$$(node -v | sed 's/^v//'); \
-	    case "$$v" in 22.*|24.*|26.*) echo "$$v (ok)";; *) echo "$$v (repo targets 22.x; see .nvmrc)";; esac; \
-	  else echo "MISSING (22 or newer)"; fi
+	    case "$$v" in 24.*|26.*) echo "$$v (ok)";; *) echo "$$v (repo targets 24.x; see .nvmrc)";; esac; \
+	  else echo "MISSING (24 or newer)"; fi
 	@printf "  %-22s" "go"; \
 	  if command -v go >/dev/null 2>&1; then \
 	    v=$$(go version | awk '{print $$3}'); \

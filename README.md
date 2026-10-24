@@ -136,7 +136,7 @@ not the only prerequisite, which used to be unstated:
 |---|---|
 | **git**, **GNU make** | every target runs through `make` |
 | **A POSIX shell** | every recipe runs under `/bin/bash`, so on Windows that means Git Bash or WSL |
-| **Node 22** | see `.nvmrc`; both services and both Dockerfiles pin 22 |
+| **Node 24 (LTS)** | see `.nvmrc`; the web image and CI pin 24 |
 | **Go 1.27.3** | the API (`server-go/`) and the realtime hub both build with it |
 | **Docker + Compose ≥ 2.17** | for `make up` and `make e2e`. `>= 2.17` is what `--wait` needs |
 | **MySQL 8** and **a free port** | only if you are not using compose. Five ports are published: 3000, 5000, 8080, 3306, 6379 |
