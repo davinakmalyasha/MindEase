@@ -6,6 +6,14 @@ All notable changes to this project. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Go coverage profiles for the API and realtime service are collected in CI,
+  printed to the job summary and uploaded as 14-day artifacts. The first read is
+  **24.4% of statements for the API** (including the MySQL integration suite)
+  and **62.2% for realtime**; the client coverage gate is unchanged. See
+  `docs/testing.md`.
+
 ### Changed
 
 - Client runtime and CI moved to **Node 24 LTS** (Node 25 was deferred as a

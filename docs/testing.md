@@ -124,10 +124,31 @@ doctor mapping, JSON-LD, locale parity and the login form's handling of
 credentials. The build is part of the gate: a type error or a server/client
 boundary mistake fails it before a browser ever opens.
 
-Client coverage is measured and enforced in `client/vitest.config.ts` with
-floors just under the read baseline (2 / 75 / 69 / 2). The statement figure is
-diluted by counting every app file while a handful have unit tests; the branch
-and function numbers are the ones that move with the suite.
+### Coverage
+
+Coverage is measured per layer. There is no single blended number: Vitest
+reports statements, branches, functions and lines, while Go reports statements
+only and the browser suite has no instrumentation.
+
+| Layer | Latest CI read (2026-10-27) | Scope | Gate |
+|---|---|---|---|
+| Client unit | **2.68%** statements/lines, **75.6%** branches, **69.27%** functions | Every app file (`all: true`); eight unit-test files | Floors `2 / 75 / 69 / 2` |
+| Go API | **24.4%** statements | All Go packages, including the MySQL integration suite; the `cmd/*` wrappers and migration package are 0% | Reporting only |
+| Go realtime | **62.2%** statements | All realtime packages; the race suite | Reporting only |
+| Playwright | No code coverage | 12 journeys against the full stack | Required run |
+
+The client's statement and line figures are diluted by `all: true` counting
+every app file while only a handful have unit tests; the branch and function
+numbers are the ones that move with that suite. The API's 24.4% is the next
+engineering target, not a threshold: the browser suite exercises the handlers,
+but no server-side handler coverage is claimed from it. The Go profiles are
+deliberately reporting-only until a stable baseline is set; only the client
+floors fail a run.
+
+Produce the Go numbers locally with `make coverage-go` (API integration needs
+`TEST_DATABASE_URL`); CI uploads `coverage-go-api` and
+`coverage-go-realtime` for 14 days. The client report is `npm run coverage` and
+the artifact is `coverage-client`.
 
 ## The browser suite
 
@@ -165,8 +186,8 @@ real client against a real server surfaces.
 | Job | What it runs |
 |---|---|
 | `docs` | `check-numbers`, the encoding guard, the workflow self-test and gate, a11y ids, CSP, i18n, UI a11y, load states, stale writes |
-| `go` (api-go) | `go vet`, golangci-lint v2.14, `go build`, `go test` — unit plus the integration suite against a MySQL service container |
-| `realtime` | `go vet`, golangci-lint, build, `go test -race -cover` |
+| `go` (api-go) | `go vet`, golangci-lint v2.14, `go build`, `go test` with a coverage profile — unit plus the integration suite against a MySQL service container |
+| `realtime` | `go vet`, golangci-lint, build, `go test -race` with a coverage profile |
 | `client` | lint, unit tests, coverage (gated), production build |
 | `compose` | `docker compose config` |
 | `docker` | builds the four images, boots the stack, probes health, seeds, runs the 12 Playwright tests in production mode |

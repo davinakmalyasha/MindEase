@@ -159,41 +159,37 @@ three and is no longer the only one.
 
 ### 5. Coverage reporting
 
-**The gap.** `go test -race -cover ./...` printed a number nobody collected, and
-the Node suites produced none at all — `@vitest/coverage-v8` was a dependency
-referenced by no config or script, so the number could not be produced even
-locally. There was no way to tell from a build whether an untested branch in a
-service that gates a disclosure queue is untested. The `db push` versus
-`migrate deploy` episode described in
+**The gap.** The client suite had no coverage report, and the Go API/realtime
+jobs printed no profile that could be compared between runs.
+`@vitest/coverage-v8` was a dependency referenced by no config or script, so the
+number could not be produced even locally. There was no way to tell from a build
+whether an untested branch in a service that gates a disclosure queue is
+untested. The `db push` versus `migrate deploy` episode described in
 [`testing.md`](testing.md#what-running-the-suite-against-a-migrated-database-changed)
 is the same problem in a different form: the suite passed and the thing it did
 not exercise was invisible.
 
-**What was done.** Both vitest configs produce coverage (`npm run coverage`
-writes an HTML report) and CI collects it:
+**What was done.** The client suite produces coverage (`npm run coverage`
+writes an HTML report) and CI gates it. The Go API and realtime jobs now produce
+statement profiles on every run, print the total to the job summary, and upload
+them as 14-day artifacts. The first CI read is **2.68% statements/lines, 75.6%
+branches and 69.27% functions** for the client, **24.4% statements** for the API
+(including the MySQL integration suite) and **62.2% statements** for realtime.
+The client's statement figure is diluted by `all: true` counting every app file
+while a handful have unit tests; branches and functions are the numbers that
+move with that suite.
 
-- **client** — a step in the existing `client` job, on every run. The suite is
-  seconds, so the instrumentation is free. Baseline read: **2.75% statements,
-  75.77% branches, 69.51% functions, 2.75% lines**. The statement figure is
-  diluted by `all: true` counting every app file while a handful have unit
-  tests; branches and functions are the numbers that move with the suite.
-- **server** — its own job on `main` and the weekly run rather than on pull
-  requests, because v8 instrumentation on top of the whole suite is not
-  something to pay on every push. Baseline read: **73.99% statements, 55.64%
-  branches, 76.55% functions, 76.8% lines**.
-- both upload their report as a build artifact with a 14-day retention, so a
-  weekly number can be compared with the previous one.
-
-**Done: it is a gate.** The baselines above were read and floors set just under
-them in each `vitest.config.ts`; the CI steps no longer pass
+**Done: the client gate.** The client floors are set just under the measured
+baseline in `client/vitest.config.ts`; the CI step no longer passes
 `continue-on-error`. A regression below a floor is a merge-time failure on
 `main`; only the artifact upload stays best-effort, because an artifact-store
 hiccup is not a coverage finding. The floors are floors, not targets — raise
 them when the number is earned, never lower them to make a run pass.
 
-**Still open.** The realtime service prints `-cover` in the `realtime` job but
-collects nothing; piping that into the same artifact treatment is this step at a
-smaller scale.
+**Still open.** The Go profiles are reporting-only until a stable baseline is
+set. The API's 24.4% is the real target: it includes the integration suite but
+not the handler paths that only the browser suite exercises. E2E has no code
+coverage, and Go has no branch or function metric.
 
 **Also worth adding.** The e2e suite is the fourth gate
 ([`testing.md`](testing.md#the-end-to-end-journeys)). Getting it green and
@@ -201,8 +197,9 @@ promoting it to required was worth more than any coverage number, because it is
 the only thing that exercises the three processes together.
 
 **Done: it runs green and it is required.** Fifteen tests — three cached
-sign-ins and twelve journeys — run in the `docker` job after the seed, with no
-gate. It paid for itself several times before promotion, on bugs that reading had
+sign-ins and twelve journeys — run in the `docker` job after the seed, as a
+required step without coverage instrumentation. It paid for itself several
+times before promotion, on bugs that reading had
 not found: every public page bounced a logged-out visitor to `/login?expired=1`
 (registration was unreachable), a hydration mismatch in the push-prompt banner,
 a cookie banner that covered the booking wizard's Back button, and a date picker
@@ -409,14 +406,14 @@ Not a plan. An ordering, with the reasoning:
    clinical consequence, and it needs no schema work.
 2. **Concurrency on the plan editors.** Twenty lines of server-side versioning
    for a data-loss bug in a patient-owned document.
-3. ~~**Coverage reporting, non-blocking.**~~ Done: both baselines were read and
-   the thresholds are gated, just below the measurements.
+3. ~~**Coverage reporting, non-blocking.**~~ Done: the client baseline is gated
+   and the Go API/realtime profiles are collected; Go floors remain open.
 4. ~~**The guard scripts, then e2e to required.**~~ Both are "make CI mean what it
    claims to mean", and both are done: the guard scripts are required steps and
    the journeys run on every `docker` job, after the seed.
-5. **Durable background work.** The worker exists (`npm run worker` + the
-   `/api/internal/jobs` trigger); what remains is the deployment shape decision,
-   i.e. actually running it.
+5. **Durable background work.** The code exists (the Go API's scheduler and
+   `/api/internal/jobs/:name` with `JOBS_SECRET`); what remains is the deployment
+   shape decision, i.e. actually running it.
 6. **A real payment provider**, then the race fix once the product has answered
    the double-purchase question. The two belong in the same conversation.
 7. ~~**UUIDv7.**~~ Done, on its own branch as planned. The destructive

@@ -17,8 +17,8 @@ export default defineConfig({
         //
         // ## Thresholds
         //
-        // The report is no longer advisory-only: the first baseline was read
-        // (2.75% statements, 75.77% branches, 69.51% functions, 2.75% lines) and
+        // The report is no longer advisory-only: the latest baseline read
+        // (2.68% statements, 75.6% branches, 69.27% functions, 2.68% lines) and
         // the floors below sit just under it. The statement and line figures are
         // diluted by `all: true`, which counts every file in the app even where
         // only a handful have unit coverage; the numbers that actually move with

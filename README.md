@@ -253,11 +253,12 @@ lifecycle is genuinely tested rather than seeded.
 ## Testing
 
 ```bash
-make check      # every static gate, no database needed
-make test-api   # Go API unit tests (config guards, tokens, hashing)
-make test-go    # API + realtime Go tests
-make test-all   # client unit tests and both Go modules
-make e2e        # the 12 Playwright journeys, stack already running and seeded
+make check       # every static gate, no database needed
+make test-api    # Go API unit tests (config guards, tokens, hashing)
+make test-go     # API + realtime Go tests
+make test-all    # client unit tests and both Go modules
+make coverage-go # Go statement coverage (API integration needs TEST_DATABASE_URL)
+make e2e         # the 12 Playwright journeys, stack already running and seeded
 ```
 
 The behavioural suite is the browser one: 12 Playwright tests drive the real
@@ -274,6 +275,13 @@ baseline (2 / 75 / 69 / 2 for statements / branches / functions / lines); the
 statement figure is diluted by counting every app file while a handful have
 unit tests, so the branch and function numbers are the ones that move with the
 suite. The floors live in `client/vitest.config.ts` and may only rise.
+
+Go coverage is measured on every API and realtime CI run and uploaded as a
+14-day artifact. The latest read is **24.4%** of statements for the API
+(including the MySQL integration suite) and **62.2%** for realtime. There is no
+single blended repository percentage: Go reports statements, Vitest reports
+statements/branches/functions/lines, and Playwright has no instrumentation. See
+[`docs/testing.md`](docs/testing.md#coverage).
 
 ## Documentation
 
