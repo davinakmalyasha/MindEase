@@ -231,6 +231,13 @@ test-go: ## Run the Go tests (API and realtime) with the race detector
 .PHONY: test-all
 test-all: test-client test-go ## Everything that does not need Docker
 
+.PHONY: coverage-go
+coverage-go: ## Measure Go statement coverage (API integration needs TEST_DATABASE_URL)
+	cd $(API_GO) && go test -covermode=atomic -coverprofile=coverage.out ./...
+	cd $(API_GO) && go tool cover -func=coverage.out | tail -1
+	cd $(REALTIME) && go test -race -covermode=atomic -coverprofile=coverage.out ./...
+	cd $(REALTIME) && go tool cover -func=coverage.out | tail -1
+
 # ------------------------------------------------------------------- perf ----
 
 # The stack must be up and seeded (`make up`). k6 runs in the compose `perf`

@@ -34,6 +34,8 @@ service-account*.json
 npm-debug.log*
 yarn-error.log*
 coverage/
+server-go/coverage.out
+server-realtime/coverage.out
 .nyc_output/
 test-results/
 playwright-report/
