@@ -4,6 +4,74 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
+## [0.5.2] - 2026-10-28
+
+Final-sweep release: the safety, privacy and honesty fixes found by a
+five-way review, plus the green dependency queue. No new product features.
+
+### Fixed
+
+**Clinical safety and privacy**
+
+- SOS with no active clinician is now recorded as an unassigned `RiskAlert`
+  and pages up to five admins instead of returning before the insert.
+- Unassigned assessment, message and mood disclosures notify admins; the admin
+  fallback copy no longer claims "no clinician assigned" on assigned alerts.
+- Admins can acknowledge and resolve risk alerts (the triage check already
+  allowed it; the routes did not).
+- Notification helpers report actual delivery — a suppressed preference is
+  `clinicianNotified: false`, not a silent success — and the patient-facing
+  copy branches on it.
+- Message and mood-decline clinician pages describe their own source instead
+  of copying the screening-questionnaire text.
+- Public doctor profiles return a reviewer pseudonym, never id/name/avatar.
+- The appointments list no longer embeds pre-session answers or the
+  clinician's briefing; those stay behind the gated AI endpoints.
+- TOTP records the step the code was generated for, closing the +1-edge
+  replay inside the tolerance window.
+- `/uploads/` rejects directory listings and serves attachments with
+  `no-store` and same-origin embedding policy.
+- `PUT /users/profile` implemented: name/phone/avatar, the weekly-report
+  opt-in, and doctor practice fields (bio, specialty, price, licence,
+  experience, languages, education). Verification status is untouched, so an
+  edit cannot silently unlist an approved clinician.
+
+**Video**
+
+- Jitsi rooms derive from the appointment id plus the persisted seed, so both
+  participants land in the same room on every join.
+- The Join button no longer requires `meetingLink` (LiveKit never sets it).
+- Explicit-jitsi joins report `degraded: true`, so the room labels are honest.
+
+**Product honesty**
+
+- Guests hitting booking go to login with the doctor choice preserved.
+- Mobile navbar with a drawer; logo links home; visible sign-in control.
+- Directory no longer calls unknown availability "Unavailable" or "Busy"
+  "Fully Booked"; one pagination model (Load more); "Reviews" stat labelled.
+- Crisis `tel:` links dial the real number (SEJIWA was `tel:1198`).
+- SOS alerts deep-link into the patient's conversation.
+- Homepage states formats instead of inventing 15k users, 4.9/5, testimonials
+  and an "Online Now" clinician; "certified" is "verified/reviewed".
+- New strings land in the EN/ID catalog; the ui-hygiene ratchet is wired into
+  CI and `make check` and stays green.
+
+### Changed
+
+- `livekit-client` 2.23.0, `lucide-react` 1.61.0, TanStack/jose patches, Go
+  AWS SDK patches, CodeQL action patches. TypeScript 7, Vitest 5 and Node 26
+  deliberately deferred with rationale; majors ignored in Dependabot config.
+- CD `deploy_web` condition fixed (it could never run); web deploys on Node 24.
+- Docs reconciled with the Go port across README, security model, architecture,
+  data model, operations, roadmap, ADRs and repo templates. `NOTICE.md` carries
+  the clinical-use note so `LICENSE` detects as MIT.
+
+### Added
+
+- Six integration tests (23 total): review pseudonyms, briefing absence,
+  unassigned SOS round-trip with admin ack/resolve, profile updates, TOTP
+  future-step replay, uploads listing rejection.
+
 ## [0.5.1] - 2026-10-28
 
 Maintenance and coverage release. No application behavior changed.

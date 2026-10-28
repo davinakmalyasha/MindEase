@@ -35,7 +35,7 @@ updates:
           - minor
           - patch
     ignore:
-      # Next 16.1.6 is pinned exactly, not with a caret, on purpose: the
+      # Next is pinned exactly, not with a caret, on purpose: the
       # Dockerfile is what production deploys, and an unpinned base has
       # shipped a broken build here before. Unpinning it is a decision, not a
       # version bump.
@@ -47,10 +47,19 @@ updates:
         update-types:
           - version-update:semver-minor
           - version-update:semver-major
-      # @vitest/coverage-v8 is 3.x while vitest is 4.x on the server. Aligning
-      # them is a change, so the mismatched major is left alone until someone
-      # does it on purpose and can see the two package.json files side by side.
+      # @vitest/coverage-v8 is 3.x while vitest is 3.x in client. Major bumps
+      # of either are a change, so a mismatched major is left alone until
+      # someone does it on purpose and can see the two versions side by side.
       - dependency-name: "@vitest/coverage-v8"
+        update-types:
+          - version-update:semver-major
+      # TypeScript 7 (tsgo) and Vitest 5 are major migrations, not bot merges
+      # (see closed #32/#33). They would reopen weekly otherwise; take them on
+      # a branch when the migration is planned, not from a dependency PR.
+      - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "vitest"
         update-types:
           - version-update:semver-major
 

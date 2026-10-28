@@ -92,8 +92,8 @@
 - [ ] Model output is advisory. A safety plan is written by a person, and
       `AiResult` carries `source` and `degradedReason` so a degraded response
       cannot be rendered as a real one.
-- [ ] Free text rendered to another person goes through `utils/sanitize`
-      (`allowedTags: []`).
+- [ ] Free text rendered to another person goes through the bluemonday policy
+      (`msgSanitize` / `apptSanitizeText`: no markup, bounded length).
 - [ ] Ownership is checked in the service, not only in the route, so a route
       that forgets a middleware cannot skip the check.
 

@@ -103,9 +103,10 @@ named `redis://redis:6379`.
 
 **Accepted costs.** A second language and a second deployable. The contract
 between the three implementations of the event union — the TypeScript union, the
-Go JSON tags, the client fanout map — is enforced only by
-`realtime-contract.test.ts`, which re-parses all three. That test is load-bearing
-and its failure would be confusing.
+Go JSON tags, the client fanout map — was enforced by
+`realtime-contract.test.ts`, which re-parsed all three. That test died with the
+Node tree; the boundary is now pinned by the Go hub tests on one side and the
+browser journeys on the other (see the README's gates section).
 
 **Dropped events are silent.** A slow client loses messages with no retry and no
 queue. For chat that is acceptable because the thread is refetched on load; for a

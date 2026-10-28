@@ -1,6 +1,6 @@
 {
   "name": "client",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "engines": {
     "node": ">=24 <27"
@@ -28,7 +28,7 @@
     "date-fns": "^4.1.0",
     "framer-motion": "^12.34.0",
     "jose": "^6.2.13",
-    "livekit-client": "^2.22.3",
+    "livekit-client": "2.23.0",
     "lucide-react": "1.61.0",
     "next": "16.4.3",
     "next-intl": "^4.14.9",

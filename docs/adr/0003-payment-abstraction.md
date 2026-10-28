@@ -1,4 +1,4 @@
-# ADR-0003: A payment abstraction with a simulator, and the race we left in it
+# ADR-0003: A payment abstraction with a simulator, and the race we closed
 
 - Status: accepted
 - Date: 2026-09
@@ -122,9 +122,11 @@ simply never fire.
 
 ## What we did not build
 
-**A real Midtrans integration is not wired.** The provider interface and
-configuration are there; `getPaymentProvider` returns a stub. This ADR documents
-the shape and the invariants, not a working gateway, and the README says so.
+**The Midtrans integration is implemented but unwired to money.** The provider
+makes real API calls when `PAYMENT_PROVIDER=midtrans` with credentials; without
+them the simulator runs (and production refuses to boot on the simulator
+without an explicit opt-in). This ADR documents the shape and the invariants;
+the README says the simulator is the running path.
 
 **No refunds, no partial refunds, no proration.** A therapist who leaves after a
 patient has paid for five sessions is a real operational problem, and it needs a
