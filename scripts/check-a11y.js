@@ -21,7 +21,7 @@
 //
 // ## Why rule 3 is a budget and not a fix
 //
-// 286 uses of `text-gray-50..400` across 59 files fail AA, and `gray-400` on
+// 234 light-mode uses of `text-gray-50..400` fail AA, and `gray-400` on
 // white is 2.54:1. Fixing all of them in one commit would be 59 files of visual
 // change that nobody could review properly, and the odds of shipping a contrast
 // regression somewhere in it are high.
@@ -42,8 +42,12 @@ const CLIENT = path.join(__dirname, "..", "client");
  * Measured 2026-10-06 across 59 files. `gray-400` (2.54:1) is the majority;
  * `gray-500` is 4.83:1 and passes, which is why the fix in register and
  * forgot-password is a one-shade change rather than a redesign.
+ *
+ * `dark:`-prefixed uses are not counted: they only apply in dark mode, where
+ * the surfaces are dark and these shades pass (gray-400 on gray-900 is ~7:1).
+ * Counting them punished the dark-mode pass for fixing unreadable text.
  */
-const CONTRAST_BUDGET = 285;
+const CONTRAST_BUDGET = 234;
 
 /** Tailwind's default greys. */
 const GREY = {
@@ -183,7 +187,14 @@ function findSilentErrors(src) {
 /** Uses of a text colour that fails AA against white. */
 function countSubAaText(src) {
   let n = 0;
-  for (const m of src.matchAll(/\btext-gray-(\d{2,3})\b/g)) if (m[1] in GREY) n += 1;
+  // A `dark:`-prefixed class only applies in dark mode, where the surfaces
+  // are dark and gray-50..400 passes (gray-400 on gray-900 is ~7:1). Counting
+  // those punished the dark-mode pass for fixing unreadable text, so the
+  // budget tracks light-mode uses only.
+  for (const m of src.matchAll(/(dark:)?text-gray-(\d{2,3})\b/g)) {
+    if (m[1] !== undefined) continue;
+    if (m[2] in GREY) n += 1;
+  }
   return n;
 }
 

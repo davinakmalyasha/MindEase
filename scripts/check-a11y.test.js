@@ -80,6 +80,11 @@ const cases = [
     src: `<span className="text-gray-400">a</span><span className="text-gray-500">b</span><span className="text-gray-700">c</span>`,
     subAa: 1,
   },
+  {
+    name: "dark-mode greys are not counted: they render on dark surfaces",
+    src: `<span className="text-gray-900 dark:text-white">a</span><span className="text-gray-400 dark:text-gray-300">b</span>`,
+    subAa: 1,
+  },
 ];
 
 let failed = 0;

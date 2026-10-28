@@ -54,7 +54,8 @@ five-way review, plus the green dependency queue. No new product features.
 - Homepage states formats instead of inventing 15k users, 4.9/5, testimonials
   and an "Online Now" clinician; "certified" is "verified/reviewed".
 - New strings land in the EN/ID catalog; the ui-hygiene ratchet is wired into
-  CI and `make check` and stays green.
+  CI and `make check` and stays green. The a11y contrast gate no longer counts
+  `dark:`-mode greys (they pass on dark surfaces); its budget dropped 285 to 234.
 
 ### Changed
 
