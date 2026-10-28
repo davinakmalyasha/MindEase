@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1435,4 +1436,250 @@ func TestIntegrationResponseShapes(t *testing.T) {
 	}
 	config := dataObject(t, body)
 	itAssertKeys(t, config, "mode", "simulated")
+}
+
+func TestIntegrationPublicDoctorReviewsArePseudonymous(t *testing.T) {
+	s := newIntegrationServer(t)
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Reviews")
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	apptID := seedCompletedAppointment(t, patientID, doctorID)
+	c := newTestClient(t, s.Mount())
+	c.login(patientEmail, "Patient@123")
+
+	rec, _, text := c.request(http.MethodPost, "/api/reviews", map[string]any{
+		"doctorId": doctorID, "appointmentId": apptID, "rating": 5,
+		"comment": "Very helpful session, thank you.",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create review: %d %s", rec.Code, text)
+	}
+
+	// Public, unauthenticated: the reviewer's identity must never appear.
+	pub := newTestClient(t, s.Mount())
+	rec, body, text := pub.request(http.MethodGet, "/api/doctors/"+doctorID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public doctor detail: %d %s", rec.Code, text)
+	}
+	reviews, ok := dataObject(t, body)["reviews"].([]any)
+	if !ok || len(reviews) != 1 {
+		t.Fatalf("want 1 public review, got %#v", dataObject(t, body)["reviews"])
+	}
+	rev, ok := reviews[0].(map[string]any)
+	if !ok {
+		t.Fatalf("review is not an object: %#v", reviews[0])
+	}
+	if user, present := rev["user"]; present {
+		t.Fatalf("public review exposes reviewer identity: %#v", user)
+	}
+	if name, _ := rev["displayName"].(string); name == "" {
+		t.Fatalf("public review has no displayName: %#v", rev)
+	}
+	if strings.Contains(rec.Body.String(), patientEmail) {
+		t.Fatalf("public doctor detail leaks the reviewer email")
+	}
+}
+
+func TestIntegrationPatientAppointmentListHasNoBriefing(t *testing.T) {
+	s := newIntegrationServer(t)
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Privacy")
+	slotID, dayKey := seedSlot(t, doctorID, 3, "09:00", "10:00")
+	patientEmail := uniqueEmail(t)
+	seedUser(t, patientEmail, "Patient@123", "patient")
+	c := newTestClient(t, s.Mount())
+	c.login(patientEmail, "Patient@123")
+
+	rec, _, text := c.request(http.MethodPost, "/api/appointments/book", map[string]any{
+		"doctorId":         doctorID,
+		"appointmentDate":  dayKey,
+		"startTime":        "09:00",
+		"endTime":          "10:00",
+		"consultationType": "video",
+		"slotId":           slotID,
+		"idempotencyKey":   "it-no-briefing",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("book: %d %s", rec.Code, text)
+	}
+
+	rec, body, text := c.request(http.MethodGet, "/api/appointments/my", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("my appointments: %d %s", rec.Code, text)
+	}
+	rows, _ := dataObject(t, body)["rows"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("appointment rows = %d; want 1", len(rows))
+	}
+	row, _ := rows[0].(map[string]any)
+	if _, present := row["preSessionData"]; present {
+		t.Fatalf("patient appointment list embeds pre-session data")
+	}
+	if strings.Contains(rec.Body.String(), "briefingText") {
+		t.Fatalf("patient appointment list leaks the clinician briefing")
+	}
+}
+
+func TestIntegrationSOSWithoutAppointmentCreatesUnassignedAlert(t *testing.T) {
+	s := newIntegrationServer(t)
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	adminEmail := uniqueEmail(t)
+	adminID := seedUser(t, adminEmail, "Admin@123", "admin")
+	c := newTestClient(t, s.Mount())
+	c.login(patientEmail, "Patient@123")
+
+	rec, body, text := c.request(http.MethodPost, "/api/support/sos", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sos: %d %s", rec.Code, text)
+	}
+	data := dataObject(t, body)
+	if recorded, _ := data["recorded"].(bool); !recorded {
+		t.Fatalf("sos without a clinician was not recorded: %#v", data)
+	}
+
+	var alertID, sourceType string
+	var assigned sql.NullString
+	if err := itPool.QueryRow(
+		"SELECT id, sourceType, assignedDoctorUserId FROM `RiskAlert` WHERE userId = ?", patientID).
+		Scan(&alertID, &sourceType, &assigned); err != nil {
+		t.Fatalf("read risk alert: %v", err)
+	}
+	if sourceType != "sos" {
+		t.Fatalf("alert source = %q; want sos", sourceType)
+	}
+	if assigned.Valid {
+		t.Fatalf("unassigned SOS alert has assignedDoctorUserId = %q", assigned.String)
+	}
+
+	var adminNotifs int
+	if err := itPool.QueryRow(
+		"SELECT COUNT(*) FROM `Notification` WHERE userId = ? AND title = 'Risk disclosure awaiting review'", adminID).
+		Scan(&adminNotifs); err != nil {
+		t.Fatalf("count admin notifications: %v", err)
+	}
+	if adminNotifs != 1 {
+		t.Fatalf("admin notifications = %d; want 1", adminNotifs)
+	}
+
+	// An admin can work the unassigned alert: acknowledge then resolve.
+	admin := newTestClient(t, s.Mount())
+	admin.login(adminEmail, "Admin@123")
+	rec, _, text = admin.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertID+"/acknowledge", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin acknowledge: %d %s", rec.Code, text)
+	}
+	rec, _, text = admin.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertID+"/resolve",
+		map[string]any{"note": "Called the patient back; hotlines confirmed."})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin resolve: %d %s", rec.Code, text)
+	}
+}
+
+func TestIntegrationUploadsListingIsRejected(t *testing.T) {
+	s := newIntegrationServer(t)
+	c := newTestClient(t, s.Mount())
+	rec, _, text := c.request(http.MethodGet, "/uploads/", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /uploads/ = %d %s; want 404, not a directory listing", rec.Code, text)
+	}
+}
+
+func putMultipartProfile(t *testing.T, c *testClient, h http.Handler, fields map[string]string) (*httptest.ResponseRecorder, map[string]any, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatalf("write field %s: %v", k, err)
+		}
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/api/users/profile", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	for _, cookie := range c.cookies {
+		req.AddCookie(cookie)
+	}
+	if c.csrf != "" {
+		req.Header.Set("X-CSRF-Token", c.csrf)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	for _, cookie := range rec.Result().Cookies() {
+		c.cookies[cookie.Name] = cookie
+	}
+	text := rec.Body.String()
+	var parsed map[string]any
+	if text != "" {
+		_ = json.Unmarshal([]byte(text), &parsed)
+	}
+	return rec, parsed, text
+}
+
+func TestIntegrationProfileUpdatePersists(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	c := newTestClient(t, h)
+	c.login(patientEmail, "Patient@123")
+
+	rec, body, text := putMultipartProfile(t, c, h, map[string]string{
+		"name": "Updated Name", "phone_number": "+62-812-0000", "weeklyReportEnabled": "true",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patient profile update: %d %s", rec.Code, text)
+	}
+	if got := dataObject(t, body)["user"].(map[string]any)["name"].(string); got != "Updated Name" {
+		t.Fatalf("profile name = %q; want Updated Name", got)
+	}
+	var phone sql.NullString
+	var weekly bool
+	if err := itPool.QueryRow("SELECT phone_number, weeklyReportEnabled FROM `User` WHERE id = ?",
+		patientID).Scan(&phone, &weekly); err != nil {
+		t.Fatalf("read user: %v", err)
+	}
+	if !phone.Valid || phone.String != "+62-812-0000" || !weekly {
+		t.Fatalf("persisted phone=%v weekly=%v; want +62-812-0000 and true", phone, weekly)
+	}
+
+	doctorEmail := uniqueEmail(t)
+	doctorUserID, doctorID := seedDoctor(t, doctorEmail, "Dr. Integration Profile")
+	d := newTestClient(t, h)
+	d.login(doctorEmail, "Doctor@123")
+
+	rec, _, text = putMultipartProfile(t, d, h, map[string]string{
+		"name": "Dr. Updated", "specialty": "Trauma", "price": "350000",
+		"licenseNumber": "STR-123", "licenseIssuer": "Konsil Kedokteran",
+		"experience": "9", "bio": "Trauma specialist.",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("doctor profile update: %d %s", rec.Code, text)
+	}
+	var specialty, license sql.NullString
+	var price int
+	var status string
+	if err := itPool.QueryRow("SELECT specialty, price, licenseNumber, verificationStatus FROM `Doctor` WHERE id = ?",
+		doctorID).Scan(&specialty, &price, &license, &status); err != nil {
+		t.Fatalf("read doctor: %v", err)
+	}
+	if !specialty.Valid || specialty.String != "Trauma" || price != 350000 ||
+		!license.Valid || license.String != "STR-123" {
+		t.Fatalf("persisted specialty=%v price=%d license=%v", specialty, price, license)
+	}
+	if status != "approved" {
+		t.Fatalf("verification status = %q; an edit must not silently unlist the doctor", status)
+	}
+
+	rec, body, text = d.request(http.MethodGet, "/api/users/profile", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("profile read-back: %d %s", rec.Code, text)
+	}
+	doctorProfile, _ := dataObject(t, body)["doctorProfile"].(map[string]any)
+	if doctorProfile["specialty"] != "Trauma" || doctorProfile["licenseNumber"] != "STR-123" {
+		t.Fatalf("read-back doctor profile = %#v", doctorProfile)
+	}
+	_ = doctorUserID
 }

@@ -57,8 +57,8 @@ func (s *Server) registerWellness(api chi.Router) {
 	api.With(s.authenticate).Get("/wellness/assessments/trajectory", s.handleWellnessAssessmentTrajectory)
 
 	api.With(s.authenticate, s.RequireRole("doctor", "admin")).Get("/wellness/risk-alerts", s.handleWellnessListRiskAlerts)
-	api.With(s.authenticate, s.RequireRole("doctor")).Post("/wellness/risk-alerts/{id}/acknowledge", s.handleWellnessAcknowledgeRiskAlert)
-	api.With(s.authenticate, s.RequireRole("doctor")).Post("/wellness/risk-alerts/{id}/resolve", s.handleWellnessResolveRiskAlert)
+	api.With(s.authenticate, s.RequireRole("doctor", "admin")).Post("/wellness/risk-alerts/{id}/acknowledge", s.handleWellnessAcknowledgeRiskAlert)
+	api.With(s.authenticate, s.RequireRole("doctor", "admin")).Post("/wellness/risk-alerts/{id}/resolve", s.handleWellnessResolveRiskAlert)
 }
 
 /* ------------------------------------------------------------------ *
@@ -2039,9 +2039,10 @@ func wellnessParsePrefs(raw *string) map[string]wellnessChannelPrefs {
 }
 
 // wellnessNotifyCreate ports NotificationService.create: channel preferences,
-// the in-app row, the realtime ping and a best-effort email. The web push
-// channel is not ported (no push client in this binary).
-func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, message, notificationType string, withEmail bool) error {
+// the single sanitisation choke point, and the realtime notification:new
+// event. It reports whether anyone was actually reached: a suppressed
+// preference is not a delivery, so callers must not treat a nil error as one.
+func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, message, notificationType string, withEmail bool) (bool, error) {
 	if notificationType == "" {
 		notificationType = "system"
 	}
@@ -2054,14 +2055,14 @@ func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, messag
 		err := s.DB.QueryRowContext(ctx,
 			"SELECT notificationPrefs, email FROM `User` WHERE id = ?", userID).Scan(&rawPrefs, &email)
 		if err != nil && err != sql.ErrNoRows {
-			return err
+			return false, err
 		}
 		if err == nil {
 			prefs = wellnessParsePrefs(rawPrefs)
 		}
 		channel := prefs[notificationType]
 		if !channel.InApp && !(withEmail && channel.Email) {
-			return nil
+			return false, nil
 		}
 		if withEmail && channel.Email && email != "" {
 			subject, html := mailNotificationTemplate(title, message)
@@ -2076,7 +2077,7 @@ func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, messag
 		}
 	}
 	if !prefs[notificationType].InApp {
-		return nil
+		return false, nil
 	}
 
 	cleanTitle := strings.TrimSpace(s.Sanitizer.Sanitize(title))
@@ -2085,7 +2086,7 @@ func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, messag
 	if _, err := s.DB.ExecContext(ctx,
 		"INSERT INTO `Notification` (id, userId, title, message, isRead, type, createdAt) VALUES (?,?,?,?,?,?,?)",
 		newID(), userID, cleanTitle, cleanMessage, false, notificationType, now); err != nil {
-		return err
+		return false, err
 	}
 	s.wellnessPublishEvent(ctx, userID, "notification:new", map[string]any{
 		"title":     cleanTitle,
@@ -2094,7 +2095,7 @@ func (s *Server) wellnessNotifyCreate(ctx context.Context, userID, title, messag
 		"createdAt": now.UTC().Format("2006-01-02T15:04:05.000Z"),
 	})
 	s.pushSend(ctx, userID, cleanTitle, cleanMessage, "/dashboard")
-	return nil
+	return true, nil
 }
 
 func wellnessEsc(v string) string {
@@ -2307,6 +2308,42 @@ func wellnessRiskSignal(riskFlag bool, level, reason any, clinicianNotified, rec
 	}
 }
 
+// notifyRiskAdmins pages up to five unbanned admins about a risk disclosure
+// that needs a human. It returns how many admins were actually reached: a
+// suppressed preference is not a delivery. `assigned` selects the copy — an
+// unassigned disclosure says so, an assigned one notes the clinician was paged
+// and this is a backup copy for review.
+func (s *Server) notifyRiskAdmins(ctx context.Context, userID, name, level string, assigned bool) int {
+	adminRows, adminErr := s.DB.QueryContext(ctx,
+		"SELECT id FROM `User` WHERE role = 'admin' AND isBanned = FALSE LIMIT 5")
+	if adminErr != nil {
+		s.Log.Error("risk escalation admin channel failed", "err", adminErr, "channel", "admin", "userId", userID)
+		return 0
+	}
+	defer adminRows.Close()
+	message := fmt.Sprintf(
+		"%s disclosed thoughts of self-harm (%s) and has no clinician currently assigned.",
+		name, level)
+	if assigned {
+		message = fmt.Sprintf(
+			"%s disclosed thoughts of self-harm (%s); their clinician has been paged, this is a backup copy for review.",
+			name, level)
+	}
+	reached := 0
+	for adminRows.Next() {
+		var adminID string
+		if err := adminRows.Scan(&adminID); err != nil {
+			break
+		}
+		if delivered, err := s.notifCreate(ctx, adminID, "Risk disclosure awaiting review", message, "system", false); err != nil {
+			s.Log.Error("risk escalation admin notification failed", "err", err, "userId", userID)
+		} else if delivered {
+			reached++
+		}
+	}
+	return reached
+}
+
 // clinicalRaiseRiskAlert records a disclosure and pages the patient's assigned
 // clinician; every channel is isolated, and `recorded` reports whether the
 // durable RiskAlert row exists independently of whether anyone was reached.
@@ -2347,20 +2384,22 @@ func (s *Server) clinicalRaiseRiskAlert(ctx context.Context, input clinicalRiskI
 		alertIDValue = &alertID
 	}
 
+	name := "A patient"
+	if input.UserName != nil && *input.UserName != "" {
+		name = *input.UserName
+	}
+
 	if !hasAppointment {
-		s.audit(ctx, "risk.raised", &input.UserID, nil, nil, map[string]any{
+		adminsNotified := s.notifyRiskAdmins(ctx, input.UserID, name, input.Level, false)
+		s.audit(ctx, "risk.raised", &input.UserID, ptr("RiskAlert"), alertIDValue, map[string]any{
 			"level":             input.Level,
 			"sourceType":        input.SourceType,
 			"clinicianNotified": false,
+			"adminsNotified":    adminsNotified,
 			"recorded":          recorded,
 		})
 		s.Log.Warn("risk disclosure with no assigned clinician", "userId", input.UserID, "level", input.Level)
 		return wellnessRiskSignal(true, input.Level, input.Reason, false, recorded, alertIDValue)
-	}
-
-	name := "A patient"
-	if input.UserName != nil && *input.UserName != "" {
-		name = *input.UserName
 	}
 
 	title := "Risk disclosure from a patient"
@@ -2372,10 +2411,10 @@ func (s *Server) clinicalRaiseRiskAlert(ctx context.Context, input clinicalRiskI
 		name, input.Level)
 
 	clinicianReached := false
-	if err := s.wellnessNotifyCreate(ctx, doctorUserID, title, clinicianMessage, "system", true); err != nil {
+	if delivered, err := s.wellnessNotifyCreate(ctx, doctorUserID, title, clinicianMessage, "system", true); err != nil {
 		s.Log.Error("risk escalation in-app channel failed", "err", err, "channel", "inapp", "userId", input.UserID)
 	} else {
-		clinicianReached = true
+		clinicianReached = delivered
 	}
 
 	s.wellnessPublishEvent(ctx, doctorUserID, "risk:alert", map[string]any{
@@ -2384,33 +2423,13 @@ func (s *Server) clinicalRaiseRiskAlert(ctx context.Context, input clinicalRiskI
 		"alertId":     alertIDValue,
 	})
 
-	adminRows, adminErr := s.DB.QueryContext(ctx,
-		"SELECT id FROM `User` WHERE role = 'admin' AND isBanned = 0 LIMIT 5")
-	if adminErr != nil {
-		s.Log.Error("risk escalation admin channel failed", "err", adminErr, "channel", "admin", "userId", input.UserID)
-	} else {
-		adminIDs := make([]string, 0, 5)
-		for adminRows.Next() {
-			var adminID string
-			if err := adminRows.Scan(&adminID); err == nil {
-				adminIDs = append(adminIDs, adminID)
-			}
-		}
-		adminRows.Close()
-		adminMessage := fmt.Sprintf(
-			"%s disclosed thoughts of self-harm (%s) and has no clinician currently assigned.",
-			name, input.Level)
-		for _, adminID := range adminIDs {
-			if err := s.wellnessNotifyCreate(ctx, adminID, "Risk disclosure awaiting review", adminMessage, "system", false); err != nil {
-				s.Log.Error("risk escalation admin notification failed", "err", err, "userId", input.UserID)
-			}
-		}
-	}
+	adminsNotified := s.notifyRiskAdmins(ctx, input.UserID, name, input.Level, true)
 
 	s.audit(ctx, "risk.raised", &input.UserID, ptr("RiskAlert"), alertIDValue, map[string]any{
-		"level":        input.Level,
-		"sourceType":   input.SourceType,
-		"doctorUserId": doctorUserID,
+		"level":          input.Level,
+		"sourceType":     input.SourceType,
+		"doctorUserId":   doctorUserID,
+		"adminsNotified": adminsNotified,
 	})
 
 	if clinicianReached && alertID != "" {

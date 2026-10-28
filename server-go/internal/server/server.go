@@ -194,6 +194,16 @@ func (s *Server) uploadsHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// No directory listings: an enumerable /uploads/ would expose every
+		// stored file, and UUID names do not help once the listing exists.
+		if r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/") {
+			s.Fail(w, http.StatusNotFound, "Not found")
+			return
+		}
+		// Attachments can carry PHI; never let a shared cache store them, and
+		// do not let arbitrary origins embed them.
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		if !imageName.MatchString(r.URL.Path) {
 			w.Header().Set("Content-Disposition", "attachment")
 		}

@@ -1404,10 +1404,20 @@ func (s *Server) msgRaiseRiskAlert(ctx context.Context, input msgRiskAlertInput)
 	}
 
 	if !hasAppointment {
-		s.audit(ctx, "risk.raised", &input.UserID, nil, nil, map[string]any{
+		name := input.UserName
+		if name == "" {
+			name = "A patient"
+		}
+		adminsNotified := s.notifyRiskAdmins(ctx, input.UserID, name, input.Level, false)
+		var targetID *string
+		if recorded {
+			targetID = &alertID
+		}
+		s.audit(ctx, "risk.raised", &input.UserID, ptr("RiskAlert"), targetID, map[string]any{
 			"level":             input.Level,
 			"sourceType":        input.SourceType,
 			"clinicianNotified": false,
+			"adminsNotified":    adminsNotified,
 			"recorded":          recorded,
 		})
 		s.Log.Warn("risk disclosure with no assigned clinician", "userId", input.UserID, "level", input.Level)
@@ -1425,53 +1435,35 @@ func (s *Server) msgRaiseRiskAlert(ctx context.Context, input msgRiskAlertInput)
 	if input.Level == "urgent" {
 		title = "Urgent risk disclosure from a patient"
 	}
-	if _, err := s.notifCreate(ctx, doctorUserID, title,
-		fmt.Sprintf("%s reported thoughts of self-harm or death on a screening questionnaire (%s). Please reach out to them today.", name, input.Level),
+	if delivered, err := s.notifCreate(ctx, doctorUserID, title,
+		fmt.Sprintf("%s wrote something in a message that may indicate thoughts of self-harm or death (%s). Please reach out to them today.", name, input.Level),
 		"system", true); err != nil {
 		s.Log.Error("risk escalation channel failed", "err", err, "channel", "inapp", "userId", input.UserID)
 	} else {
-		clinicianReached = true
+		clinicianReached = delivered
 	}
 
-	var alertRef any
+	var alertRefAny any
 	if recorded {
-		alertRef = alertID
+		alertRefAny = alertID
 	}
 	s.msgPublish(doctorUserID, "risk:alert", map[string]any{
 		"patientName": name,
 		"level":       input.Level,
-		"alertId":     alertRef,
+		"alertId":     alertRefAny,
 	})
 
-	adminRows, err := s.DB.QueryContext(ctx,
-		"SELECT id FROM `User` WHERE role = 'admin' AND isBanned = FALSE LIMIT 5")
-	if err == nil {
-		var adminIDs []string
-		for adminRows.Next() {
-			var adminID string
-			if err := adminRows.Scan(&adminID); err != nil {
-				break
-			}
-			adminIDs = append(adminIDs, adminID)
-		}
-		adminRows.Close()
-		for _, adminID := range adminIDs {
-			if _, err := s.notifCreate(ctx, adminID, "Risk disclosure awaiting review",
-				fmt.Sprintf("%s disclosed thoughts of self-harm (%s) and has no clinician currently assigned.", name, input.Level),
-				"system", false); err != nil {
-				s.Log.Error("risk escalation channel failed", "err", err, "channel", "admin", "userId", input.UserID)
-			}
-		}
-	}
+	adminsNotified := s.notifyRiskAdmins(ctx, input.UserID, name, input.Level, true)
 
 	var targetID *string
 	if recorded {
 		targetID = &alertID
 	}
 	s.audit(ctx, "risk.raised", &input.UserID, ptr("RiskAlert"), targetID, map[string]any{
-		"level":        input.Level,
-		"sourceType":   input.SourceType,
-		"doctorUserId": doctorUserID,
+		"level":          input.Level,
+		"sourceType":     input.SourceType,
+		"doctorUserId":   doctorUserID,
+		"adminsNotified": adminsNotified,
 	})
 
 	if clinicianReached && recorded {

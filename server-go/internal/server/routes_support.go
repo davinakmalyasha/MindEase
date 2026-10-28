@@ -7,6 +7,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -271,13 +272,43 @@ func (s *Server) handleSupportSOS(w http.ResponseWriter, r *http.Request) {
 		user.ID).Scan(&doctorUserID, &doctorName)
 
 	if appointmentErr != nil {
-		s.audit(ctx, "sos.triggered", &user.ID, nil, nil, map[string]any{
-			"doctorAlerted": false,
-			"reason":        "no_assigned_doctor",
+		if appointmentErr != sql.ErrNoRows {
+			s.Log.Error("SOS appointment lookup failed; recording as unassigned", "err", appointmentErr, "userId", user.ID)
+		}
+		// An SOS with no active therapist is still a disclosure: record it as
+		// an unassigned alert and page the admins before returning hotlines.
+		sosAlertID := ""
+		{
+			candidate := newID()
+			_, err := s.DB.ExecContext(ctx,
+				"INSERT INTO `RiskAlert` (id, userId, level, reason, sourceType, createdAt) VALUES (?,?,?,?,?,?)",
+				candidate, user.ID, "urgent", "Patient pressed the SOS button and requested immediate support.",
+				"sos", time.Now().UTC())
+			if err != nil {
+				s.Log.Error("failed to record unassigned SOS as a risk alert", "err", err, "userId", user.ID)
+			} else {
+				sosAlertID = candidate
+			}
+		}
+		patientName := "a patient"
+		if user.Name != nil && *user.Name != "" {
+			patientName = *user.Name
+		}
+		adminsNotified := s.notifyRiskAdmins(ctx, user.ID, patientName, "urgent", false)
+		var targetID *string
+		if sosAlertID != "" {
+			targetID = &sosAlertID
+		}
+		s.audit(ctx, "sos.triggered", &user.ID, ptr("RiskAlert"), targetID, map[string]any{
+			"doctorAlerted":  false,
+			"adminsNotified": adminsNotified,
+			"recorded":       sosAlertID != "",
+			"reason":         "no_assigned_doctor",
 		})
 		s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": supportCrisisPayload(map[string]any{
 			"doctorAlerted":   false,
-			"reachedCareTeam": false,
+			"reachedCareTeam": adminsNotified > 0,
+			"recorded":        sosAlertID != "",
 			"message":         "We could not reach a care team because you have no active therapist. Please call one of the numbers below now.",
 		})})
 		return
@@ -306,10 +337,10 @@ func (s *Server) handleSupportSOS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deliveredInApp := false
-	if err := s.wellnessNotifyCreate(ctx, doctorUserID, "SOS Alert from a patient", alertText, "system", true); err != nil {
+	if delivered, err := s.wellnessNotifyCreate(ctx, doctorUserID, "SOS Alert from a patient", alertText, "system", true); err != nil {
 		s.Log.Error("SOS in-app notification failed", "err", err, "doctorUserId", doctorUserID)
 	} else {
-		deliveredInApp = true
+		deliveredInApp = delivered
 	}
 
 	// Realtime is fire-and-forget and deliberately excluded from `doctorAlerted`.

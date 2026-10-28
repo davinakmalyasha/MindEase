@@ -476,7 +476,11 @@ func (s *Server) apptActiveProvider() apptProviderState {
 		}
 		return apptProviderState{provider: "livekit"}
 	}
-	return apptProviderState{provider: "jitsi"}
+	// Explicit jitsi is the unauthenticated fallback by construction: the room
+	// is hosted by a third party and is not end-to-end authenticated. The flag
+	// is what the client renders, so it must be true here and not only on the
+	// livekit-misconfigured path.
+	return apptProviderState{provider: "jitsi", degraded: true, reason: "VIDEO_PROVIDER=jitsi: the room is hosted by a third party and is not end-to-end authenticated"}
 }
 
 // apptMintLiveKitToken is the hand-rolled HS256 LiveKit access token: iss is
@@ -522,8 +526,12 @@ func apptRoomNameFor(appointmentID, seed string) string {
 	return "mindease-" + appointmentID + "-" + seed
 }
 
-func apptJitsiRoom(appointmentID string) string {
-	return "https://meet.jit.si/MindEase-" + appointmentID + "-" + apptHex(8)
+// apptJitsiRoom derives the room from the appointment id and its persisted
+// seed, so both participants land in the same room on every join. A fresh
+// random suffix per call would strand the patient and the doctor in different
+// rooms.
+func apptJitsiRoom(appointmentID, seed string) string {
+	return "https://meet.jit.si/MindEase-" + appointmentID + "-" + seed
 }
 
 func (s *Server) apptBuildGrant(appointmentID, userID, displayName, roomSeed string, validUntilMs int64) (apptVideoGrant, error) {
@@ -539,7 +547,7 @@ func (s *Server) apptBuildGrant(appointmentID, userID, displayName, roomSeed str
 	if state.degraded {
 		s.Log.Warn("falling back to the unauthenticated video provider; sessions are not end-to-end authenticated", "reason", state.reason)
 	}
-	return apptVideoGrant{provider: "jitsi", room: apptJitsiRoom(appointmentID), identity: userID, displayName: displayName}, nil
+	return apptVideoGrant{provider: "jitsi", room: apptJitsiRoom(appointmentID, roomSeed), identity: userID, displayName: displayName}, nil
 }
 
 /* ------------------------------------------------------------------ *
@@ -674,26 +682,6 @@ func (s *Server) apptUserBrief(ctx context.Context, userID string) (map[string]a
 		return nil, err
 	}
 	return map[string]any{"id": userID, "name": name, "avatar": avatar, "phone_number": phone}, nil
-}
-
-// apptPreSessionJSON selects the same columns the appointment service selects:
-// patients never see the questions, the doctor does.
-func (s *Server) apptPreSessionJSON(ctx context.Context, appointmentID string, includeQuestions bool) (any, error) {
-	var questions, answers, briefing *string
-	err := s.DB.QueryRowContext(ctx,
-		"SELECT questionsJson, answersJson, briefingText FROM `PreSessionData` WHERE appointmentId = ?", appointmentID).
-		Scan(&questions, &answers, &briefing)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]any{"answersJson": answers, "briefingText": briefing}
-	if includeQuestions {
-		out["questionsJson"] = questions
-	}
-	return out, nil
 }
 
 const followUpColumns = "id, appointmentId, doctorId, suggestedDate, startTime, endTime, consultationType, notes, status, createdAt"
@@ -1206,16 +1194,11 @@ func (s *Server) apptGetMy(ctx context.Context, user *UserCtx, page, limit int) 
 			if err != nil {
 				return nil, err
 			}
-			pre, err := s.apptPreSessionJSON(ctx, a.ID, true)
-			if err != nil {
-				return nil, err
-			}
 			fu, err := s.apptFollowUpJSON(ctx, a.ID)
 			if err != nil {
 				return nil, err
 			}
 			m["user"] = patient
-			m["preSessionData"] = pre
 			m["followUp"] = fu
 			out = append(out, m)
 		}
@@ -1262,16 +1245,11 @@ func (s *Server) apptGetMy(ctx context.Context, user *UserCtx, page, limit int) 
 		if err != nil {
 			return nil, err
 		}
-		pre, err := s.apptPreSessionJSON(ctx, a.ID, false)
-		if err != nil {
-			return nil, err
-		}
 		fu, err := s.apptFollowUpJSON(ctx, a.ID)
 		if err != nil {
 			return nil, err
 		}
 		m["doctor"] = doc
-		m["preSessionData"] = pre
 		m["followUp"] = fu
 		out = append(out, m)
 	}
@@ -1730,7 +1708,7 @@ func (s *Server) apptUpdateStatus(ctx context.Context, id, status string, actor 
 
 		// Only mint the persistent URL on the degraded jitsi path.
 		if s.apptActiveProvider().provider == "jitsi" && updated.MeetingLink == nil {
-			link := apptJitsiRoom(id)
+			link := apptJitsiRoom(id, seed)
 			if _, err := s.DB.ExecContext(ctx,
 				"UPDATE `Appointment` SET meetingLink = ?, updatedAt = ? WHERE id = ?", link, time.Now().UTC(), id); err != nil {
 				return nil, err

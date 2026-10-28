@@ -226,7 +226,7 @@ export default function AppointmentHistory() {
                                             </button>
                                         )}
 
-                                        {app.status === "confirmed" && app.meetingLink && ["video", "voice"].includes(app.consultationType) && (
+                                        {app.status === "confirmed" && ["video", "voice"].includes(app.consultationType) && (
                                             <button
                                                 onClick={() => router.push(`/dashboard/video/${app.id}`)}
                                                 className="flex items-center gap-1 px-3 py-2 bg-rose-500 text-white rounded-xl font-bold text-xs hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"

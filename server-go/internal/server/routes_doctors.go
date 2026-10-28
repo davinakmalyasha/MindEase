@@ -619,13 +619,13 @@ type doctorsDetailPattern struct {
 }
 
 type doctorsDetailReview struct {
-	ID        string            `json:"id"`
-	Rating    int               `json:"rating"`
-	Comment   string            `json:"comment"`
-	Reply     *string           `json:"reply"`
-	RepliedAt *JSTime           `json:"repliedAt"`
-	CreatedAt JSTime            `json:"createdAt"`
-	User      doctorsDetailUser `json:"user"`
+	ID          string  `json:"id"`
+	Rating      int     `json:"rating"`
+	Comment     string  `json:"comment"`
+	Reply       *string `json:"reply"`
+	RepliedAt   *JSTime `json:"repliedAt"`
+	CreatedAt   JSTime  `json:"createdAt"`
+	DisplayName string  `json:"displayName"`
 }
 
 type doctorsDetailSlot struct {
@@ -1062,9 +1062,11 @@ func (s *Server) doctorsGetByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	detail.Reviews = []doctorsDetailReview{}
+	// Public projection: the reviewer's identity is never selected, only a
+	// stable pseudonym derived from the user id (same as /reviews/doctor).
 	reviewRows, err := s.DB.QueryContext(ctx,
-		"SELECT r.id, r.rating, r.comment, r.reply, r.repliedAt, r.createdAt, u.id, u.name, u.avatar "+
-			"FROM `Review` r JOIN `User` u ON u.id = r.userId "+
+		"SELECT r.id, r.rating, r.comment, r.reply, r.repliedAt, r.createdAt, r.userId "+
+			"FROM `Review` r "+
 			"WHERE r.doctorId = ? AND r.hidden = FALSE ORDER BY r.createdAt DESC, r.id DESC LIMIT 50", id)
 	if err != nil {
 		s.doctorsFail(w, r, err, http.StatusInternalServerError, "Something went wrong. Please try again.")
@@ -1075,11 +1077,10 @@ func (s *Server) doctorsGetByID(w http.ResponseWriter, r *http.Request) {
 			rev       doctorsDetailReview
 			reply     sql.NullString
 			repliedAt sql.NullTime
-			userName  sql.NullString
-			userAv    sql.NullString
+			userID    string
 		)
 		if err := reviewRows.Scan(&rev.ID, &rev.Rating, &rev.Comment, &reply, &repliedAt, &rev.CreatedAt,
-			&rev.User.ID, &userName, &userAv); err != nil {
+			&userID); err != nil {
 			reviewRows.Close()
 			s.doctorsFail(w, r, err, http.StatusInternalServerError, "Something went wrong. Please try again.")
 			return
@@ -1089,8 +1090,7 @@ func (s *Server) doctorsGetByID(w http.ResponseWriter, r *http.Request) {
 			v := JSTime(repliedAt.Time)
 			rev.RepliedAt = &v
 		}
-		rev.User.Name = doctorsNullStr(userName)
-		rev.User.Avatar = doctorsNullStr(userAv)
+		rev.DisplayName = reviewDisplayName(userID)
 		detail.Reviews = append(detail.Reviews, rev)
 	}
 	reviewRows.Close()

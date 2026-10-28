@@ -151,6 +151,7 @@ func attachOpenAPIResponseSchemas(paths map[string]any) {
 	}
 
 	attach("GET", "/users/profile", 200, envelope(schemaRef("UserProfile")))
+	attach("PUT", "/users/profile", 200, envelope(schemaRef("UserProfile")))
 	attach("GET", "/doctors", 200, paginatedRows("DoctorSummary"))
 	attach("GET", "/doctors/{id}", 200, envelope(schemaRef("DoctorDetail")))
 	attach("GET", "/doctors/slots/{id}", 200, envelope(schemaArray("Slot")))
