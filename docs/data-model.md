@@ -26,9 +26,9 @@ Every status, level and type is a `String` with the legal values in a comment �
 real and is paid in a specific place: `RiskAlert.level` cannot be ordered by the
 database, so the triage sort happens in the service on a bounded page and the
 resulting priority travels to the client as a number
-(`riskQueue.service.ts:51`). The benefit is that adding a value is a data change
+(`routes_wellness.go`, the queue list). The benefit is that adding a value is a data change
 rather than a migration, which is the right trade for values that get added
-often (`sourceType` has five and counting).
+often (`sourceType` has four produced values: `phq9`, `sos`, `message`, `mood`).
 
 ```mermaid
 erDiagram
@@ -51,10 +51,10 @@ erDiagram
     APPOINTMENT ||--o| FOLLOW_UP : "spawns"
     APPOINTMENT ||--o| REVIEW : "earns"
     APPOINTMENT {
-        int id PK
-        int userId FK
-        int doctorId FK
-        int slotId FK "unique"
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7)
+        string doctorId FK (UUIDv7)
+        string slotId FK (UUIDv7) "unique"
         string startTime
         string endTime
         string status
@@ -70,14 +70,14 @@ erDiagram
     USER ||--o{ JOURNAL_ENTRY : "writes"
     USER ||--o{ ASSESSMENT : "completes"
     MOOD_ENTRY {
-        int id PK
-        int userId FK
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7)
         int mood
         string moodDate "YYYY-MM-DD, user timezone"
     }
     ASSESSMENT {
-        int id PK
-        int userId FK
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7)
         string type
         string answersJson
         int score
@@ -88,20 +88,20 @@ erDiagram
     CARE_PLAN ||--o{ CARE_GOAL : "sets out"
     CARE_GOAL ||--o{ CARE_STEP : "breaks into"
     CARE_PLAN {
-        int id PK
-        int userId FK
-        int doctorUserId "no foreign key"
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7)
+        string doctorUserId "no foreign key (UUIDv7)"
         string status
         datetime reviewAt
     }
     CARE_GOAL {
-        int id PK
-        int carePlanId FK
+        string id PK (UUIDv7)
+        string carePlanId FK (UUIDv7)
         string status "open in_progress achieved paused dropped"
     }
     SAFETY_PLAN {
-        int id PK
-        int userId FK "unique"
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7) "unique"
         text warningSigns
         text copingStrategies
         text reasonsToLive
@@ -115,13 +115,13 @@ erDiagram
 
     USER ||--o{ RISK_ALERT : "discloses"
     RISK_ALERT {
-        int id PK
-        int userId FK
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7)
         string level "elevated or urgent"
         string sourceType "phq9 gad7 sos message mood"
         datetime acknowledgedAt
         datetime resolvedAt
-        int assignedDoctorUserId "no foreign key"
+        string assignedDoctorUserId "no foreign key (UUIDv7)"
     }
 
     PACKAGE ||--o{ PACKAGE_PURCHASE : "is bought as"
@@ -130,19 +130,19 @@ erDiagram
     USER ||--o{ REFERRAL : "refers"
     USER ||--o| REFERRAL : "is referred by"
     PACKAGE_PURCHASE {
-        int id PK
-        int userId FK
-        int packageId FK
+        string id PK (UUIDv7)
+        string userId FK (UUIDv7)
+        string packageId FK (UUIDv7)
         int sessionsLeft
         datetime paidAt
-        int grantedByUserId
+        string grantedByUserId "UUIDv7"
         int totalPrice "snapshot"
         int sessionCount "snapshot"
     }
     PAYMENT_ORDER {
-        int id PK
+        string id PK (UUIDv7)
         string orderId UK
-        int purchaseId FK "unique"
+        string purchaseId FK (UUIDv7) "unique"
         int amount
         string status
         boolean simulated
@@ -208,9 +208,9 @@ defended default in the schema:
 > perfect 5.0, which is a false clinical claim.
 
 `totalReviews` is denormalised alongside it and kept in step by
-`ReviewService.recalcDoctorRating`. It was previously a fabricated 4.2–4.9 for
+`ReviewService` recalculation (`reviewRecalcDoctorRating`). It was previously a fabricated 4.2–4.9 for
 every seeded clinician with zero reviews, which also made the "Top Rated" sort
-rank the most-liked-looking profiles first. `scripts/seed.ts` deliberately leaves
+rank the most-liked-looking profiles first. `cmd/seed` deliberately leaves
 both at their defaults for the same reason.
 
 `rating` and `totalReviews` are a cached aggregate rather than a view because
@@ -235,7 +235,7 @@ component is generated once, persisted on the appointment row, and reused for
 the life of that appointment — so a patient who joins from a phone and a
 clinician who joins from a clinic arrive at the same name without coordinating.
 It is created when the appointment is confirmed and **cleared on reschedule**
-(`appointment.service.ts:705`), because a new slot is a new session and must not
+(the reschedule path nulls the seed), because a new slot is a new session and must not
 inherit the old room. Including it also stops two deployments sharing a LiveKit
 project from producing colliding room names, and means the name is not derivable
 from the appointment id alone.
@@ -247,8 +247,7 @@ database rather than by a check-then-write in `bookAppointment`.
 at local midnight and `startTime` / `endTime` are `String` `"HH:mm"`. The
 alternative — a single `DateTime` start plus a duration — makes "what time is
 this in the clinic's timezone" a conversion every time it is read, and the
-reminder job needs exactly that (`reminders.ts:13` rebuilds the instant with
-`setHours` on the stored date).
+reminder job needs exactly that (it rebuilds the instant from the stored date).
 
 **`idempotencyKey` is unique and optional**, accepted from the client on
 `POST /api/appointments/book` and checked before creating. It is the answer the
@@ -396,7 +395,7 @@ createdAt)` leads with `resolvedAt` because an unresolved alert is what a
 clinician opens the page for.
 
 `level` is a `String`, which is the cost of the no-enums rule: the sort happens
-in `RiskQueueService.listQueue` on a bounded page of 200 rows and the computed
+in the queue list on a bounded page of 200 rows and the computed
 priority is returned as a number rather than a string the client re-sorts.
 
 ## Money and growth
@@ -440,7 +439,7 @@ scan and filter, so `appointmentDate` can never be used as a range.
 
 ## Deletion: anonymise, do not remove
 
-`AccountService.deleteAccount` (`account.service.ts:190`) is the opposite of what
+`handleAccountDeleteAccount` (`routes_account.go`) is the opposite of what
 the name suggests. The `User` row survives. What is removed is the person.
 
 ### Why

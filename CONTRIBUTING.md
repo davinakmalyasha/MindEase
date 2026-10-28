@@ -33,9 +33,9 @@ re-parsing three languages in one test.
 ## Tests
 
 ```bash
-cd server-go && go test ./...          # 42 Go tests across both modules
+cd server-go && go test ./...          # 67 Go tests, 13 files
 cd client && npm test                  # 52 tests, 8 files
-cd server-realtime && go test -race ./...
+cd server-realtime && go test -race ./...   # 32 tests, 5 files
 cd client && npx playwright test       # the 12 browser journeys
 ```
 
@@ -93,14 +93,15 @@ of the organisations behind them are byte-identical across locales, because a
 mistranslated emergency number is a wrong emergency number. They are allowlisted
 in the test by path.
 
-**No `any` in new server code.** `npm run lint` currently reports 76 warnings and
-0 errors; almost all of them are `no-explicit-any`. Do not add to that number.
+**No `any` in new client code.** `npm run lint` in `client/` currently reports
+0 errors; almost all warnings are `no-explicit-any`. Do not add to that number.
 
 ## Working on a clinical feature
 
 If you are touching anything that reads or writes patient data:
 
-- **Sanitise free text on the way in.** `utils/sanitize` is `allowedTags: []`.
+- **Sanitise free text on the way in.** The bluemonday policy behind
+  `msgSanitize` / `apptSanitizeText` strips markup and caps length.
   Every free-text field that is rendered to somebody else goes through it.
 - **Ownership is checked in the service, not the route.** The access rule for a
   clinical record belongs next to the query that reads it, so a route that

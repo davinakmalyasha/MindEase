@@ -27,11 +27,11 @@ body:
     attributes:
       label: Which service is this in?
       description: >-
-        API = server/ (Express, :5000). Web = client/ (Next.js, :3000).
+        API = server-go/ (Go/chi, :5000). Web = client/ (Next.js, :3000).
         Realtime = server-realtime/ (Go, :8080). Infrastructure = Railway,
         Vercel, MySQL, Redis, compose, or the deploy pipeline.
       options:
-        - API (server/)
+        - API (server-go/)
         - Web (client/)
         - Realtime (server-realtime/)
         - Infrastructure (deploy, MySQL, Redis, compose)
@@ -66,8 +66,8 @@ body:
       label: What happened?
       description: >-
         What you saw, and what you expected instead. If a status code or a
-        Prisma error is involved, paste it exactly — the error-status gate in
-        CONTRIBUTING.md exists precisely because message text gets pattern-matched.
+        Go/SQL error is involved, paste it exactly — the typed-error gate in
+        CONTRIBUTING.md exists precisely because message text must not be pattern-matched.
       placeholder: |
         Selecting a consultation shows the room shell with no video element,
         and the browser console logs `WebSocket closed 1006`. Expected the
@@ -112,8 +112,8 @@ body:
         UI is supposed to say so. Say which case you hit.
       value: |
         - [ ] No AI feature involved
-        - [ ] `GEMINI_API_KEY` was set and a model answered
-        - [ ] `GEMINI_API_KEY` was unset (degraded/local fallback)
+        - [ ] `AI_API_KEY` was set and a model answered
+        - [ ] `AI_API_KEY` was unset (degraded/local fallback)
         - [ ] Unknown — I do not know whether the key is configured
     validations:
       required: false
@@ -123,7 +123,7 @@ body:
     attributes:
       label: Logs, trace, or screenshot
       description: >-
-        For an API bug, `GET /api/health/db` and the pino lines for the
+        For an API bug, `GET /api/health/db` and the Go structured log lines for the
         request. For a realtime bug, the output of the service including the
         Redis connection line — Redis being down is silent by design and the
         realtime push simply stops.

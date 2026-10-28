@@ -339,9 +339,11 @@ window or a sentinel, not "is it exactly this minute":
 The residual gap is a process that is down for the *entire* window: a session
 that starts during the outage is never reminded, because once it has started
 there is nothing left to catch up to. That direction is deliberate — a missed
-reminder is embarrassing, a missed **risk escalation** would not be, and
-escalations do not run here at all: `raiseRiskAlert` is synchronous inside the
-request that observes the risk.
+reminder is embarrassing, a missed **risk escalation** would not be. Assessment,
+message and SOS escalations stay synchronous inside the request that observes
+the risk; the one exception is the mood-decline alert, which runs inside the
+daily check-ins job and pages the clinician (or the admins) through the same
+in-app channel. No path contacts an emergency service.
 
 **Every replica scans, and only the claim prevents a duplicate send.** Correctness
 comes from a conditional `UPDATE ... WHERE`, not from the schedule:

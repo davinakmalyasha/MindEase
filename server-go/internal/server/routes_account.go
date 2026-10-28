@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
 )
@@ -25,9 +27,11 @@ import (
 // registerAccount is the port of routes/account.routes.ts and the account /
 // two-factor controllers and services.
 func (s *Server) registerAccount(api chi.Router) {
-	// Password reset and 2FA get their own buckets rather than sharing login's,
-	// so twenty anonymous attempts cannot deny a victim the ability to sign in,
-	// reset a password, or complete a second factor.
+	// Password reset and 2FA get their own middleware buckets rather than
+	// sharing login's, so twenty anonymous attempts cannot deny a victim the
+	// ability to sign in, reset a password, or complete a second factor.
+	// (The body-keyed "account" bucket applied inside the handlers is still
+	// shared across login/forgot/reset — see docs/security.md.)
 	resetRate := s.limiter(rateLimitConfig{
 		name:    "reset",
 		window:  15 * time.Minute,
@@ -525,21 +529,32 @@ func (s *Server) accountVerifyTotp(secret, code string) bool {
 	return totp.Validate(strings.TrimSpace(code), secret)
 }
 
-func accountCurrentTotpStep() int64 {
-	return time.Now().UTC().Unix() / 30
-}
-
 // accountConsumeTotpStep accepts a live code once: the conditional update only
 // matches while no equal-or-higher step has been recorded, so a captured code
-// cannot mint a second session inside its tolerance window.
+// cannot mint a second session inside its tolerance window. The recorded step
+// is the step the code was generated for — not the current step — so a code
+// from the +1 edge of the ±1 window cannot be replayed when that step arrives.
 func (s *Server) accountConsumeTotpStep(ctx context.Context, userID, secret, code string) (bool, error) {
-	if !s.accountVerifyTotp(secret, code) {
+	code = strings.TrimSpace(code)
+	now := time.Now().UTC()
+	matched := int64(-1)
+	for _, skew := range []int64{0, -1, 1} {
+		expected, err := totp.GenerateCodeCustom(secret, now.Add(time.Duration(skew*30)*time.Second),
+			totp.ValidateOpts{Period: 30, Skew: 0, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1})
+		if err != nil {
+			return false, nil
+		}
+		if subtle.ConstantTimeCompare([]byte(expected), []byte(code)) == 1 {
+			matched = now.Add(time.Duration(skew*30) * time.Second).Unix() / 30
+			break
+		}
+	}
+	if matched < 0 {
 		return false, nil
 	}
-	step := accountCurrentTotpStep()
 	res, err := s.DB.ExecContext(ctx,
 		"UPDATE `User` SET lastTotpStep = ?, updatedAt = ? WHERE id = ? AND (lastTotpStep IS NULL OR lastTotpStep < ?)",
-		step, time.Now().UTC(), userID, step)
+		matched, time.Now().UTC(), userID, matched)
 	if err != nil {
 		return false, err
 	}

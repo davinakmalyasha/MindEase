@@ -52,9 +52,10 @@ automated look automated.
 
 **Disclosure**
 A clinically significant signal that a patient has expressed thoughts of
-self-harm. Three sources produce one: a non-zero answer to PHQ-9 item 9, the SOS
-button, and crisis phrasing in a patient-to-clinician message. A disclosure
-becomes a `RiskAlert` row and is escalated to the assigned clinician.
+self-harm. Four sources produce one: a non-zero answer to PHQ-9 item 9, the SOS
+button, crisis phrasing in a patient-to-clinician message, and a sustained mood
+decline. A disclosure becomes a `RiskAlert` row and is escalated to the assigned
+clinician, or to the admins when there is none.
 
 **Risk queue**
 The clinician-facing triage worklist at `/api/wellness/risk-alerts`. It defaults

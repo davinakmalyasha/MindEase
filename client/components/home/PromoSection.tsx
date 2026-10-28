@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 
 const PROMO_ITEMS = [
     {
-        title: "Telepathy Platforms",
+        title: "Video Consultations",
         image: "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&q=80&w=800",
     },
     {

@@ -16,8 +16,12 @@ export default function LanguageSwitcher() {
     const switchLocale = (code: string) => {
         // eslint-disable-next-line react-hooks/immutability
         document.cookie = `locale=${code}; path=/; max-age=31536000; SameSite=Lax`;
+        // Keep the full URL, not just the pathname: a locale switch used to
+        // drop `?doctor=` and `?with=`, stranding a booking deep link and an
+        // open conversation on a bare page. Read off `window.location` rather
+        // than `useSearchParams` so this component needs no Suspense boundary.
         // eslint-disable-next-line react-hooks/immutability
-        window.location.href = pathname;
+        window.location.href = `${pathname}${window.location.search}`;
     };
 
     return (

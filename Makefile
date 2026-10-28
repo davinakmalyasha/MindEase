@@ -198,8 +198,12 @@ check-stale-writes: ## Fail when a response can overwrite a newer one, or a fail
 	node scripts/check-stale-writes.test.js
 	node scripts/check-stale-writes.js
 
+.PHONY: check-ui-hygiene
+check-ui-hygiene: ## UI-hygiene ratchet: hardcoded strings and locale bypasses may fall, never rise. Required in CI.
+	cd $(CLIENT) && node scripts/check-ui-hygiene.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-workflows check-a11y-ids check-csp check-i18n check-a11y check-load-states check-stale-writes check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-workflows check-a11y-ids check-csp check-i18n check-a11y check-load-states check-stale-writes check-ui-hygiene check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client

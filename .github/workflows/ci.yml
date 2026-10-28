@@ -134,6 +134,13 @@ jobs:
         run: |
           node scripts/check-load-states.test.js
           node scripts/check-load-states.js
+      # The UI-hygiene ratchet: hardcoded English strings and viewer-locale
+      # date formatting may fall but never rise. It lives in client/ because
+      # it walks the client tree, so it runs with client as the working
+      # directory.
+      - name: UI-hygiene gate
+        working-directory: client
+        run: node scripts/check-ui-hygiene.js
 
       # A response that lands after a newer one. Next.js keeps the component
       # mounted across /[appointmentId]/A and /[appointmentId]/B and `params`

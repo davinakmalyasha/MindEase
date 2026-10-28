@@ -36,7 +36,7 @@ export default function Footer() {
                             Ready to improve your <br className="hidden md:block" /> mental well-being?
                         </h2>
                         <p className="text-indigo-100/70 font-medium max-w-md">
-                            Join over 50,000+ users who are taking charge of their happiness today.
+                            Book a session that fits your schedule — video, voice or chat with a reviewed professional.
                         </p>
                     </div>
 

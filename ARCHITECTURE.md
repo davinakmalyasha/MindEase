@@ -133,17 +133,15 @@ regex rather than a model: [ADR-0002](docs/adr/0002-ai-provenance.md).
 The most safety-critical surface in the product, and the part with the most
 opinionated code.
 
-A non-zero answer to PHQ-9 item 9 is treated as a disclosure. Two further
-sources feed the same queue: the SOS button, and crisis phrasing in a
-patient-to-clinician message. All three land in one `RiskAlert` table, which is
-the only triage worklist a clinician works.
-
-A fourth signal, a sustained mood decline, is detected daily by
-`jobs/checkins.ts` and does prompt the patient directly — but it does not reach
-this queue. `RiskAlert.sourceType` reserves `"mood"` for it, so wiring it up is
-a matter of raising an alert rather than inventing a mechanism. It is called out
-here because "the decline nudge notifies the patient" and "a clinician sees a
-declining patient" are different claims, and only the first one is true today.
+A non-zero answer to PHQ-9 item 9 is treated as a disclosure. Three further
+sources feed the same queue: the SOS button, crisis phrasing in a
+patient-to-clinician message, and a sustained mood decline detected daily by
+the check-ins job. All four land in one `RiskAlert` table, which is
+the only triage worklist a clinician works. A disclosure from a patient with
+no assigned clinician is recorded as unassigned and pages the admins, and an
+admin can acknowledge and resolve it — "the decline nudge notifies the
+patient" and "a clinician sees a declining patient" are both true, through the
+queue rather than around it.
 
 Two state transitions, deliberately distinct. `acknowledgedAt` means a human has
 seen it; `resolvedAt` means it is dealt with. The queue defaults to *unresolved*
@@ -179,7 +177,7 @@ existing `joinRoom` path. Only the appointment's patient and clinician can mint
 one, and the appointment-time gate is unchanged: the room opens 15 minutes early
 and closes an hour after the end, and a token is scoped to exactly that window.
 
-The token is minted with `jsonwebtoken` rather than a vendor SDK. A LiveKit
+The token is minted with `golang-jwt` rather than a vendor SDK. A LiveKit
 access token is an HS256 JWT with a video claim; minting it directly is ~20
 lines, keeps a new third-party package out of a platform holding health data,
 and is testable without Docker or a LiveKit account.
@@ -213,9 +211,9 @@ never built. Its zero-trust threat model survives in the services and ADRs.
 
 | Suite | Count | Runs against |
 |---|---|---|
-| Go API | 42 tests across both Go modules | Unit: config guards, tokens, hashing |
+| Go API | 67 tests, 13 files (23 MySQL integration) | Unit: config guards, tokens, hashing; integration: claims, rotation, audit, exports |
 | client | 52 vitest, 8 files | jsdom |
-| realtime | (included above) | In-memory, `-race` |
+| realtime | 32 tests, 5 files | In-memory, `-race` |
 | e2e | 12 Playwright tests, 11 journeys | The compose stack, required in CI |
 
 The behavioural suite is the browser one: it drives the real client against
@@ -230,24 +228,20 @@ Three gates are worth calling out:
 - **Token purposes**: each token carries an audience and purpose, and the Go
   tests prove a refresh token or 2FA ticket cannot verify as an access token.
 - **The browser suite** covers the flows; the old message-substring status
-  derivation.
-- **`realtime-contract.test.ts`** re-parses the event union from source and
-  cross-checks the Go JSON tags and the client fanout map, so three
-  implementations of one contract cannot drift apart silently.
+  derivation is gone with the typed `*AppError`.
+- **The realtime contract** is pinned by the Go hub tests on one side and the
+  twelve journeys on the other — no cross-language re-parse step survived the
+  Node retirement, so the boundary is checked where it is implemented.
 
-The e2e suite runs on `workflow_dispatch` or a PR labelled `e2e`, not on every
-push. It had never been executed by any automated process — the CI job's first
-step was failing, so everything after it was unreachable — and reporting a
-selector failure as a required-check failure on the first attempt would be the
-wrong signal. It is promoted to a required check once green.
+The e2e suite runs in the `docker` CI job on every push, after the seed. It is
+a required check.
 
 ## Deployment
 
-Four CI jobs plus a CD workflow. `compose` validates the compose file first, in
+Six CI jobs plus a dispatch-only CD workflow. `compose` validates the compose file first, in
 about ten seconds, because a mis-indented key there once made the `docker` job
 fail on its first step and left every later step silently unreachable.
 
-CD runs on merge to `main` behind a GitHub `production` environment that
-requires approval. Schema changes are applied with `cmd/migrate` as a separate
+CD runs on `workflow_dispatch` behind a GitHub `production` environment. Schema changes are applied with `cmd/migrate` as a separate
 step — never ad-hoc DDL — so the same migration files run in CI and in
 production.

@@ -1,22 +1,21 @@
 # Migrating the API to Go — the plan, the toolchain, and the parity strategy that makes it checkable
 
 Status: **executed.** The Node implementation is deleted. `server-go/` is the
-API — 160 route registrations, chi + database/sql over MySQL, Go 1.27.2 — and
+API — 161 route registrations, chi + database/sql over MySQL, Go 1.27.3 — and
 `server-go/migrations/*.up.sql` (with `cmd/migrate`, baselined against Prisma's
 bookkeeping table) is the only schema path. `cmd/seed` replaces the Node seed.
 Docker compose builds the Go API and a Go migrate one-shot, CI's Docker job boots
-that stack and passes all 15 browser tests in production mode, the Playwright
+that stack and passes all 12 browser tests in production mode, the Playwright
 webServer runs the Go binary locally, and the Railway config points at
 `server-go/Dockerfile`.
 
 What remains for full parity, in the order it matters: request/response
 schemas in the OpenAPI document (the route inventory and security schemes are
-generated from the live router now) and the response-fixture matrix, and a
-fuller port of the 519 Node tests — a 12-test MySQL integration suite now covers
-the races and guards (including TOTP replay and single-use backup codes), and
-unit tests cover the Midtrans signature and rate-limit isolation, while the
-job-claim hand-back, trajectory and admin-export cases remain uncovered (named
-in `docs/testing.md`). SMTP delivery and web push are
+generated from the live router now) and the response-fixture matrix. The
+integration suite is 23 MySQL tests covering the races and guards (TOTP replay
+including the future-step edge, single-use backup codes, the job-claim
+hand-back, trajectory, admin-export kinds, unassigned SOS, review pseudonyms,
+profile updates). SMTP delivery and web push are
 wired: notifications, OTP mail and job reminders send when configured, and dead
 push subscriptions are pruned.
 

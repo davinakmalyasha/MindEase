@@ -1,12 +1,10 @@
 "use client";
 
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useCallback, useTransition, Suspense } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useTransition } from "react";
 import { Doctor } from "@/lib/types/doctor";
 import DoctorCard from "./DoctorCard";
-import DoctorCardSkeleton from "./DoctorCardSkeleton";
-import { ITEMS_PER_PAGE } from "@/lib/types/doctor";
-import { SearchX, ChevronLeft, ChevronRight } from "lucide-react";
+import { SearchX } from "lucide-react";
 
 interface DoctorGridProps {
     doctors: Doctor[];
@@ -14,34 +12,17 @@ interface DoctorGridProps {
 }
 
 export default function DoctorGrid({ doctors, totalCount }: DoctorGridProps) {
-    const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
     const [isPending, startTransition] = useTransition();
 
-    const currentPage = Number(searchParams.get("page")) || 1;
-    const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
-
-    const setPage = useCallback(
-        (page: number) => {
-            const params = new URLSearchParams(searchParams.toString());
-            if (page <= 1) {
-                params.delete("page");
-            } else {
-                params.set("page", String(page));
-            }
-            startTransition(() => {
-                router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-            });
-        },
-        [searchParams, router, pathname]
-    );
-
-    const clearFilters = useCallback(() => {
+    // Pagination lives in the directory page as Load More: this grid renders
+    // whatever has arrived so far and never numbers pages itself.
+    const clearFilters = () => {
         startTransition(() => {
             router.replace(pathname, { scroll: false });
         });
-    }, [router, pathname]);
+    };
 
     if (doctors.length === 0) {
         return (
@@ -75,39 +56,6 @@ export default function DoctorGrid({ doctors, totalCount }: DoctorGridProps) {
                     <DoctorCard key={doctor.id} doctor={doctor} />
                 ))}
             </div>
-
-            {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 mt-10">
-                    <button
-                        disabled={currentPage <= 1}
-                        onClick={() => setPage(currentPage - 1)}
-                        className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <ChevronLeft className="w-4 h-4" />
-                    </button>
-
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                        <button
-                            key={page}
-                            onClick={() => setPage(page)}
-                            className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${page === currentPage
-                                    ? "bg-indigo-600 text-white"
-                                    : "text-gray-600 hover:bg-gray-100"
-                                }`}
-                        >
-                            {page}
-                        </button>
-                    ))}
-
-                    <button
-                        disabled={currentPage >= totalPages}
-                        onClick={() => setPage(currentPage + 1)}
-                        className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <ChevronRight className="w-4 h-4" />
-                    </button>
-                </div>
-            )}
         </div>
     );
 }

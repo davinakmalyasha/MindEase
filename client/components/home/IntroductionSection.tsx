@@ -37,7 +37,7 @@ export default function IntroductionSection() {
                     whileInView={{ opacity: 1, x: 0 }}
                     viewport={{ once: true }}
                     transition={{ duration: 0.8, delay: 0.4 }}
-                    className="w-full md:w-[45%] text-xl md:text-2xl font-medium leading-relaxed text-gray-600 font-sans"
+                    className="w-full md:w-[45%] text-xl md:text-2xl font-medium leading-relaxed text-gray-600 dark:text-gray-300 font-sans"
                 >
                     A bridge for those seeking to consult their mental health with qualified psychologists and experts.
                     <br /><br />

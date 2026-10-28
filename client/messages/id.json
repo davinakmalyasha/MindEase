@@ -19,7 +19,8 @@
     "tryAgain": "Coba lagi",
     "somethingWentWrong": "Terjadi kesalahan",
     "couldNotLoad": "Data ini tidak dapat dimuat",
-    "noResults": "Belum ada apa-apa di sini"
+    "noResults": "Belum ada apa-apa di sini",
+    "availabilityNotStated": "Ketersediaan tidak tercantum"
   },
   "nav": {
     "home": "Beranda",
@@ -28,7 +29,11 @@
     "crisisHelp": "Bantuan Krisis",
     "myHistory": "Riwayat Saya",
     "signIn": "Masuk/Daftar",
-    "signUp": "Daftar"
+    "signUp": "Daftar",
+    "openMenu": "Buka menu navigasi",
+    "closeMenu": "Tutup menu navigasi",
+    "mainNavigation": "Navigasi utama",
+    "homeLabel": "Beranda MindEase"
   },
   "auth": {
     "welcomeBack": "Selamat Datang Kembali",
@@ -361,6 +366,7 @@
         {
           "name": "Kemenkes SEJIWA (Hotline Krisis Nasional)",
           "number": "119 ext 8",
+          "dial": "119",
           "note": "Kementerian Kesehatan RI — hotline krisis kesehatan jiwa 24/7.",
           "whatsapp": false
         },
@@ -480,6 +486,31 @@
           "contact": "+62 812-123-2012"
         }
       ]
+    }
+  },
+  "home": {
+    "valueProps": {
+      "kicker": "Apa yang dilakukan MindEase",
+      "headingA": "Perawatan yang",
+      "headingB": "menyesuaikan hidup Anda",
+      "sub": "Dukungan profesional, alat sehari-hari, dan bantuan untuk saat-saat tersulit — dalam satu tempat.",
+      "bookTitle": "Pesan sesi",
+      "bookBody": "Pilih klinisi dari direktori dan bertemu lewat video, suara, atau chat pada waktu yang sesuai untuk Anda.",
+      "bookCta": "Cari klinisi",
+      "trackTitle": "Pantau di antara sesi",
+      "trackBody": "Catat suasana hati, tulis jurnal, dan isi skrining standar, agar setiap sesi berangkat dari kondisi Anda.",
+      "trackCta": "Lihat caranya",
+      "crisisTitle": "Dukungan saat krisis",
+      "crisisBody": "Hotline krisis gratis dan langkah segera, tercantum jelas dan dapat diakses tanpa masuk.",
+      "crisisCta": "Sumber daya krisis"
+    },
+    "hero": {
+      "statFormat": "Video, suara & chat",
+      "statFormatSub": "Format sesi",
+      "statMood": "Pelacakan suasana hati",
+      "statMoodSub": "Di antara sesi",
+      "statCrisis": "Dukungan krisis",
+      "statCrisisSub": "Bantuan kapan saja"
     }
   }
 }

@@ -1683,3 +1683,55 @@ func TestIntegrationProfileUpdatePersists(t *testing.T) {
 	}
 	_ = doctorUserID
 }
+
+func TestIntegrationTwoFactorFutureStepCodeCannotBeReplayed(t *testing.T) {
+	s := newIntegrationServer(t)
+	email := uniqueEmail(t)
+	seedUser(t, email, "Patient@123", "patient")
+
+	setup := newTestClient(t, s.Mount())
+	setup.login(email, "Patient@123")
+	rec, body, text := setup.request(http.MethodPost, "/api/account/2fa/setup",
+		map[string]any{"password": "Patient@123"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("2fa setup: %d %s", rec.Code, text)
+	}
+	secret, _ := dataObject(t, body)["secret"].(string)
+	enableCode, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("generate TOTP: %v", err)
+	}
+	rec, _, text = setup.request(http.MethodPost, "/api/account/2fa/enable",
+		map[string]any{"code": enableCode})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("2fa enable: %d %s", rec.Code, text)
+	}
+
+	// A code from the +1 edge of the tolerance window is accepted once, then
+	// must be dead: the recorded step is the step the code was made for.
+	future, err := totp.GenerateCode(secret, time.Now().Add(30*time.Second))
+	if err != nil {
+		t.Fatalf("generate future TOTP: %v", err)
+	}
+	verify := func(candidate string) int {
+		client := newTestClient(t, s.Mount())
+		client.ensureCSRF()
+		loginRec, loginBody, loginText := client.request(http.MethodPost, "/api/auth/login",
+			map[string]any{"email": email, "password": "Patient@123"})
+		if loginRec.Code != http.StatusOK {
+			t.Fatalf("2fa login: %d %s", loginRec.Code, loginText)
+		}
+		token, _ := dataObject(t, loginBody)["twoFactorToken"].(string)
+		verifyClient := newTestClient(t, s.Mount())
+		verifyClient.ensureCSRF()
+		verifyRec, _, _ := verifyClient.request(http.MethodPost, "/api/account/2fa/verify",
+			map[string]any{"token": token, "code": candidate})
+		return verifyRec.Code
+	}
+	if got := verify(future); got != http.StatusOK {
+		t.Fatalf("first future-step verification: %d, want 200", got)
+	}
+	if got := verify(future); got != http.StatusUnauthorized {
+		t.Fatalf("replayed future-step code: %d, want 401", got)
+	}
+}

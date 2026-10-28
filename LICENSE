@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-A note on this project, since it handles sensitive data.
-
-The code is released for study, review and contribution. It is not presented as
-production-ready clinical software, and it has not been through the regulatory
-process (HIPAA, EU MDR, or local equivalents) that software making treatment
-decisions about identifiable people requires. See SECURITY.md for how to report a
-vulnerability rather than disclosing it in a public issue.

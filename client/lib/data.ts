@@ -10,56 +10,12 @@ export interface Testimonial {
 import { Doctor, AppointmentWithDoctor } from "./types/doctor";
 export type { Doctor, AppointmentWithDoctor };
 
-export const TESTIMONIALS: Testimonial[] = [
-    {
-        id: 1,
-        quote: "This app is a lifesaver! Mindease has completely transformed how I deal with stress and anxiety.",
-        name: "Sarah Johnson",
-        rating: 5,
-        role: "Graphic Designer",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah",
-    },
-    {
-        id: 2,
-        quote: "The telepathy consultations are truly professional. I feel much lighter after every session.",
-        name: "Michael Chen",
-        rating: 5,
-        role: "Software Engineer",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=Michael",
-    },
-    {
-        id: 3,
-        quote: "Finally a platform that understands mental health as a priority. Highly recommended!",
-        name: "Emily Davis",
-        rating: 4,
-        role: "Teacher",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=Emily",
-    },
-    {
-        id: 4,
-        quote: "Finding a therapist has never been this easy. The interface is so soothing.",
-        name: "James Wilson",
-        rating: 5,
-        role: "Student",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=James",
-    },
-    {
-        id: 5,
-        quote: "MindEase helped me discover the power of meditation in my recovery journey.",
-        name: "Lisa Anderson",
-        rating: 4,
-        role: "Blogger",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa",
-    },
-    {
-        id: 6,
-        quote: "Top-notch psychologists and mental health experts. Best investment for myself.",
-        name: "David Martinez",
-        rating: 5,
-        role: "Architect",
-        avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=David",
-    },
-];
+/**
+ * Removed: six hardcoded testimonials with invented names, roles, quotes and
+ * star ratings (one praised "telepathy consultations"). Fabricated social
+ * proof has no place on a mental-health platform; the home page section that
+ * rendered these now describes the product instead.
+ */
 
 
 export const MOCK_MY_APPOINTMENTS: AppointmentWithDoctor[] = [

@@ -175,6 +175,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         <LogOut className="w-4 h-4" />
                         {tc("logout")}
                     </button>
+                    {/* Desktop had no locale control at all — the switcher only
+                        existed in the public navbar and the mobile drawer. */}
+                    <div className="flex justify-center pt-1">
+                        <LanguageSwitcher />
+                    </div>
                 </div>
             </aside>
 

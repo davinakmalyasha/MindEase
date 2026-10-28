@@ -12,7 +12,7 @@ export async function generateMetadata() {
 
 export default async function CrisisPage() {
     const t = await getTranslations("staticPages.crisis");
-    const hotlines = t.raw("hotlines") as { name: string; number: string; note: string; whatsapp?: boolean }[];
+    const hotlines = t.raw("hotlines") as { name: string; number: string; dial?: string; note: string; whatsapp?: boolean }[];
     const steps = t.raw("steps") as { title: string; description: string }[];
 
     const stepIcons = [PhoneCall, HeartHandshake, ShieldAlert];
@@ -23,13 +23,17 @@ export default async function CrisisPage() {
      * `wa.me/112119` — a link that goes nowhere. A `tel:` link also works with
      * no data plan, which matters for the users most likely to need it.
      */
-    const dialHref = (h: { number: string; whatsapp?: boolean }) => {
+    const dialHref = (h: { number: string; dial?: string; whatsapp?: boolean }) => {
         if (h.whatsapp) {
             const digits = h.number.replace(/\D/g, "");
             // WhatsApp needs a country code with no leading zero.
             const international = digits.replace(/^0+/, "");
             return `https://wa.me/${international}`;
         }
+        // `dial` is the number the phone actually calls; `number` is what the
+        // user reads. Deriving one from the other broke SEJIWA's "119 ext 8"
+        // into tel:1198, an extension the phone network never sees.
+        if (h.dial) return `tel:${h.dial}`;
         return `tel:${h.number.replace(/[^\d+]/g, "")}`;
     };
 

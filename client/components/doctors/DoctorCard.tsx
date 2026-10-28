@@ -2,12 +2,19 @@ import Image from "next/image";
 import { Doctor } from "@/lib/types/doctor";
 import { Star, BadgeCheck, Clock, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 interface DoctorCardProps {
     doctor: Doctor;
 }
 
 export default function DoctorCard({ doctor }: DoctorCardProps) {
+    const tc = useTranslations("common");
+    // The clinician's own label, or an honest unknown. A missing label used
+    // to render as "Unavailable", which claimed a schedule nobody stated.
+    const availabilityLabel = doctor.availability?.trim()
+        ? doctor.availability
+        : tc("availabilityNotStated");
     return (
         <div className="group bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-100 transition-all duration-300 flex flex-col h-full">
             <Link href={`/doctors/${doctor.id}`} className="flex items-start gap-4 mb-4 cursor-pointer">
@@ -44,7 +51,7 @@ export default function DoctorCard({ doctor }: DoctorCardProps) {
                         <span>{doctor.experience}y exp</span>
                     </div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${doctor.isAvailable ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                        {doctor.isAvailable ? "Available" : "Unavailable"}
+                        {doctor.isAvailable ? "Available" : availabilityLabel}
                     </span>
                 </div>
 

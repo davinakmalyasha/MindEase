@@ -94,6 +94,7 @@ function ReviewReplyForm({ reviewId, onDone }: { reviewId: string; onDone: () =>
 export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfileProps) {
     const tr = useTranslations("features.reviewReply");
     const t = useTranslations("features.doctorProfile");
+    const tc = useTranslations("common");
     const { toast } = useToast();
     const { user } = useAuth();
     const confirm = useConfirm();
@@ -337,7 +338,15 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                                         ? "bg-emerald-50 text-emerald-700 border-emerald-100"
                                         : "bg-gray-50 text-gray-400 border-gray-100"
                                 )}>
-                                    {doctor.isAvailable ? "Available" : "Fully Booked"}
+                                    {/* The clinician's own word, or an honest unknown.
+                                        A non-"Available" value used to render as
+                                        "Fully Booked", which claimed full slots with
+                                        no slot evidence. */}
+                                    {doctor.isAvailable
+                                        ? "Available"
+                                        : doctor.availability?.trim()
+                                            ? doctor.availability
+                                            : tc("availabilityNotStated")}
                                 </span>
                             </motion.div>
                             <motion.h1
@@ -368,7 +377,9 @@ export default function DoctorProfile({ doctor, reviews, canReply }: DoctorProfi
                     <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
                         {[
                             { icon: Briefcase, label: "Experience", value: `${doctor.experience} Years`, color: "text-indigo-500" },
-                            { icon: Users, label: "Patients", value: `${doctor.reviewCount} Reviews`, color: "text-purple-500" },
+                            // The value is a review count, so the label says
+                            // so. "Patients" claimed a caseload nobody counted.
+                            { icon: Users, label: "Reviews", value: `${doctor.reviewCount}`, color: "text-purple-500" },
                             { icon: Star, label: "Avg Rating", value: `${doctor.rating} / 5.0`, color: "text-amber-500" }
                         ].map((stat, i) => (
                             <motion.div

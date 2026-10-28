@@ -90,7 +90,7 @@ export default function MoodPage() {
     };
 
     const TrendIcon = stats?.trend === "improving" ? TrendingUp : stats?.trend === "declining" ? TrendingDown : Minus;
-    const trendColor = stats?.trend === "improving" ? "text-emerald-600" : stats?.trend === "declining" ? "text-rose-600" : "text-gray-500";
+    const trendColor = stats?.trend === "improving" ? "text-emerald-600 dark:text-emerald-400" : stats?.trend === "declining" ? "text-rose-600 dark:text-rose-400" : "text-gray-500 dark:text-gray-300";
 
     if (!user) return <DashboardLayout><div className="h-40 bg-gray-50 rounded-3xl animate-pulse" /></DashboardLayout>;
 
@@ -171,29 +171,29 @@ export default function MoodPage() {
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-3xl border border-gray-100 p-6">
                         <h2 className="text-lg font-extrabold text-gray-900 mb-4">{tm("yourInsights")}</h2>
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50/60">
+                            <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/50">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-indigo-500 text-white flex items-center justify-center"><HeartPulse className="w-5 h-5" /></div>
                                     <div>
-                                        <p className="text-xs font-bold text-gray-400 uppercase">{tm("avg30")}</p>
-                                        <p className="text-2xl font-black text-gray-900">{stats?.average ?? "—"} <span className="text-sm font-bold text-gray-400">/ 5</span></p>
+                                        <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">{tm("avg30")}</p>
+                                        <p className="text-2xl font-black text-gray-900 dark:text-white">{stats?.average ?? "—"} <span className="text-sm font-bold text-gray-400">/ 5</span></p>
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between p-4 rounded-2xl bg-amber-50/60">
+                            <div className="flex items-center justify-between p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/50">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center"><Flame className="w-5 h-5" /></div>
                                     <div>
-                                        <p className="text-xs font-bold text-gray-400 uppercase">{tm("logStreak")}</p>
-                                        <p className="text-2xl font-black text-gray-900">{stats?.streak ?? 0} <span className="text-sm font-bold text-gray-400">{tm("days")}</span></p>
+                                        <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">{tm("logStreak")}</p>
+                                        <p className="text-2xl font-black text-gray-900 dark:text-white">{stats?.streak ?? 0} <span className="text-sm font-bold text-gray-400">{tm("days")}</span></p>
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between p-4 rounded-2xl bg-emerald-50/60">
+                            <div className="flex items-center justify-between p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/50">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center"><TrendIcon className="w-5 h-5" /></div>
                                     <div>
-                                        <p className="text-xs font-bold text-gray-400 uppercase">{tm("trend")}</p>
+                                        <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase">{tm("trend")}</p>
                                         <p className={cn("text-2xl font-black capitalize", trendColor)}>{stats?.trend ?? "—"}</p>
                                     </div>
                                 </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import NextImage from "next/image";
 import { ChevronLeft, ChevronRight, Check } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -45,6 +46,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
     const [isSuccess, setIsSuccess] = useState(false);
     const [usePackage, setUsePackage] = useState(false);
     const { toast } = useToast();
+    const router = useRouter();
     const bookMutation = useBookAppointment();
 
     /**
@@ -160,6 +162,14 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
             });
             setIsSuccess(true);
         } catch (error: any) {
+            // Booking requires a session. A guest who reached this modal
+            // (e.g. a deep link that landed before the page guard redirected)
+            // goes to login with the doctor choice preserved, not to a dead
+            // "Failed to book" toast. `/login` already honours `?next=`.
+            if (error?.response?.status === 401) {
+                router.push(`/login?next=${encodeURIComponent(`/appointments?doctor=${doctor.id}`)}`);
+                return;
+            }
             toast(getErrorMessage(error, "Failed to book appointment"), "error");
         } finally {
             setIsBooking(false);
@@ -168,6 +178,7 @@ export default function BookingModal({ doctor, onClose }: BookingModalProps) {
         bookMutation,
         doctor.id,
         patientInfo,
+        router,
         selectedDate,
         selectedPackage,
         selectedSlot,

@@ -185,8 +185,8 @@ function DoctorsContent() {
             <main className="min-h-screen bg-gray-50 pt-24 pb-16 px-[5%]">
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-gray-900">Find Your Doctor</h1>
-                    <p className="text-gray-500 mt-1">
-                        Browse our certified mental health professionals
+                        <p className="text-gray-500 mt-1">
+                        Browse our reviewed mental health professionals
                     </p>
                 </div>
 

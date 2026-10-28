@@ -31,27 +31,26 @@ comment explaining the threat and the decision. The load-bearing ones:
 
 | Area | Where to look |
 |---|---|
-| Session model — httpOnly cookies, CSRF double-submit, JWT purpose separation | `server/src/lib/tokens.ts`, `server/src/middleware/csrf.middleware.ts` |
-| Password hashing (argon2id) and account lockout | `server/src/services/auth.service.ts` |
-| Two-factor, TOTP replay guard, backup codes | `server/src/services/twoFactor.service.ts` |
-| Ownership checks on every clinical record | `server/src/services/carePlan.service.ts` (`assertMayContribute`) |
-| The disclosure triage queue, and who may read it | `server/src/services/riskQueue.service.ts` |
-| Free-text sanitisation at every write path | `server/src/utils/sanitize.ts` |
-| Video session credentials — scoped, short-lived, participant-bound | `server/src/services/video.service.ts` |
-| Prompt-injection fencing for every AI call | `server/src/services/ai.service.ts` |
-| Error responses, and why they never carry internals | `server/src/utils/appError.ts` |
+| Session model — httpOnly cookies, CSRF double-submit, JWT purpose separation | `server-go/internal/server/tokens.go`, `server-go/internal/server/csrf.go` |
+| Password hashing (argon2id) and account lockout | `server-go/internal/server/routes_auth.go` |
+| Two-factor, TOTP replay guard, backup codes | `server-go/internal/server/routes_account.go` |
+| Ownership checks on every clinical record | `server-go/internal/server/routes_care.go` |
+| The disclosure triage queue, and who may read it | `server-go/internal/server/routes_wellness.go` (`clinicalCanTriage`) |
+| Free-text sanitisation at every write path | `server-go/internal/server` via `s.Sanitizer` (`msgSanitize`, `apptSanitizeText`) |
+| Video session credentials — scoped, short-lived, participant-bound | `server-go/internal/server/routes_appointments.go` (`apptBuildGrant`) |
+| Prompt-injection fencing for every AI call | `server-go/internal/server/ai.go` |
+| Error responses, and why they never carry internals | `server-go/internal/server/respond.go` (`AppError`) |
 
 Three of those are worth calling out because they exist specifically to make a
 *clinical* failure visible rather than quiet:
 
-- **`RiskQueueService.listQueue` scopes the triage queue in the SQL `where`
-  clause**, so an alert a clinician may not see is never loaded into the process
+- **The triage queue scopes in the SQL `where` clause**, so an alert a clinician may not see is never loaded into the process
   at all. A filter applied after the fetch would leak the existence of a
   disclosure to anyone who could not read it.
-- **`AiResult` carries `source` and `degradedReason` as type-level fields.** A
+- **AI responses carry `source` and `degradedReason`.** A
   degraded AI response cannot be rendered as if it were a real one without
-  ignoring the type, which is the point.
-- **`crisisText.service.ts` never auto-escalates.** Matching a crisis phrase
+  ignoring the fields, which is the point.
+- **The crisis matcher never auto-escalates.** Matching a crisis phrase
   prompts a human; it does not contact anyone. There is no code path from a
   patient's message to an external service.
 
@@ -64,14 +63,16 @@ more detail:
 - **Idempotency keys are checked, not scoped.** Replay is bound to the user, so a
   key cannot be reused across accounts, but the same key with a different body
   returns the first result rather than a conflict.
-- **No dependency scanning or SAST in CI.** The history has been audited and no
-  secret was ever committed, but there is no automated mechanism keeping it that
-  way.
+- **Automated scanning runs in CI.** Gitleaks over full history, CodeQL for
+  TypeScript and Go, Trivy config and image scans, `npm audit` and `govulncheck`
+  (see `.github/workflows/security.yml`). The history has also been audited and
+  no secret was ever committed.
 - **Sessions are cookie-based with no device list.** "Sign out everywhere" is not
-  implemented; a token is valid until it expires or the password changes.
-- **Rate limits fail open when Redis is unavailable.** Deliberate — an
-  unavailable cache must not take the site down — and the credential limiters log
-  a warning on every miss, but it is a fail-open.
+  implemented; a token is valid until it expires or the password changes (which
+  revokes refresh tokens; an in-flight access token lives up to 15 minutes).
+- **Rate limits fail open when Redis is unavailable, with an in-process fallback.** Deliberate — an
+  unavailable cache must not take the site down — and the fallback is counted in
+  metrics, but it is a fail-open.
 - **AI prompts are fenced, not sandboxed.** A per-process random nonce defeats
   delimiter injection; it is not a guarantee against a model reasoning its way
   past a fence.

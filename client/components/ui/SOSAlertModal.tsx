@@ -44,6 +44,13 @@ export default function SOSAlertModal() {
     const current = alerts[0] ?? null;
     const remaining = alerts.length - 1;
 
+    // The realtime payload carries the patient, so the chat opens on their
+    // conversation instead of a bare inbox. `/messages` already honours
+    // `?with=`; without an id there is nothing to address it to.
+    const chatHref = current?.patientId
+        ? `/messages?with=${encodeURIComponent(current.patientId)}`
+        : "/messages";
+
     return (
         <Dialog
             open={current !== null}
@@ -70,7 +77,7 @@ export default function SOSAlertModal() {
 
             <div className="flex gap-3">
                 <Link
-                    href="/messages"
+                    href={chatHref}
                     onClick={dismiss}
                     className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-500 py-3 text-sm font-black text-white transition-colors hover:bg-rose-600"
                 >

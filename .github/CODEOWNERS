@@ -25,28 +25,30 @@
 
 # Sessions, authorisation, the clinical record access checks and anything
 # that decides who may read a patient's data.
-/server/src/lib/                 @davinakmalyasha
-/server/src/middleware/          @davinakmalyasha
-/server/src/services/auth.service.ts      @davinakmalyasha
-/server/src/services/twoFactor.service.ts  @davinakmalyasha
-/server/src/services/riskQueue.service.ts  @davinakmalyasha
-/server/src/services/carePlan.service.ts   @davinakmalyasha
-/server/src/services/video.service.ts      @davinakmalyasha
+/server-go/internal/server/auth.go           @davinakmalyasha
+/server-go/internal/server/tokens.go         @davinakmalyasha
+/server-go/internal/server/routes_auth.go    @davinakmalyasha
+/server-go/internal/server/routes_account.go @davinakmalyasha
+/server-go/internal/server/routes_wellness.go @davinakmalyasha
+/server-go/internal/server/routes_care.go    @davinakmalyasha
+/server-go/internal/server/routes_appointments.go @davinakmalyasha
 
 # Crisis handling. The narrowest rule in the file on purpose: this is the code
 # where a wrong assumption is a harm rather than a bug.
-/server/src/services/crisisText.service.ts  @davinakmalyasha
+/server-go/internal/server/routes_messages.go @davinakmalyasha
+/server-go/internal/server/routes_support.go  @davinakmalyasha
+/server-go/internal/server/jobs.go            @davinakmalyasha
 
 # Migrations and the schema. Drift here is what broke the triage queue once
 # already, so these are the files to read twice.
-/server/prisma/                  @davinakmalyasha
+/server-go/migrations/             @davinakmalyasha
 
 # AI call sites. Every one of them reports whether a model answered, and the
 # degraded path is the one that has to keep working.
-/server/src/services/ai.service.ts  @davinakmalyasha
+/server-go/internal/server/ai.go   @davinakmalyasha
+/server-go/internal/ai/            @davinakmalyasha
 
-# The realtime contract has three implementations and one test. All three.
-/server/tests/realtime-contract.test.ts  @davinakmalyasha
+# The realtime contract has Go hub tests and the browser journeys. Both.
 /server-realtime/                @davinakmalyasha
 
 # Crisis hotline numbers and organisation names are byte-identical across

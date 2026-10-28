@@ -1,5 +1,11 @@
 # Engineering notes
 
+> Historical context: this pass predates the Go port. The Node scripts, suite
+> sizes and `server/` paths referenced below are historical — the backend is
+> now Go (`server-go/`), the realtime service was always Go, and current counts
+> live in the README's Scale table. The reasoning still stands; the file paths
+> mostly do not.
+
 Written after a hardening pass over this repository, by the person who did the
 pass. Not a design document — [ARCHITECTURE.md](ARCHITECTURE.md) and
 [docs/adr/](docs/adr/) are those. This is the part a document is not supposed to

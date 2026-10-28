@@ -188,8 +188,8 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                         <Brain className="w-8 h-8 text-violet-400" />
                     </h1>
                     <p className="text-gray-500 mt-2 max-w-xl">
-                        An AI-compiled summary of the patient&apos;s recent mood and pre-session reflections —
-                        generated from Gemini and only visible to you.
+                        An AI-generated summary of the patient&apos;s recent mood and pre-session reflections —
+                        compiled from their records and only visible to you.
                     </p>
                 </div>
                 {appointment?.user?.name && (

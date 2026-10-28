@@ -117,9 +117,10 @@ durable job table; a `SELECT ... FOR UPDATE SKIP LOCKED` loop inside the jobs
 remains a possible later refinement, not a prerequisite.
 
 It also stays Tier 2 rather than Tier 1 for a reason that must survive any
-refactor: nothing safety-relevant runs on this schedule - `raiseRiskAlert` is
-synchronous inside the request that observes the risk - and it becomes Tier 1
-the moment anything safety-relevant moves off the request path.
+refactor: the only safety-relevant work on this schedule is the mood-decline
+alert, which pages a human through the same in-app channel as every other
+disclosure — and it becomes Tier 1 the moment anything safety-relevant moves
+off the request path in a way that is not a human page.
 
 ### 4. ~~Advisory guard scripts~~ — done
 
@@ -165,7 +166,7 @@ jobs printed no profile that could be compared between runs.
 number could not be produced even locally. There was no way to tell from a build
 whether an untested branch in a service that gates a disclosure queue is
 untested. The `db push` versus `migrate deploy` episode described in
-[`testing.md`](testing.md#what-running-the-suite-against-a-migrated-database-changed)
+[`testing.md`](testing.md#the-go-api)
 is the same problem in a different form: the suite passed and the thing it did
 not exercise was invisible.
 
@@ -192,7 +193,7 @@ not the handler paths that only the browser suite exercises. E2E has no code
 coverage, and Go has no branch or function metric.
 
 **Also worth adding.** The e2e suite is the fourth gate
-([`testing.md`](testing.md#the-end-to-end-journeys)). Getting it green and
+([`testing.md`](testing.md#the-browser-suite)). Getting it green and
 promoting it to required was worth more than any coverage number, because it is
 the only thing that exercises the three processes together.
 
@@ -381,19 +382,22 @@ would be silent and in the dangerous direction. See
 
 ## How to read the README's known limitations against this
 
-| README says | Status |
+Historical: this table corrected README entries that have since been removed or
+fixed. It is kept so the next reader can see what was already decided.
+
+| README said | Status at the time |
 |---|---|
-| Checkout is read-before-create | **Already fixed.** The live-checkout claim is a unique `liveKey`, cleared on settlement. The README entry is stale. |
-| Sequential integer ids exposed | **Already fixed.** Every key is UUIDv7; no integer id appears in any response. The README entry is stale. |
-| Specialty filter taxonomy mismatch | **Already fixed.** The list is now derived from the server. The README entry is stale. |
-| No payment gateway wired | Accurate and intentional. The interface and its invariants are complete; `getPaymentProvider` returns a stub. |
+| Checkout is read-before-create | Fixed by the `liveKey` unique claim, cleared on settlement. |
+| Sequential integer ids exposed | Fixed: every key is UUIDv7. |
+| Specialty filter taxonomy mismatch | Fixed: the list is derived from the server. |
+| No payment gateway wired | Accurate and intentional; the simulator runs. |
 | Crisis triage is keyword matching | Accurate, and will stay that way. Deliberate, not a gap. |
 | Clinical AI briefings are advisory | Accurate and intentional. |
 | Two large client files | Accurate. Decomposition declined on cost/benefit. |
-| e2e is opt-in and has not run in CI | **Already fixed.** It runs green as a required step in the `docker` job. The README entry is stale. |
-| Two guard scripts do not work | **Already fixed.** `check-operators.js` is deleted (the compiler and `prisma validate` catch what it looked for) and `check-dependencies.js` is required. The README entry is stale. |
+| e2e is opt-in and has not run in CI | Fixed: required step in the `docker` job. |
+| Two guard scripts do not work | Fixed in the Go port: the checks are required CI steps. |
 
-There is no entry here for `node-cron` not being a durable queue, because it is
+There is no entry here for the scheduler not being a durable queue, because it is
 no longer simply true: a lost tick is caught up rather than lost, and what
 remains — the API process owning the schedule — is described in the README's
 deploying section and in [`operations.md`](operations.md#the-cron-jobs-and-what-is-durable-about-them).
@@ -414,7 +418,8 @@ Not a plan. An ordering, with the reasoning:
 5. **Durable background work.** The code exists (the Go API's scheduler and
    `/api/internal/jobs/:name` with `JOBS_SECRET`); what remains is the deployment
    shape decision, i.e. actually running it.
-6. **A real payment provider**, then the race fix once the product has answered
-   the double-purchase question. The two belong in the same conversation.
+6. **A real payment provider.** The double-purchase race is already fixed by
+   the `liveKey` claim; what remains is pointing at a gateway and answering
+   refunds/settlement mapping against its docs.
 7. ~~**UUIDv7.**~~ Done, on its own branch as planned. The destructive
    migration and the reseed it requires are documented in theme 1.

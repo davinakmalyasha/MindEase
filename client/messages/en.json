@@ -19,7 +19,8 @@
     "tryAgain": "Try again",
     "somethingWentWrong": "Something went wrong",
     "couldNotLoad": "This could not be loaded",
-    "noResults": "Nothing here yet"
+    "noResults": "Nothing here yet",
+    "availabilityNotStated": "Availability not stated"
   },
   "nav": {
     "home": "Home",
@@ -28,7 +29,11 @@
     "crisisHelp": "Crisis Help",
     "myHistory": "My History",
     "signIn": "SignIn/SignUp",
-    "signUp": "Sign Up"
+    "signUp": "Sign Up",
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close navigation menu",
+    "mainNavigation": "Main navigation",
+    "homeLabel": "MindEase home"
   },
   "auth": {
     "welcomeBack": "Welcome Back",
@@ -361,6 +366,7 @@
         {
           "name": "Kemenkes SEJIWA (National Crisis Line)",
           "number": "119 ext 8",
+          "dial": "119",
           "note": "Kementerian Kesehatan RI — 24/7 mental health crisis line.",
           "whatsapp": false
         },
@@ -480,6 +486,31 @@
           "contact": "+62 812-123-2012"
         }
       ]
+    }
+  },
+  "home": {
+    "valueProps": {
+      "kicker": "What MindEase does",
+      "headingA": "Care that",
+      "headingB": "fits your life",
+      "sub": "Professional support, everyday tools, and help for the hardest moments — in one place.",
+      "bookTitle": "Book a session",
+      "bookBody": "Choose a clinician from the directory and meet over video, voice or chat at a time that suits you.",
+      "bookCta": "Find a clinician",
+      "trackTitle": "Track between sessions",
+      "trackBody": "Log your mood, keep a journal and complete standard screenings, so every session starts from where you are.",
+      "trackCta": "See how it works",
+      "crisisTitle": "Support in a crisis",
+      "crisisBody": "Free crisis hotlines and immediate steps, listed plainly and reachable without signing in.",
+      "crisisCta": "Crisis resources"
+    },
+    "hero": {
+      "statFormat": "Video, voice & chat",
+      "statFormatSub": "Session formats",
+      "statMood": "Mood tracking",
+      "statMoodSub": "Between sessions",
+      "statCrisis": "Crisis support",
+      "statCrisisSub": "Help any time"
     }
   }
 }

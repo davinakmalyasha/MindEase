@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
 import DoctorCard from "@/components/appointments/DoctorCard";
 import DoctorCardSkeleton from "@/components/appointments/DoctorCardSkeleton";
@@ -16,6 +16,7 @@ Star,
 import api from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import BookingModal from "@/components/appointments/BookingModal";
+import { useAuth } from "@/context/AuthContext";
 
 type SortOption = "rating" | "price_low" | "price_high" | "experience";
 type PriceRange = "all" | "under100" | "100to300" | "over300";
@@ -108,6 +109,30 @@ function AppointmentPageInner() {
     const searchParams = useSearchParams();
     const deepLinkDoctorId = searchParams.get("doctor");
   const [pickedDoctorId, setPickedDoctorId] = useState<string | null>(null);
+  const { user, isLoading: authLoading } = useAuth();
+  const router = useRouter();
+
+  // Booking requires a session, so a guest's first booking click (or a
+  // signed-out deep link) goes to login with the doctor choice preserved.
+  // `/login` already honours `?next=` and returns the user here afterwards.
+  const requireAuthForDoctor = (doctorId: string) => {
+      if (!user && !authLoading) {
+          router.push(`/login?next=${encodeURIComponent(`/appointments?doctor=${doctorId}`)}`);
+          return false;
+      }
+      return true;
+  };
+
+  const handleSelectDoctor = (id: string) => {
+      if (!requireAuthForDoctor(id)) return;
+      setPickedDoctorId(id);
+  };
+
+  useEffect(() => {
+      if (deepLinkDoctorId && !authLoading && !user && !isLoading) {
+          router.replace(`/login?next=${encodeURIComponent(`/appointments?doctor=${deepLinkDoctorId}`)}`);
+      }
+  }, [deepLinkDoctorId, authLoading, user, isLoading, router]);
   const selectedDoctor = useMemo(() => {
       const wanted = pickedDoctorId ?? deepLinkDoctorId;
       if (!wanted) return null;
@@ -315,7 +340,7 @@ function AppointmentPageInner() {
                                                 experience: doc.experience,
                                                 bio: doc.bio
                                             }}
-                                            onSelect={(d) => setPickedDoctorId(String(d.id))}
+                                            onSelect={(d) => handleSelectDoctor(String(d.id))}
                                         />
                                     </motion.div>
                                 ))
@@ -338,7 +363,7 @@ function AppointmentPageInner() {
             </div>
 
             <AnimatePresence>
-                {selectedDoctor && (
+                {selectedDoctor && (user || authLoading) && (
                     <BookingModal
                         doctor={selectedDoctor}
                         onClose={() => setPickedDoctorId(null)}

@@ -7,6 +7,7 @@ import { Target, Plus, Loader2, Check, X } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import api from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
+import { ErrorState } from "@/components/ui/DataState";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,7 +62,7 @@ export default function CarePlanPage() {
     const [newStepFor, setNewStepFor] = useState<string | null>(null);
     const [newStep, setNewStep] = useState("");
 
-    const { data, isLoading } = useQuery({
+    const { data, isLoading, isError, refetch } = useQuery({
         queryKey: carePlanKeys.mine,
         queryFn: async () => {
             const res = await api.get("/care-plan");
@@ -73,7 +74,11 @@ export default function CarePlanPage() {
 
     const addGoal = useMutation({
         mutationFn: async () => {
-            await api.post(`/care-plan/${data!.id}/goals`, { title: newGoal.trim() });
+            // `data` is undefined when the plan failed to load. The old
+            // `data!.id` threw a TypeError inside the mutation, which the
+            // `onError` toast reported as a failure — after crashing first.
+            if (!data) throw new Error("care plan not loaded");
+            await api.post(`/care-plan/${data.id}/goals`, { title: newGoal.trim() });
         },
         onSuccess: () => {
             setNewGoal("");
@@ -116,6 +121,24 @@ export default function CarePlanPage() {
                     <Loader2 className="h-5 w-5 animate-spin" />
                     {t("loading")}
                 </div>
+            </DashboardLayout>
+        );
+    }
+
+    // The plan failed to load, so there is nothing to add a goal to. The
+    // shared error state (as on the dashboard) rather than an empty plan,
+    // because an empty plan would claim the patient has no goals.
+    if (isError || !data) {
+        return (
+            <DashboardLayout>
+                <div className="mb-6">
+                    <h1 className="flex items-center gap-2 text-2xl font-extrabold text-gray-900">
+                        <Target className="h-6 w-6 text-indigo-500" />
+                        {t("title")}
+                    </h1>
+                    <p className="mt-1 max-w-2xl text-sm text-gray-500">{t("intro")}</p>
+                </div>
+                <ErrorState detail={t("actionFailed")} onRetry={() => refetch()} />
             </DashboardLayout>
         );
     }
@@ -176,7 +199,7 @@ export default function CarePlanPage() {
                 </div>
             ) : (
                 <ul className="space-y-4">
-                    {data!.goals.map((goal) => (
+                    {data.goals.map((goal) => (
                         <li key={goal.id} className="rounded-3xl border border-gray-100 bg-white p-5">
                             <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div className="min-w-0">
