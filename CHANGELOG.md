@@ -4,7 +4,9 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.1] - 2026-10-28
+
+Maintenance and coverage release. No application behavior changed.
 
 ### Added
 

@@ -77,7 +77,7 @@ func (s *Server) buildOpenAPIDocument(api chi.Router) map[string]any {
 		"openapi": "3.0.3",
 		"info": map[string]any{
 			"title":   "MindEase API",
-			"version": "0.5.0",
+			"version": "0.5.1",
 			"description": "Generated from the mounted chi route table, so every served route is listed. " +
 				"Response schemas cover the client-critical reads and writes; request bodies are validated " +
 				"in the handlers and exercised by the browser suite.",
