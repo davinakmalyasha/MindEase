@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 67 tests, 13 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 74 tests, 13 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -72,7 +72,7 @@ go vet ./...                                   # CI runs this and golangci-lint 
 `integration_test.go` runs the real handler chain against MySQL. `TestMain`
 creates the database if needed, drops every table, and applies the embedded
 migrations; each test wipes the data tables first, so every assertion starts
-from a known state. The 23 integration tests pin:
+from a known state. The 24 integration tests pin:
 
 - refresh rotation, replay detection and the session revocation that follows it
 - the five-failure lockout
@@ -102,6 +102,9 @@ from a known state. The 23 integration tests pin:
 - profile updates persist for patients and doctors without changing verification
 - a TOTP code from the +1 edge of the window cannot be replayed
 - `/uploads/` answers 404, never a directory listing
+- the copilot draft is doctor-only and assigned-only, writes nothing but its
+  audit row, and grounds every claim: citations name real rows, an empty
+  timeline reads as insufficient data
 
 Nothing in the unit files needs MySQL or Redis.
 
@@ -225,13 +228,16 @@ iteration so the IP limiter does not dominate the result; no limit is disabled.
 
 ## What remains uncovered
 
-The integration suite is 23 tests, not 519. Ported: the races and constraints
+The integration suite is 24 tests, not 519. Ported: the races and constraints
 listed above, plus the browser flows. Still without a handler-level test:
 
 - the risk-queue list scoping and acknowledge/resolve transitions (covered only
   through the SOS round-trip test, not as a matrix)
 - the AI proxy endpoints (fencing and the HTTP client are unit-tested; the
-  pre-session/briefing handlers are exercised only by the browser suite)
+  pre-session/briefing handlers are exercised only by the browser suite).
+  The copilot draft and briefing grounding are now covered: citations,
+  insufficient-data, authz matrix and audit by `TestIntegrationCopilotDraftRestrictedAndGrounded`,
+  prompt fencing and fallback honesty by six unit tests in `ai_test.go`.
 - payment callbacks beyond the simulator settlement path
 - the join-window gate, reschedule rules and ICS rendering
 - the check-in and mood-decline job paths

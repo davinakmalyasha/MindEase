@@ -205,6 +205,8 @@ func attachOpenAPIResponseSchemas(paths map[string]any) {
 			"twoFactorToken": map[string]any{"type": "string"},
 		},
 	}))
+	attach("POST", "/ai/briefing", 200, envelope(schemaRef("Briefing")))
+	attach("POST", "/ai/copilot-draft", 200, envelope(schemaRef("CopilotDraft")))
 }
 
 func nullableStringSchema() map[string]any {
@@ -417,6 +419,48 @@ func openAPIComponentSchemas() map[string]any {
 				"repliedAt":   nullableTimeSchema(),
 				"createdAt":   dateTimeSchema(),
 				"displayName": map[string]any{"type": "string"},
+			},
+		},
+		"AISource": map[string]any{
+			"type":     "object",
+			"required": []string{"source"},
+			"properties": map[string]any{
+				"source":         map[string]any{"type": "string", "enum": []string{"model", "fallback"}},
+				"degradedReason": map[string]any{"type": "string"},
+			},
+		},
+		"SourceCitation": map[string]any{
+			"type":     "object",
+			"required": []string{"kind", "label"},
+			"properties": map[string]any{
+				"kind":  map[string]any{"type": "string", "enum": []string{"mood", "assessment", "pre-session"}},
+				"id":    nullableStringSchema(),
+				"label": map[string]any{"type": "string"},
+			},
+		},
+		"Briefing": map[string]any{
+			"type":                 "object",
+			"additionalProperties": true,
+			"required":             []string{"briefing", "cached"},
+			"properties": map[string]any{
+				"briefing":         map[string]any{"type": "string"},
+				"cached":           map[string]any{"type": "boolean"},
+				"ai":               schemaRef("AISource"),
+				"sources":          schemaArray("SourceCitation"),
+				"insufficientData": map[string]any{"type": "boolean"},
+				"moodHistory":      schemaArray("MoodEntry"),
+				"assessments":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+			},
+		},
+		"CopilotDraft": map[string]any{
+			"type":                 "object",
+			"additionalProperties": true,
+			"required":             []string{"draft"},
+			"properties": map[string]any{
+				"draft":            map[string]any{"type": "string"},
+				"ai":               schemaRef("AISource"),
+				"sources":          schemaArray("SourceCitation"),
+				"insufficientData": map[string]any{"type": "boolean"},
 			},
 		},
 	}

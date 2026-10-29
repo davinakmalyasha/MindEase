@@ -21,7 +21,7 @@ code.
 
 ## The ADRs
 
-Four so far, numbered from `0001`. `0000` is the template; copy it, do not
+Five so far, numbered from `0001`. `0000` is the template; copy it, do not
 improvise a structure.
 
 | | |
@@ -30,6 +30,7 @@ improvise a structure.
 | [`0002-ai-provenance`](adr/0002-ai-provenance.md) | AI provenance is contractual, and crisis triage never leaves the server |
 | [`0003-payment-abstraction`](adr/0003-payment-abstraction.md) | A payment abstraction with a simulator, and the race we fixed with a unique claim |
 | [`0004-scaling-model`](adr/0004-scaling-model.md) | Single-primary scaling, measured capacity, and replica/shard thresholds |
+| [`0005-copilot-drafts`](adr/0005-copilot-drafts.md) | A clinician copilot that drafts prep bullets, never decides |
 
 An ADR records a decision and the alternatives that lost. If you find yourself
 writing an ADR to justify something you have already built and shipped, it is

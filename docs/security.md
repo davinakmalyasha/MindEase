@@ -165,7 +165,7 @@ The rule, restated with examples:
 | `routes_appointments.go` `handleApptJoin` | appointment's patient or its clinician | Joining a consultation room |
 | `routes_wellness.go` `clinicalCanTriage` | admin, **or** assigned clinician, **or** has a `confirmed`/`completed` appointment | Acknowledging and resolving a disclosure |
 | `routes_care.go` ownership guards | owner, or clinician with a live relationship | Goals, steps, and the safety-plan read and write sides |
-| `routes_ai.go` briefing/pre-session gates | assigned clinician only; pending appointments excluded | The pre-session briefing and mood history |
+| `routes_ai.go` briefing/copilot/pre-session gates | assigned clinician only; pending and cancelled appointments excluded | The pre-session briefing, the copilot draft and mood history |
 
 The gate is a *live clinical relationship*, defined consistently as an
 appointment in `confirmed` or `completed` status. Cancelled, pending and expired
@@ -297,6 +297,13 @@ assistant are not labelled as canned.** They are fixed safety instructions
 carrying emergency numbers, and marking them as automated would make the one
 message that must not look automated look automated. Full reasoning in
 [ADR-0002](adr/0002-ai-provenance.md).
+
+Every synthesis names what it stands on. Briefings and copilot drafts carry
+`sources` — mood entry ids, assessment ids, the appointment behind the
+pre-session answers — with labels stating counts and scores, never patient
+prose, plus `insufficientData` when all three inputs are empty. An empty input
+set yields an empty citation list; no branch invents one. See
+[ADR-0005](adr/0005-copilot-drafts.md).
 
 ## The four-way disclosure pipeline
 

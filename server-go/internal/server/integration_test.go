@@ -1735,3 +1735,107 @@ func TestIntegrationTwoFactorFutureStepCodeCannotBeReplayed(t *testing.T) {
 		t.Fatalf("replayed future-step code: %d, want 401", got)
 	}
 }
+
+func TestIntegrationCopilotDraftRestrictedAndGrounded(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	doctorEmail := uniqueEmail(t)
+	doctorUserID, doctorID := seedDoctor(t, doctorEmail, "Dr. Integration Copilot")
+	otherEmail := uniqueEmail(t)
+	_, otherDoctorID := seedDoctor(t, otherEmail, "Dr. Integration Stranger")
+	_ = otherDoctorID
+	apptID := seedCompletedAppointment(t, patientID, doctorID)
+
+	patient := newTestClient(t, h)
+	patient.login(patientEmail, "Patient@123")
+	rec, _, text := patient.request(http.MethodPost, "/api/ai/copilot-draft",
+		map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("patient copilot draft: %d %s; want 403 (doctor only)", rec.Code, text)
+	}
+
+	other := newTestClient(t, h)
+	other.login(otherEmail, "Doctor@123")
+	rec, _, text = other.request(http.MethodPost, "/api/ai/copilot-draft",
+		map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unassigned doctor copilot draft: %d %s; want 403", rec.Code, text)
+	}
+
+	doctor := newTestClient(t, h)
+	doctor.login(doctorEmail, "Doctor@123")
+
+	// Fresh patient: nothing to stand on, so the draft must say so.
+	rec, body, text := doctor.request(http.MethodPost, "/api/ai/copilot-draft",
+		map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assigned doctor copilot draft: %d %s", rec.Code, text)
+	}
+	data := dataObject(t, body)
+	if draft, _ := data["draft"].(string); draft == "" {
+		t.Fatal("copilot draft is empty")
+	}
+	if src, _ := data["ai"].(map[string]any)["source"].(string); src != "fallback" {
+		t.Fatalf("copilot ai.source = %q; want fallback (no key in tests)", src)
+	}
+	if insuf, _ := data["insufficientData"].(bool); !insuf {
+		t.Fatalf("copilot insufficientData = %v; want true for a fresh patient", insuf)
+	}
+	if sources, _ := data["sources"].([]any); len(sources) != 0 {
+		t.Fatalf("copilot sources = %#v; want none, never fabricated", sources)
+	}
+
+	var audits int
+	if err := itPool.QueryRow(
+		"SELECT COUNT(*) FROM `AuditLog` WHERE action = 'clinical.read' AND targetType = 'CopilotDraft' AND targetId = ? AND actorId = ?",
+		apptID, doctorUserID).Scan(&audits); err != nil {
+		t.Fatalf("count copilot audits: %v", err)
+	}
+	if audits != 1 {
+		t.Fatalf("copilot audit rows = %d; want 1", audits)
+	}
+
+	// One mood entry: the next draft is grounded in a real row.
+	rec, _, text = patient.request(http.MethodPost, "/api/wellness/mood",
+		map[string]any{"mood": 2, "notes": "Rough day."})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mood log: %d %s", rec.Code, text)
+	}
+	rec, body, text = doctor.request(http.MethodPost, "/api/ai/copilot-draft",
+		map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("grounded copilot draft: %d %s", rec.Code, text)
+	}
+	data = dataObject(t, body)
+	if insuf, _ := data["insufficientData"].(bool); insuf {
+		t.Fatal("copilot insufficientData with one mood entry; want false")
+	}
+	sources, _ := data["sources"].([]any)
+	if len(sources) != 1 {
+		t.Fatalf("copilot sources = %#v; want the single mood row", sources)
+	}
+	first, _ := sources[0].(map[string]any)
+	if first["kind"] != "mood" || first["id"] == nil || first["id"] == "" {
+		t.Fatalf("copilot source = %#v; want kind mood with a real id", first)
+	}
+
+	// The briefing carries the same grounding fields now.
+	rec, body, text = doctor.request(http.MethodPost, "/api/ai/briefing",
+		map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("briefing: %d %s", rec.Code, text)
+	}
+	briefing := dataObject(t, body)
+	if _, present := briefing["sources"]; !present {
+		t.Fatal("briefing has no sources field")
+	}
+	if _, present := briefing["insufficientData"]; !present {
+		t.Fatal("briefing has no insufficientData field")
+	}
+	if insuf, _ := briefing["insufficientData"].(bool); insuf {
+		t.Fatal("briefing insufficientData with one mood entry; want false")
+	}
+}

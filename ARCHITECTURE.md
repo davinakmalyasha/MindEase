@@ -211,7 +211,7 @@ never built. Its zero-trust threat model survives in the services and ADRs.
 
 | Suite | Count | Runs against |
 |---|---|---|
-| Go API | 67 tests, 13 files (23 MySQL integration) | Unit: config guards, tokens, hashing; integration: claims, rotation, audit, exports |
+| Go API | 74 tests, 13 files (24 MySQL integration) | Unit: config guards, tokens, hashing; integration: claims, rotation, audit, exports |
 | client | 52 vitest, 8 files | jsdom |
 | realtime | 32 tests, 5 files | In-memory, `-race` |
 | e2e | 12 Playwright tests, 11 journeys | The compose stack, required in CI |

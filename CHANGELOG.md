@@ -4,6 +4,25 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+Clinician copilot slice: advisory session-prep drafts plus grounded briefings.
+No triage, no plans, no diagnosis — see `docs/adr/0005-copilot-drafts.md`.
+
+### Added
+
+- `POST /api/ai/copilot-draft`: ephemeral prep bullets for the assigned
+  clinician only (same gate as the briefing), never stored; the only write is
+  the `clinical.read` audit row. Prompt forbids diagnosis, treatment plans and
+  risk verdicts; fallback is a labeled template with counts.
+- Briefings and drafts carry `sources` (mood/assessment row ids, the
+  appointment behind the pre-session answers) and `insufficientData`, so an
+  empty timeline reads as insufficient data, never a synthesis.
+- Eval harness: six unit tests (citation identity, empty-means-empty,
+  fallback labeling, fence integrity, blank-output fallback) plus the
+  `TestIntegrationCopilotDraftRestrictedAndGrounded` round-trip (authz matrix,
+  audit, grounding).
+
 ## [0.5.2] - 2026-10-28
 
 Final-sweep release: the safety, privacy and honesty fixes found by a

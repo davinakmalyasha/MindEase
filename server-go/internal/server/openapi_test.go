@@ -94,6 +94,8 @@ func TestOpenAPIReferencesResolveAndBindResponses(t *testing.T) {
 	bindings := []struct{ path, method, status string }{
 		{"/users/profile", "get", "200"},
 		{"/users/profile", "put", "200"},
+		{"/ai/briefing", "post", "200"},
+		{"/ai/copilot-draft", "post", "200"},
 		{"/doctors", "get", "200"},
 		{"/doctors/{id}", "get", "200"},
 		{"/wellness/mood", "get", "200"},

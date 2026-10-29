@@ -53,6 +53,10 @@ func (s *Server) registerAI(api chi.Router) {
 	api.With(s.authenticate, s.aiValidateAppointmentIDParam, s.aiRequireDoctor, aiRate).
 		Get("/ai/briefing/{appointmentId}", s.handleAIBriefingGet)
 
+	// Clinician session-prep draft (restricted, ephemeral). Same gate as the
+	// briefing: the assigned doctor only, never stored, always audited.
+	api.With(s.authenticate, s.aiRequireDoctor, aiRate).Post("/ai/copilot-draft", s.handleAICopilotDraft)
+
 	// Patient wellness suggestions.
 	api.With(s.authenticate, aiRate).Post("/ai/resources", s.handleAIResources)
 
@@ -689,15 +693,18 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 		if data.BriefingSource != nil {
 			source = *data.BriefingSource
 		}
+		answers := aiParseAnswers(data.AnswersJSON)
 		result = map[string]any{
 			"briefing": *data.BriefingText,
 			"cached":   true,
 			// Read back from storage rather than re-derived, so a briefing
 			// generated last week still reports its own origin.
-			"ai":          map[string]any{"source": source},
-			"moodHistory": aiMoodHistoryJSON(moodHistory),
-			"answers":     aiParseJSON(data.AnswersJSON, []any{}),
-			"assessments": aiAssessmentsJSON(assessments),
+			"ai":               map[string]any{"source": source},
+			"moodHistory":      aiMoodHistoryJSON(moodHistory),
+			"answers":          aiParseJSON(data.AnswersJSON, []any{}),
+			"assessments":      aiAssessmentsJSON(assessments),
+			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
+			"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
 		}
 	} else {
 		var answersRaw *string
@@ -720,12 +727,14 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 		// this row is re-read later and a flag that lived only on this response
 		// would be gone by the time a clinician opened the cached briefing.
 		result = map[string]any{
-			"briefing":    briefingText,
-			"cached":      false,
-			"ai":          aiProvenance(source, reason),
-			"moodHistory": aiMoodHistoryJSON(moodHistory),
-			"answers":     answers,
-			"assessments": aiAssessmentsJSON(assessments),
+			"briefing":         briefingText,
+			"cached":           false,
+			"ai":               aiProvenance(source, reason),
+			"moodHistory":      aiMoodHistoryJSON(moodHistory),
+			"answers":          answers,
+			"assessments":      aiAssessmentsJSON(assessments),
+			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
+			"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
 		}
 	}
 
@@ -748,17 +757,103 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 }
 
 /* ------------------------------------------------------------------ *
+ * POST /ai/copilot-draft
+ * ------------------------------------------------------------------ */
+
+// handleAICopilotDraft serves one ephemeral session-prep draft to the assigned
+// clinician. It writes nothing except the audit row: drafts are generated,
+// returned and forgotten, so there is no stale draft to misread later.
+func (s *Server) handleAICopilotDraft(w http.ResponseWriter, r *http.Request) {
+	user := CurrentUser(r)
+	body, decodeErr := aiDecodeObjectBody(r)
+	if decodeErr != "" {
+		s.validationFail(w, "body", decodeErr)
+		return
+	}
+	appointmentID, path, msg := aiAppointmentIDField(body)
+	if msg != "" {
+		s.validationFail(w, path, msg)
+		return
+	}
+
+	data, err := s.aiGetCopilotDraft(r.Context(), appointmentID, user.ID)
+	if err != nil {
+		s.aiControllerFail(w, r, err, http.StatusBadRequest, "Failed to draft session prep.")
+		return
+	}
+	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": data})
+}
+
+// aiGetCopilotDraft assembles the same inputs as the briefing but through an
+// independent prompt that drafts prep bullets instead of a synthesis
+// paragraph. The gate is deliberately the briefing's gate — assigned doctor,
+// no pending or cancelled appointments — so a draft can never reach a wider
+// audience than the briefing it is derived from.
+func (s *Server) aiGetCopilotDraft(ctx context.Context, appointmentID, userID string) (map[string]any, error) {
+	appointment, err := s.aiLoadAppointment(ctx, appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if appointment == nil {
+		return nil, NotFound("Appointment not found")
+	}
+	if appointment.DoctorUserID != userID {
+		return nil, Forbidden("session prep is restricted to the assigned doctor")
+	}
+	if appointment.Status == "pending" || appointment.Status == "cancelled" {
+		return nil, Forbidden("no session prep is available for this appointment")
+	}
+
+	data, err := s.aiLoadPreSession(ctx, appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	var answers []aiAnswer
+	if data != nil {
+		answers = aiParseAnswers(data.AnswersJSON)
+	}
+	moodHistory, err := s.aiGetMoodHistory(ctx, appointment.UserID, 14)
+	if err != nil {
+		return nil, err
+	}
+	assessments, err := s.aiGetLatestAssessments(ctx, appointment.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	draft, source, reason := s.aiCopilotDraft(
+		ctx, appointment.PatientName, appointment.DoctorSpecialty, moodHistory, answers, assessments)
+
+	actor := userID
+	targetType := "CopilotDraft"
+	s.audit(ctx, "clinical.read", &actor, &targetType, &appointmentID, map[string]any{
+		"subjectId": appointment.UserID,
+		"via":       "POST /api/ai/copilot-draft",
+	})
+
+	return map[string]any{
+		"draft":            draft,
+		"ai":               aiProvenance(source, reason),
+		"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
+		"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
+	}, nil
+}
+
+/* ------------------------------------------------------------------ *
  * Wellness reads used by the AI surfaces (WellnessService.getMoodHistory
  * and getLatestAssessments)
  * ------------------------------------------------------------------ */
 
 type aiMoodRow struct {
+	ID        string
 	Mood      int
 	Notes     *string
+	MoodDate  string
 	CreatedAt time.Time
 }
 
 type aiAssessmentLite struct {
+	ID        string
 	Type      string
 	Score     int
 	Severity  string
@@ -769,8 +864,10 @@ func aiMoodHistoryJSON(entries []aiMoodRow) []map[string]any {
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, map[string]any{
+			"id":        e.ID,
 			"mood":      e.Mood,
 			"createdAt": jsTimeValue(e.CreatedAt),
+			"moodDate":  e.MoodDate,
 			"notes":     e.Notes,
 		})
 	}
@@ -781,6 +878,7 @@ func aiAssessmentsJSON(entries []aiAssessmentLite) []map[string]any {
 	out := make([]map[string]any, 0, len(entries))
 	for _, a := range entries {
 		out = append(out, map[string]any{
+			"id":        a.ID,
 			"type":      a.Type,
 			"score":     a.Score,
 			"severity":  a.Severity,
@@ -795,7 +893,7 @@ func (s *Server) aiGetMoodHistory(ctx context.Context, userID string, days int) 
 	since := aiStartOfZonedDay(aiShiftDayKey(aiTodayKey(tz), -days, tz), tz)
 
 	rows, err := s.DB.QueryContext(ctx,
-		"SELECT mood, notes, createdAt FROM `MoodEntry` "+
+		"SELECT id, mood, notes, moodDate, createdAt FROM `MoodEntry` "+
 			"WHERE userId = ? AND createdAt >= ? ORDER BY createdAt DESC LIMIT ?",
 		userID, since, max(days, 1)*2)
 	if err != nil {
@@ -809,7 +907,7 @@ func (s *Server) aiGetMoodHistory(ctx context.Context, userID string, days int) 
 			row   aiMoodRow
 			notes sql.NullString
 		)
-		if err := rows.Scan(&row.Mood, &notes, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Mood, &notes, &row.MoodDate, &row.CreatedAt); err != nil {
 			return nil, err
 		}
 		if notes.Valid {
@@ -829,9 +927,9 @@ func (s *Server) aiGetLatestAssessments(ctx context.Context, userID string) ([]a
 	for _, assessmentType := range []string{"phq9", "gad7"} {
 		var row aiAssessmentLite
 		err := s.DB.QueryRowContext(ctx,
-			"SELECT type, score, severity, createdAt FROM `Assessment` "+
+			"SELECT id, type, score, severity, createdAt FROM `Assessment` "+
 				"WHERE userId = ? AND type = ? ORDER BY createdAt DESC LIMIT 1",
-			userID, assessmentType).Scan(&row.Type, &row.Score, &row.Severity, &row.CreatedAt)
+			userID, assessmentType).Scan(&row.ID, &row.Type, &row.Score, &row.Severity, &row.CreatedAt)
 		if err == sql.ErrNoRows {
 			continue
 		}
