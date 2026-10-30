@@ -168,20 +168,25 @@ Coverage is measured per layer. There is no single blended number: Vitest
 reports statements, branches, functions and lines, while Go reports statements
 only and the browser suite has no instrumentation.
 
-| Layer | Latest CI read (2026-10-27) | Scope | Gate |
+| Layer | Latest CI read (2026-10-30) | Scope | Gate |
 |---|---|---|---|
-| Client unit | **2.68%** statements/lines, **75.6%** branches, **69.27%** functions | Every app file (`all: true`); eight unit-test files | Floors `2 / 75 / 69 / 2` |
-| Go API | **24.4%** statements | All Go packages, including the MySQL integration suite; the `cmd/*` wrappers and migration package are 0% | Reporting only |
+| Client unit | **2.65%** statements/lines, **75.60%** branches, **69.28%** functions | Every app file (`all: true`); eight unit-test files | Floors `2 / 75 / 69 / 2` |
+| Go API | **32.9%** statements | All Go packages, including the MySQL integration suite; the `cmd/*` wrappers and migration package are 0% | Reporting only |
 | Go realtime | **62.2%** statements | All realtime packages; the race suite | Reporting only |
 | Playwright | No code coverage | 12 journeys against the full stack | Required run |
 
 The client's statement and line figures are diluted by `all: true` counting
 every app file while only a handful have unit tests; the branch and function
-numbers are the ones that move with that suite. The API's 24.4% is the next
+numbers are the ones that move with that suite. The API's 32.9% is the next
 engineering target, not a threshold: the browser suite exercises the handlers,
 but no server-side handler coverage is claimed from it. The Go profiles are
 deliberately reporting-only until a stable baseline is set; only the client
 floors fail a run.
+
+Compare Go coverage only within one toolchain patch. Patch releases change how
+the compiler counts statements: the same 125-test suite at `918b615` reports
+32.9% under `go1.27.3` (CI) and 37.5% under `go1.27.0` (this laptop), so a
+local delta is meaningful but a cross-version comparison is not.
 
 Produce the Go numbers locally with `make coverage-go` (API integration needs
 `TEST_DATABASE_URL`); CI uploads `coverage-go-api` and

@@ -116,22 +116,22 @@ decisions section below.
 
 ## Toolchain and versions
 
-Go **1.27.2** — the latest stable release (2026-10-08, a security release; the
-1.27 line is current). It is pinned at three points, not hoped for:
+Go **1.27.3** — the current patch release on the 1.27 line, and the pin the tree
+actually carries today. It is pinned at three points, not hoped for:
 
 | Where | Pin |
 |---|---|
-| `go.mod` | `go 1.27` plus `toolchain go1.27.2`, so a patch bump is a one-line change and a machine with an older Go self-serves the right one |
-| Docker | `golang:1.27.2-alpine3.24` in the builder stage; runtime image distroless static, nonroot, `CGO_ENABLED=0` |
+| `go.mod` | `go 1.27` plus `toolchain go1.27.3`, so a patch bump is a one-line change and a machine with an older Go self-serves the right one |
+| Docker | `golang:1.27.3-alpine` in the builder stage; runtime image distroless static, nonroot, `CGO_ENABLED=0` |
 | CI | `go-version-file: server-go/go.mod`, module cache, and a Dependabot `go_modules` entry for `/server-go` (the `/server-realtime` one already exists) |
 
-`server-realtime/go.mod` moves from `go 1.26` to 1.27.2 in phase 1: one
-toolchain for the repository, and the realtime service picks up the 1.27.2
+`server-realtime/go.mod` moves from `go 1.26` to 1.27.3 in phase 1: one
+toolchain for the repository, and the realtime service picks up the 1.27.3
 security fixes (`crypto/tls`, `net/http`, `os`) it does not get today.
 
 The local machine has `go1.26.5` on PATH while `GOROOT` points at a separate
 `go1.27.0` install — the skew AGENTS.md already records. Phase 1 starts by
-installing 1.27.2, clearing `GOROOT`, and leaving `GOTOOLCHAIN=auto` so the
+installing 1.27.3, clearing `GOROOT`, and leaving `GOTOOLCHAIN=auto` so the
 `toolchain` pin is enforced by the tool itself.
 
 Libraries, with versions verified at planning time. `go get` pins the latest
@@ -144,7 +144,7 @@ numbers that rot:
 | Validation + OpenAPI | huma `v2` on the chi adapter | v2.39.1 |
 | Queries | sqlc + `go-sql-driver/mysql` | sqlc v1.31.1 |
 | Migrations | `golang-migrate` v4, running the same SQL files — only after cutover (see decisions) | v4 |
-| UUIDv7 | **stdlib `uuid`** (`NewV7`) | 1.27.2 |
+| UUIDv7 | **stdlib `uuid`** (`NewV7`) | 1.27.3 |
 | Auth | `golang-jwt/jwt/v5`, `x/crypto/argon2`, `pquerna/otp`, `skip2/go-qrcode`, `google.golang.org/api/idtoken` | latest |
 | LiveKit access token | hand-rolled with `golang-jwt/jwt/v5` — the same reasoning as `video.service.ts`: the format is an HS256 JWT with a `video` grant, and no third-party code goes near mental-health data for twenty lines of claims | — |
 | Redis | `redis/go-redis/v9` (realtime is on v9.7.3; both bump together) | v9 |
@@ -243,7 +243,7 @@ proxy handling, and this is the port of that behavior.
 | Phase | Content | Exit criteria | Est. (full-time) |
 |---|---|---|---|
 | 0. Freeze | Tag `v0.3.0`; this document; branch cleanup | Done | — |
-| 1. Skeleton | Go 1.27.2 toolchain install and the realtime bump, `server-go/` with config (all production guards ported as tests), health endpoints, slog with redaction, security headers, OTel as a no-op + internal pprof, sqlc wired, `air` + `golangci-lint`, CI job (vet, lint, `-race` tests against MySQL, govulncheck, build), Dockerfile | `go test ./...` and `golangci-lint run` green; `/api/health` and `/api/health/db` match Node bodies; config guard tests cover weak secrets and the simulator opt-in; pprof is not publicly reachable | 4–6 days |
+| 1. Skeleton | Go 1.27.3 toolchain install and the realtime bump, `server-go/` with config (all production guards ported as tests), health endpoints, slog with redaction, security headers, OTel as a no-op + internal pprof, sqlc wired, `air` + `golangci-lint`, CI job (vet, lint, `-race` tests against MySQL, govulncheck, build), Dockerfile | `go test ./...` and `golangci-lint run` green; `/api/health` and `/api/health/db` match Node bodies; config guard tests cover weak secrets and the simulator opt-in; pprof is not publicly reachable | 4–6 days |
 | 2. Auth and account | register/login/refresh/logout, lockout, 2FA (enrol, verify, disable, backup codes), Google sign-in, `/account/export`, cookies with the same flags | Auth e2e journeys pass against Go; refresh rotation and one-time codes pinned by Go tests; export test passes against a seeded DB | 5–8 days |
 | 3. Clinical core | appointments, scheduling, doctors directory, packages/checkout, messages, assessments, mood/wellness, risk queue, care plans, safety plans, follow-ups, reviews, notifications; realtime merged into the binary | All 12 tests pass against Go; the invariant list above is green; websocket auth and origin behavior identical | 15–25 days |
 | 4. Periphery | AI (prompts, fallback chain, provenance, circuit breaker), payments (Midtrans + simulator guards), jobs/worker/cron in WIB, push, mail, admin routes, OpenAPI document | Spec diff clean; AI provenance tests green; payment simulator guards reject production config identically | 8–12 days |
@@ -276,7 +276,7 @@ All decided before phase 1 begins.
    baseline (`migrate force <latest>`) so its bookkeeping table starts where
    Prisma's `_prisma_migrations` ended. Two runners and two bookkeeping tables
    are never live at once.
-6. **Toolchain: Go 1.27.2 everywhere**, `server-realtime` included. Patch
+6. **Toolchain: Go 1.27.3 everywhere**, `server-realtime` included. Patch
    updates arrive through the `toolchain` directive and Dependabot.
 7. **No deployment in the critical path.** There is no live environment today
    by choice; the port runs against the docker-compose topology, which is the

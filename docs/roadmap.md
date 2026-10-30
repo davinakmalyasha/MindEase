@@ -188,7 +188,8 @@ hiccup is not a coverage finding. The floors are floors, not targets — raise
 them when the number is earned, never lower them to make a run pass.
 
 **Still open.** The Go profiles are reporting-only until a stable baseline is
-set. The API's 24.4% is the real target: it includes the integration suite but
+set. The API's 32.9% (2026-10-30) is the real target: it includes the
+integration suite but
 not the handler paths that only the browser suite exercises. E2E has no code
 coverage, and Go has no branch or function metric.
 

@@ -4,17 +4,33 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-31
+
+Clinician copilot plus the hardening sweep behind it: advisory session-prep
+drafts, grounded briefings, and handler-level coverage for the claims the
+product rests on. No triage, no care plans, no diagnosis — the copilot drafts,
+the clinician decides.
 
 ### Added
 
-- Clinician copilot slice: `POST /api/ai/copilot-draft` (ephemeral prep
-  bullets, assigned clinician only) plus `sources` + `insufficientData` on
-  briefings and drafts — see `docs/adr/0005-copilot-drafts.md`. The briefing
-  page now renders the grounding: citation list, thin-file banner, fallback
-  reason, pre-session answers, cache state, and an on-demand prep-draft panel.
+- `POST /api/ai/copilot-draft`: ephemeral prep bullets for the assigned
+  clinician only (the briefing's own gate), never stored; the only write is
+  the `clinical.read` audit row. The prompt forbids diagnosis, treatment plans
+  and risk verdicts; the fallback is a labeled template with counts. See
+  `docs/adr/0005-copilot-drafts.md`.
+- Briefings and drafts carry `sources` (mood/assessment row ids, the
+  appointment behind the pre-session answers) and `insufficientData`, so an
+  empty timeline reads as insufficient data, never a synthesis.
+- The briefing page renders the grounding: citation list, thin-file banner,
+  fallback reason, pre-session answers, cache state, and an on-demand
+  prep-draft panel.
 - Eval harness: citation identity, empty-means-empty, fallback labeling, fence
   integrity, blank-output fallback, and the copilot authz/grounding round-trip.
+- Hardening coverage for the core claims: the risk-queue scoping and
+  acknowledge/resolve matrix, payment outcomes beyond settlement (pending
+  holds the claim, replays grant nothing, failures release), the join-window
+  gate, ICS export, reschedule rules, the check-in/mood-decline job paths,
+  and the single-runner job lock.
 
 ### Fixed
 
@@ -22,11 +38,13 @@ All notable changes to this project. Format follows
   on every increment (sliding under sustained load) and a `skipSuccessful`
   decrement landing on 1 extended the window. TTL is now set only when the key
   is created, matching the in-process fallback.
-- Hardening coverage for the core claims: the risk-queue scoping and
-  acknowledge/resolve matrix, payment outcomes beyond settlement (pending
-  holds the claim, replays grant nothing, failures release), the join-window
-  gate, ICS export, reschedule rules, the check-in/mood-decline job paths,
-  and the single-runner job lock.
+
+### Changed
+
+- Go test suite: 125 tests in 18 files, 34 of them MySQL integration. CI reads
+  32.9% statement coverage for the API; Go coverage stays reporting-only.
+- `docs/go-migration.md` pins refreshed to the `go1.27.3` toolchain the tree,
+  Dockerfile and CI actually carry.
 
 ## [0.5.2] - 2026-10-28
 

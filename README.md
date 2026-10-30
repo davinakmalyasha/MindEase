@@ -286,7 +286,7 @@ unit tests, so the branch and function numbers are the ones that move with the
 suite. The floors live in `client/vitest.config.ts` and may only rise.
 
 Go coverage is measured on every API and realtime CI run and uploaded as a
-14-day artifact. The latest read is **24.4%** of statements for the API
+14-day artifact. The latest read is **32.9%** of statements for the API
 (including the MySQL integration suite) and **62.2%** for realtime. There is no
 single blended repository percentage: Go reports statements, Vitest reports
 statements/branches/functions/lines, and Playwright has no instrumentation. See
