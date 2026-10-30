@@ -6,22 +6,27 @@ All notable changes to this project. Format follows
 
 ## [Unreleased]
 
-Clinician copilot slice: advisory session-prep drafts plus grounded briefings.
-No triage, no plans, no diagnosis — see `docs/adr/0005-copilot-drafts.md`.
-
 ### Added
 
-- `POST /api/ai/copilot-draft`: ephemeral prep bullets for the assigned
-  clinician only (same gate as the briefing), never stored; the only write is
-  the `clinical.read` audit row. Prompt forbids diagnosis, treatment plans and
-  risk verdicts; fallback is a labeled template with counts.
-- Briefings and drafts carry `sources` (mood/assessment row ids, the
-  appointment behind the pre-session answers) and `insufficientData`, so an
-  empty timeline reads as insufficient data, never a synthesis.
-- Eval harness: six unit tests (citation identity, empty-means-empty,
-  fallback labeling, fence integrity, blank-output fallback) plus the
-  `TestIntegrationCopilotDraftRestrictedAndGrounded` round-trip (authz matrix,
-  audit, grounding).
+- Clinician copilot slice: `POST /api/ai/copilot-draft` (ephemeral prep
+  bullets, assigned clinician only) plus `sources` + `insufficientData` on
+  briefings and drafts — see `docs/adr/0005-copilot-drafts.md`. The briefing
+  page now renders the grounding: citation list, thin-file banner, fallback
+  reason, pre-session answers, cache state, and an on-demand prep-draft panel.
+- Eval harness: citation identity, empty-means-empty, fallback labeling, fence
+  integrity, blank-output fallback, and the copilot authz/grounding round-trip.
+
+### Fixed
+
+- Rate-limit windows are fixed on both stores: the Redis path renewed its TTL
+  on every increment (sliding under sustained load) and a `skipSuccessful`
+  decrement landing on 1 extended the window. TTL is now set only when the key
+  is created, matching the in-process fallback.
+- Hardening coverage for the core claims: the risk-queue scoping and
+  acknowledge/resolve matrix, payment outcomes beyond settlement (pending
+  holds the claim, replays grant nothing, failures release), the join-window
+  gate, ICS export, reschedule rules, the check-in/mood-decline job paths,
+  and the single-runner job lock.
 
 ## [0.5.2] - 2026-10-28
 

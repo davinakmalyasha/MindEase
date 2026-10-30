@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle, ClipboardCheck, RefreshCw } from "lucide-react";
+import { Sparkles, ArrowLeft, Brain, FileText, Loader2, AlertCircle, ClipboardCheck, RefreshCw, ListChecks, MessageSquareText, Stethoscope } from "lucide-react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import MoodChart from "@/components/mood/MoodChart";
@@ -27,6 +27,22 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
     const [appointmentId, setAppointmentId] = useState("");
     const [briefing, setBriefing] = useState<string | null>(null);
     const [briefingSource, setBriefingSource] = useState<AiSource | undefined>(undefined);
+    // Grounding the API now attaches: which rows the synthesis stands on, whether
+    // the record is too thin to synthesise from, why a fallback was served, the
+    // pre-session answers behind the "pre-session" citation, and cache state.
+    const [sources, setSources] = useState<any[]>([]);
+    const [insufficientData, setInsufficientData] = useState(false);
+    const [degradedReason, setDegradedReason] = useState<string | undefined>(undefined);
+    const [answers, setAnswers] = useState<any[]>([]);
+    const [cached, setCached] = useState<boolean | undefined>(undefined);
+    // Copilot drafts are ephemeral and live beside the briefing, never inside it:
+    // a draft is generated, read, and forgotten, so it gets its own panel and
+    // its own sources rather than sharing the briefing's.
+    const [copilot, setCopilot] = useState<string | null>(null);
+    const [copilotSources, setCopilotSources] = useState<any[]>([]);
+    const [copilotInsufficient, setCopilotInsufficient] = useState(false);
+    const [isCopilotLoading, setIsCopilotLoading] = useState(false);
+    const [copilotFailed, setCopilotFailed] = useState(false);
     const [moodHistory, setMoodHistory] = useState<any[]>([]);
     const [assessments, setAssessments] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -60,9 +76,36 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
         // origin alongside the briefing, so this is still correct when reading a
         // briefing generated days ago.
         setBriefingSource(data?.ai?.source);
+        setDegradedReason(data?.ai?.degradedReason);
         if (Array.isArray(data?.moodHistory)) setMoodHistory(data.moodHistory);
         if (Array.isArray(data?.assessments)) setAssessments(data.assessments);
+        if (Array.isArray(data?.sources)) setSources(data.sources);
+        setInsufficientData(data?.insufficientData === true);
+        if (Array.isArray(data?.answers)) setAnswers(data.answers);
+        if (typeof data?.cached === "boolean") setCached(data.cached);
     };
+
+    const draftCopilot = useCallback(async () => {
+        if (!appointmentId) return;
+        const seq = ++requestSeq.current;
+        setIsCopilotLoading(true);
+        setCopilotFailed(false);
+        try {
+            const res = await api.post("/ai/copilot-draft", { appointmentId });
+            if (seq !== requestSeq.current) return;
+            const data = res.data?.data;
+            setCopilot(data?.draft || null);
+            if (Array.isArray(data?.sources)) setCopilotSources(data.sources);
+            setCopilotInsufficient(data?.insufficientData === true);
+        } catch (error) {
+            if (seq !== requestSeq.current) return;
+            console.error("[briefing] copilot draft failed", error);
+            toast(getErrorMessage(error, "Failed to draft session prep"), "error");
+            setCopilotFailed(true);
+        } finally {
+            setIsCopilotLoading(false);
+        }
+    }, [appointmentId, toast]);
 
     const generate = useCallback(async (force = false) => {
         if (!appointmentId) return;
@@ -223,9 +266,29 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
 
                             {briefing ? (
                                 <div className="rounded-2xl bg-violet-50/40 border border-violet-100/50">
-                                    <div className="px-6 pt-5">
+                                    <div className="px-6 pt-5 flex items-center gap-3 flex-wrap">
                                         <AiSourceBadge source={briefingSource} />
+                                        {typeof cached === "boolean" && (
+                                            <span className="text-[11px] font-bold text-gray-400">
+                                                {cached ? "Saved briefing" : "Just generated"}
+                                            </span>
+                                        )}
+                                        {briefingSource !== "model" && degradedReason && (
+                                            <span className="text-[11px] font-medium text-gray-400">
+                                                Reason: {degradedReason}
+                                            </span>
+                                        )}
                                     </div>
+                                    {insufficientData && (
+                                        <div className="mx-6 mt-4 flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+                                            <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                                            <p className="text-sm text-amber-800 font-medium">
+                                                Limited data — this patient has no recent moods, screening scores or
+                                                pre-session answers, so there is nothing to synthesise yet. The text
+                                                below is a placeholder, not a summary.
+                                            </p>
+                                        </div>
+                                    )}
                                     <motion.p
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
@@ -233,6 +296,21 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     >
                                         {briefing}
                                     </motion.p>
+                                    {sources.length > 0 && (
+                                        <div className="mx-6 mb-5 rounded-xl bg-white border border-violet-100 px-4 py-3">
+                                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                                <ListChecks className="w-3.5 h-3.5" /> Grounded in {sources.length} record{sources.length === 1 ? "" : "s"}
+                                            </p>
+                                            <ul className="space-y-1">
+                                                {sources.map((s: any, i: number) => (
+                                                    <li key={`${s.kind}-${s.id || i}`} className="text-sm text-gray-600 font-medium">
+                                                        <span className="inline-block min-w-24 text-[11px] font-bold uppercase text-violet-500 mr-2">{s.kind}</span>
+                                                        {s.label}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
                             ) : loadFailed ? (
                                 // Unknown, not empty. The panel says so rather
@@ -280,6 +358,73 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                             <div className="mt-6">
                                 <AIDisclaimer compact />
                             </div>
+                        </div>
+
+                        {answers.length > 0 && (
+                            <div className="bg-white rounded-3xl border border-gray-100 p-8 mt-6">
+                                <h2 className="text-lg font-extrabold text-gray-900 flex items-center gap-2 mb-5">
+                                    <MessageSquareText className="w-5 h-5 text-teal-500" /> Pre-session answers
+                                </h2>
+                                <div className="space-y-4">
+                                    {answers.map((a: any, i: number) => (
+                                        <div key={i} className="rounded-2xl bg-gray-50 p-4">
+                                            <p className="text-sm font-bold text-gray-900 mb-1">{a.question}</p>
+                                            <p className="text-sm text-gray-600 font-medium">{a.answer}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="bg-white rounded-3xl border border-gray-100 p-8 mt-6">
+                            <div className="flex items-center justify-between mb-2">
+                                <h2 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
+                                    <Stethoscope className="w-5 h-5 text-teal-500" /> Session prep draft
+                                </h2>
+                                <button
+                                    onClick={draftCopilot}
+                                    disabled={isCopilotLoading}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-bold hover:bg-teal-600 transition-all disabled:opacity-50"
+                                >
+                                    {isCopilotLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                    {copilot ? "Re-draft" : "Draft prep notes"}
+                                </button>
+                            </div>
+                            <p className="text-xs text-gray-400 font-medium mb-4">
+                                Advisory bullets for you only — never a diagnosis, plan or verdict. Drafts are generated on demand and never stored.
+                            </p>
+                            {copilot ? (
+                                <div className="rounded-2xl bg-teal-50/50 border border-teal-100/60 p-6">
+                                    {copilotInsufficient && (
+                                        <p className="text-sm text-amber-700 font-semibold mb-3">
+                                            Limited data — review the record directly before the session.
+                                        </p>
+                                    )}
+                                    <p className="text-gray-700 leading-relaxed font-medium whitespace-pre-line">{copilot}</p>
+                                    {copilotSources.length > 0 && (
+                                        <p className="text-[11px] text-gray-400 font-medium mt-3">
+                                            Grounded in {copilotSources.length} record{copilotSources.length === 1 ? "" : "s"}:{" "}
+                                            {copilotSources.map((s: any) => s.label).join(" · ")}
+                                        </p>
+                                    )}
+                                </div>
+                            ) : copilotFailed ? (
+                                <div className="flex flex-col items-center py-8 text-center">
+                                    <AlertCircle className="w-8 h-8 text-rose-400 mb-3" />
+                                    <p className="text-gray-500 text-sm font-medium mb-4">Could not draft prep notes.</p>
+                                    <button
+                                        onClick={draftCopilot}
+                                        disabled={isCopilotLoading}
+                                        className="px-5 py-2.5 bg-teal-600 text-white rounded-2xl text-sm font-bold hover:bg-teal-700 transition-all flex items-center gap-2"
+                                    >
+                                        <RefreshCw className="w-4 h-4" /> Retry
+                                    </button>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-400 text-center py-8">
+                                    {isCopilotLoading ? "Drafting from the patient record…" : "No draft yet. Generate one when you start preparing."}
+                                </p>
+                            )}
                         </div>
                     </div>
 

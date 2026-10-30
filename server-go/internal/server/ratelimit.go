@@ -86,6 +86,12 @@ func (s *Server) generalLimiter() func(http.Handler) http.Handler {
 // seconds until the window resets. Redis is the shared store; when it is
 // unavailable the in-process fallback keeps limits meaningful on one replica
 // and a log line records the degradation.
+//
+// Both stores are fixed-window: the TTL is set only when the key is newly
+// created (count == delta), never refreshed by sustained traffic. Refreshing
+// on every increment would slide the window indefinitely under load, which is
+// why the mem store sets resetAt once. Decrements (skipSuccessful auth path)
+// never extend the window.
 func (s *Server) bump(name, key string, window time.Duration, delta int) (int, int) {
 	fullKey := "mindease:go:rl:" + name + ":" + key
 	if s.Redis != nil {
@@ -93,7 +99,7 @@ func (s *Server) bump(name, key string, window time.Duration, delta int) (int, i
 		defer cancel()
 		count, err := s.Redis.IncrBy(ctx, fullKey, int64(delta)).Result()
 		if err == nil {
-			if count == 1 || delta > 0 {
+			if count == int64(delta) {
 				s.Redis.Expire(ctx, fullKey, window)
 			}
 			ttl, _ := s.Redis.TTL(ctx, fullKey).Result()
@@ -134,5 +140,23 @@ func memBump(key string, window time.Duration, delta int) (int, int) {
 	if c.count < 0 {
 		c.count = 0
 	}
+	// Bound growth: distinct keys (IPs, emails) accumulate forever otherwise.
+	// A cheap opportunistic sweep when the map gets large deletes only keys
+	// whose window has already elapsed, never live counters.
+	if len(memCounters) > 5000 {
+		for k, v := range memCounters {
+			if now.After(v.resetAt) {
+				delete(memCounters, k)
+			}
+		}
+	}
 	return c.count, int(time.Until(c.resetAt) / time.Second)
+}
+
+// resetRateLimitMem clears the in-process fallback. Tests only: the store is
+// global so one test's counters would otherwise bleed into the next.
+func resetRateLimitMem() {
+	memMu.Lock()
+	defer memMu.Unlock()
+	memCounters = map[string]*memCounter{}
 }

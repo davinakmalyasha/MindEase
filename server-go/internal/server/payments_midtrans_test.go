@@ -70,3 +70,45 @@ func TestMidtransUnknownTransactionStatusIsRejected(t *testing.T) {
 		t.Fatal("an unknown transaction_status was accepted")
 	}
 }
+
+func TestMidtransStatusMatrixCollapsesOntoFourOutcomes(t *testing.T) {
+	s := midtransServer(t)
+	cases := []struct{ status, want string }{
+		{"capture", "paid"},
+		{"settlement", "pending"},
+		{"pending", "pending"},
+		{"partial_refund", "pending"},
+		{"partial-refund", "pending"},
+		{"deny", "failed"},
+		{"cancel", "failed"},
+		{"failure", "failed"},
+		{"chargeback", "failed"},
+		{"partial_chargeback", "failed"},
+		{"reversal", "failed"},
+		{"expire", "expired"},
+		{"refund", "expired"},
+	}
+	for _, tc := range cases {
+		raw := midtransNotification("ME-"+tc.status, "200", tc.status, "1000.00", s.Cfg.PaymentServerKey)
+		notification, err := s.payParseNotification(raw)
+		if err != nil {
+			t.Fatalf("%s: parse: %v", tc.status, err)
+		}
+		if notification.Outcome != tc.want {
+			t.Fatalf("%s: outcome = %q; want %q", tc.status, notification.Outcome, tc.want)
+		}
+	}
+}
+
+func TestMidtransMissingFieldsAndBadSignatureRejected(t *testing.T) {
+	s := midtransServer(t)
+	for name, raw := range map[string]string{
+		"malformed":   `{"order_id":`,
+		"missing sig": `{"order_id":"ME-1","status_code":"200","transaction_status":"capture","gross_amount":"1000.00"}`,
+		"bad sig":     midtransNotification("ME-1", "200", "capture", "1000.00", "wrong-key"),
+	} {
+		if _, err := s.payParseNotification(raw); err == nil {
+			t.Fatalf("%s notification was accepted", name)
+		}
+	}
+}

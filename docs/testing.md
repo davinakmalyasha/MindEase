@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 74 tests, 13 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 93 tests, 13 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -49,8 +49,12 @@ break silently and impossible to see in a browser:
   schemas to the client-critical operations.
 - **Payment signatures and limiter isolation.** `payments_midtrans_test.go`
   proves the signature covers `status_code` (not `transaction_status`), maps
-  outcomes from the transaction status, and rejects unknown states;
-  `ratelimit_test.go` proves stacked limiters keep separate counters.
+  the full transaction-status matrix onto the four outcomes, and rejects
+  unknown states, missing fields and bad signatures; `ratelimit_test.go`
+  proves stacked limiters keep separate counters, the window is fixed (a
+  decrement never extends it), over-decrements clamp at zero, concurrent
+  bumps are exact, the middleware emits 429 with `RateLimit-*` headers,
+  `skipSuccessful` counts failures only, and health/internal paths are exempt.
 - **Pool and transport settings.** `internal/db/db_test.go` proves the pool
   options are bounded and that TLS cannot be silently dropped from a raw DSN;
   `observability_test.go` covers the metrics token, route-pattern labels,
@@ -72,7 +76,7 @@ go vet ./...                                   # CI runs this and golangci-lint 
 `integration_test.go` runs the real handler chain against MySQL. `TestMain`
 creates the database if needed, drops every table, and applies the embedded
 migrations; each test wipes the data tables first, so every assertion starts
-from a known state. The 24 integration tests pin:
+from a known state. The 34 integration tests pin:
 
 - refresh rotation, replay detection and the session revocation that follows it
 - the five-failure lockout
@@ -105,6 +109,30 @@ from a known state. The 24 integration tests pin:
 - the copilot draft is doctor-only and assigned-only, writes nothing but its
   audit row, and grounds every claim: citations name real rows, an empty
   timeline reads as insufficient data
+- the risk-queue scoping matrix: assigned alerts visible outright (even with a
+  lapsed relationship), unassigned visible only with a live relationship,
+  assigned-to-another invisible; patient 403, anonymous 401; counts, priority
+  order, per-item `clinical.read` audit, and resolved alerts hidden unless
+  `includeResolved`
+- the acknowledge/resolve transitions: stranger 403s, malformed 400s, unknown
+  404s, double-ack and double-resolve 400s, resolve-without-ack implies the
+  acknowledgement (audited), and note validation (missing/empty/whitespace as
+  no-note; too-long, unknown-key and null as 400)
+- payment outcomes beyond settlement: `pending` records without granting and
+  holds the `liveKey` claim (second checkout 409s), a replayed settlement
+  grants nothing, a tampered amount is rejected, `failed`/`expired` release
+  both rows so checkout works again, and unknown or malformed callbacks never
+  grant
+- the join-window gate (opens-in/closed minutes, non-active status, chat-only
+  type, stranger 403, degraded jitsi minting no token), the ICS export
+  (confirmed-only, participant-only, escaping, UID/DTSTART shape), and the
+  reschedule rules (owner-only, terminal-state and past rejection, overlap
+  409, reset to pending with room/reminder state cleared)
+- the check-in paths: the mood-decline nudge and its `RiskAlert` (unassigned
+  with `risk.raised`, or assigned with the clinician notified and stamped),
+  the mood-nudge and post-session check-in firing exactly once, and the
+  single-runner lock (locked-out dispatch is silent success, DB leases release
+  by expiry with atomic takeover of expired rows)
 
 Nothing in the unit files needs MySQL or Redis.
 
@@ -228,24 +256,22 @@ iteration so the IP limiter does not dominate the result; no limit is disabled.
 
 ## What remains uncovered
 
-The integration suite is 24 tests, not 519. Ported: the races and constraints
+The integration suite is 34 tests, not 519. Ported: the races and constraints
 listed above, plus the browser flows. Still without a handler-level test:
 
-- the risk-queue list scoping and acknowledge/resolve transitions (covered only
-  through the SOS round-trip test, not as a matrix)
-- the AI proxy endpoints (fencing and the HTTP client are unit-tested; the
-  pre-session/briefing handlers are exercised only by the browser suite).
-  The copilot draft and briefing grounding are now covered: citations,
-  insufficient-data, authz matrix and audit by `TestIntegrationCopilotDraftRestrictedAndGrounded`,
-  prompt fencing and fallback honesty by six unit tests in `ai_test.go`.
-- payment callbacks beyond the simulator settlement path
-- the join-window gate, reschedule rules and ICS rendering
-- the check-in and mood-decline job paths
-- the Redis rate-limit store's actual window math (the in-memory fallback's
-  isolation is covered)
+- the live Midtrans webhook end to end in `midtrans` mode over HTTP (the
+  status matrix is unit-tested, the simulator outcomes are covered through the
+  notification route; the live Snap creation and its phantom-row cleanup are
+  not)
+- the concurrent-acknowledgement race under true concurrency (the
+  `RowsAffected` guard is pinned sequentially, not by two simultaneous writers)
+- the scheduler predicates and the weekly-report WIB Monday boundary
+- the waitlist maintenance paths (48-hour requeue, 90-day expiry)
+- the realtime `risk:alert` fanout into the queue UI's invalidation
 
-The first item is the one that matters most: the queue is the product's core
-claim. The rest are exercised by code review and partly by the journeys. Naming
+The first item is the one that still matters most: money must not move on an
+untested path, and the live path is the one real deployments would take. The
+rest are exercised by code review and partly by the journeys. Naming
 them is the honest form of the coverage claim.
 
 ## Adding a test

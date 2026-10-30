@@ -545,6 +545,441 @@ func TestIntegrationBookingClaimIsAtomicAndIdempotent(t *testing.T) {
 	}
 }
 
+func seedAppointment(t *testing.T, patientID, doctorID string, date time.Time, start, end, ctype, status string) string {
+	t.Helper()
+	id := newID()
+	now := time.Now().UTC()
+	_, err := itPool.ExecContext(context.Background(),
+		"INSERT INTO `Appointment` (id, userId, doctorId, appointmentDate, startTime, endTime, consultationType, status, createdAt, updatedAt) "+
+			"VALUES (?,?,?,?,?,?,?,?,?,?)",
+		id, patientID, doctorID, date, start, end, ctype, status, now, now)
+	if err != nil {
+		t.Fatalf("seed appointment: %v", err)
+	}
+	return id
+}
+
+// wibDayMidnight anchors a UTC midnight on the WIB calendar day offset days
+// from today, the same anchor seedSlot uses, so join-window math and the day
+// key agree.
+func wibDayMidnight(offsetDays int) time.Time {
+	today := time.Now().In(itLocation)
+	return time.Date(today.Year(), today.Month(), today.Day()+offsetDays, 0, 0, 0, 0, time.UTC)
+}
+
+func TestIntegrationAppointmentJoinWindow(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	dEmail := uniqueEmail(t)
+	dUserID, doctorID := seedDoctor(t, dEmail, "Dr. Integration Join")
+	_ = dUserID
+	strangerEmail := uniqueEmail(t)
+	seedDoctor(t, strangerEmail, "Dr. Integration Join Stranger")
+
+	patient := newTestClient(t, h)
+	patient.login(patientEmail, "Patient@123")
+	doctor := newTestClient(t, h)
+	doctor.login(dEmail, "Doctor@123")
+	stranger := newTestClient(t, h)
+	stranger.login(strangerEmail, "Doctor@123")
+
+	join := func(c *testClient, id string) (int, string) {
+		rec, _, text := c.request(http.MethodPost, "/api/appointments/"+id+"/join", nil)
+		return rec.Code, text
+	}
+
+	// Tomorrow: the room has not opened yet.
+	future := seedAppointment(t, patientID, doctorID, wibDayMidnight(1), "10:00", "11:00", "video", "confirmed")
+	if code, text := join(patient, future); code != http.StatusBadRequest || !strings.Contains(text, "opens in") {
+		t.Fatalf("future join: %d %s; want 400 naming when the room opens", code, text)
+	}
+	// Yesterday: the room has closed.
+	past := seedAppointment(t, patientID, doctorID, wibDayMidnight(-1), "10:00", "11:00", "video", "confirmed")
+	if code, text := join(patient, past); code != http.StatusBadRequest || !strings.Contains(text, "closed") {
+		t.Fatalf("past join: %d %s; want 400 room has closed", code, text)
+	}
+	// Wrong status and wrong type never reach the window.
+	pending := seedAppointment(t, patientID, doctorID, wibDayMidnight(0), "00:00", "23:59", "video", "pending")
+	if code, text := join(patient, pending); code != http.StatusBadRequest || !strings.Contains(text, "not active") {
+		t.Fatalf("pending join: %d %s; want 400 not active", code, text)
+	}
+	chat := seedAppointment(t, patientID, doctorID, wibDayMidnight(0), "00:00", "23:59", "chat", "confirmed")
+	if code, text := join(patient, chat); code != http.StatusBadRequest || !strings.Contains(text, "text chat only") {
+		t.Fatalf("chat join: %d %s; want 400 text chat only", code, text)
+	}
+	// Non-participants are rejected before any token is minted.
+	open := seedAppointment(t, patientID, doctorID, wibDayMidnight(0), "00:00", "23:59", "video", "confirmed")
+	if code, text := join(stranger, open); code != http.StatusForbidden {
+		t.Fatalf("stranger join: %d %s; want 403", code, text)
+	}
+	// Inside the window both sides get a room; degraded jitsi carries no token.
+	for _, c := range []*testClient{patient, doctor} {
+		rec, body, text := c.request(http.MethodPost, "/api/appointments/"+open+"/join", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("open join: %d %s", rec.Code, text)
+		}
+		data := dataObject(t, body)
+		if data["room"] == nil || data["room"] == "" {
+			t.Fatalf("open join has no room: %#v", data)
+		}
+		if degraded, _ := data["degraded"].(bool); degraded && data["token"] != nil {
+			t.Fatalf("degraded join must not mint a token: %#v", data)
+		}
+	}
+}
+
+func TestIntegrationAppointmentICS(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	dEmail := uniqueEmail(t)
+	_, doctorID := seedDoctor(t, dEmail, "Dr. Integration ICS")
+	strangerEmail := uniqueEmail(t)
+	seedDoctor(t, strangerEmail, "Dr. Integration ICS Stranger")
+	// A name with ICS metacharacters pins the escaping exactly.
+	if _, err := itPool.ExecContext(context.Background(),
+		"UPDATE `User` SET name = ? WHERE email = ?", "Doe, John; Jr\nMD", dEmail); err != nil {
+		t.Fatalf("rename doctor: %v", err)
+	}
+
+	patient := newTestClient(t, h)
+	patient.login(patientEmail, "Patient@123")
+	stranger := newTestClient(t, h)
+	stranger.login(strangerEmail, "Doctor@123")
+
+	confirmed := seedAppointment(t, patientID, doctorID, wibDayMidnight(2), "10:00", "11:00", "video", "confirmed")
+	rec, _, text := patient.request(http.MethodGet, "/api/appointments/"+confirmed+"/ics", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ics: %d %s", rec.Code, text)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/calendar") {
+		t.Fatalf("ics content-type = %q; want text/calendar", ct)
+	}
+	for _, want := range []string{
+		"BEGIN:VCALENDAR", "END:VCALENDAR", "BEGIN:VEVENT", "END:VEVENT",
+		"UID:appointment-" + confirmed + "@mindease.app", "DTSTART:", "DTEND:",
+		`Doe\, John\; Jr\nMD`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ics body missing %q", want)
+		}
+	}
+
+	// Only confirmed appointments export; only participants read.
+	pending := seedAppointment(t, patientID, doctorID, wibDayMidnight(2), "12:00", "13:00", "video", "pending")
+	if rec, _, text := patient.request(http.MethodGet, "/api/appointments/"+pending+"/ics", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("pending ics: %d %s; want 400", rec.Code, text)
+	}
+	if rec, _, text := stranger.request(http.MethodGet, "/api/appointments/"+confirmed+"/ics", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("stranger ics: %d %s; want 403", rec.Code, text)
+	}
+	if rec, _, text := patient.request(http.MethodGet, "/api/appointments/"+newID()+"/ics", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown ics: %d %s; want 404", rec.Code, text)
+	}
+}
+
+func TestIntegrationAppointmentRescheduleRules(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	otherEmail := uniqueEmail(t)
+	seedUser(t, otherEmail, "Patient@123", "patient")
+	dEmail := uniqueEmail(t)
+	_, doctorID := seedDoctor(t, dEmail, "Dr. Integration Reschedule")
+
+	patient := newTestClient(t, h)
+	patient.login(patientEmail, "Patient@123")
+	other := newTestClient(t, h)
+	other.login(otherEmail, "Patient@123")
+	doctor := newTestClient(t, h)
+	doctor.login(dEmail, "Doctor@123")
+
+	futureDay := wibDayMidnight(3).In(itLocation).Format("2006-01-02")
+	reschedule := func(c *testClient, id string, payload map[string]any) (int, string) {
+		rec, _, text := c.request(http.MethodPut, "/api/appointments/"+id+"/reschedule", payload)
+		return rec.Code, text
+	}
+	valid := map[string]any{"appointmentDate": futureDay, "startTime": "10:00", "endTime": "11:00"}
+
+	// Only the owning patient may reschedule.
+	appt := seedAppointment(t, patientID, doctorID, wibDayMidnight(2), "10:00", "11:00", "video", "confirmed")
+	if code, text := reschedule(other, appt, valid); code != http.StatusForbidden {
+		t.Fatalf("stranger-patient reschedule: %d %s; want 403", code, text)
+	}
+	if code, text := reschedule(doctor, appt, valid); code != http.StatusForbidden {
+		t.Fatalf("doctor reschedule: %d %s; want 403 (owner only)", code, text)
+	}
+	// Terminal states and the past are rejected.
+	done := seedAppointment(t, patientID, doctorID, wibDayMidnight(-2), "10:00", "11:00", "video", "completed")
+	if code, text := reschedule(patient, done, valid); code != http.StatusBadRequest {
+		t.Fatalf("completed reschedule: %d %s; want 400", code, text)
+	}
+	pastDay := wibDayMidnight(-1).In(itLocation).Format("2006-01-02")
+	if code, text := reschedule(patient, appt, map[string]any{"appointmentDate": pastDay, "startTime": "10:00", "endTime": "11:00"}); code != http.StatusBadRequest {
+		t.Fatalf("past reschedule: %d %s; want 400", code, text)
+	}
+	// Malformed shapes and ids are validation failures, not 500s.
+	if code, text := reschedule(patient, appt, map[string]any{"appointmentDate": "2026-02-30", "startTime": "25:00", "endTime": "11:00"}); code != http.StatusBadRequest {
+		t.Fatalf("bad time reschedule: %d %s; want 400", code, text)
+	}
+	if code, text := reschedule(patient, "not-a-uuid", valid); code != http.StatusBadRequest {
+		t.Fatalf("malformed id reschedule: %d %s; want 400", code, text)
+	}
+	if code, text := reschedule(patient, newID(), valid); code != http.StatusNotFound {
+		t.Fatalf("unknown id reschedule: %d %s; want 404", code, text)
+	}
+
+	// Overlapping the doctor's other appointment conflicts.
+	otherPatientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	_ = seedAppointment(t, otherPatientID, doctorID, wibDayMidnight(3), "10:30", "11:30", "video", "confirmed")
+	if code, text := reschedule(patient, appt, valid); code != http.StatusConflict {
+		t.Fatalf("overlapping reschedule: %d %s; want 409", code, text)
+	}
+
+	// A clean move resets the appointment to pending: the old confirmation,
+	// room material and reminder state do not survive.
+	freeDay := wibDayMidnight(4).In(itLocation).Format("2006-01-02")
+	rec, body, text := patient.request(http.MethodPut, "/api/appointments/"+appt+"/reschedule",
+		map[string]any{"appointmentDate": freeDay, "startTime": "14:00", "endTime": "15:00"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clean reschedule: %d %s", rec.Code, text)
+	}
+	var status string
+	var meetingLink, roomSeed, reminderSentAt *string
+	if err := itPool.QueryRow("SELECT status, meetingLink, roomSeed, reminderSentAt FROM `Appointment` WHERE id = ?", appt).
+		Scan(&status, &meetingLink, &roomSeed, &reminderSentAt); err != nil {
+		t.Fatalf("read rescheduled: %v", err)
+	}
+	if status != "pending" || meetingLink != nil || roomSeed != nil || reminderSentAt != nil {
+		t.Fatalf("rescheduled state = %q/%v/%v/%v; want pending with room and reminder state cleared",
+			status, meetingLink, roomSeed, reminderSentAt)
+	}
+	_ = body
+}
+
+func seedMoodEntry(t *testing.T, patientID string, mood int, moodDate string, createdAt time.Time) string {
+	t.Helper()
+	id := newID()
+	_, err := itPool.ExecContext(context.Background(),
+		"INSERT INTO `MoodEntry` (id, userId, mood, notes, moodDate, factors, createdAt) VALUES (?,?,?,?,?,?,?)",
+		id, patientID, mood, nil, moodDate, nil, createdAt)
+	if err != nil {
+		t.Fatalf("seed mood entry: %v", err)
+	}
+	return id
+}
+
+func notificationCountFor(t *testing.T, userID, title string) int {
+	t.Helper()
+	var n int
+	if err := itPool.QueryRow("SELECT COUNT(*) FROM `Notification` WHERE userId = ? AND title = ?",
+		userID, title).Scan(&n); err != nil {
+		t.Fatalf("count notifications: %v", err)
+	}
+	return n
+}
+
+func TestIntegrationJobsDeclineAlertAndCheckins(t *testing.T) {
+	s := newIntegrationServer(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	dayStamp := func(daysAgo int) (string, time.Time) {
+		d := now.AddDate(0, 0, -daysAgo)
+		return d.Format("2006-01-02"), time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, time.UTC)
+	}
+
+	// Declining patient, no clinician: 5,5,5 then 2,2,2, oldest first.
+	decliningID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	var latestMoodID string
+	for i, mood := range []int{5, 5, 5, 2, 2, 2} {
+		md, ts := dayStamp(6 - i)
+		latestMoodID = seedMoodEntry(t, decliningID, mood, md, ts)
+	}
+	// Stable and short-history patients must not fire.
+	stableID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	for i := 0; i < 6; i++ {
+		md, ts := dayStamp(6 - i)
+		seedMoodEntry(t, stableID, 4, md, ts)
+	}
+	shortID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	for i := 0; i < 3; i++ {
+		md, ts := dayStamp(3 - i)
+		seedMoodEntry(t, shortID, 1, md, ts)
+	}
+	// Stale logger for the mood nudge: last log four days ago.
+	nudgeID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	md, ts := dayStamp(4)
+	seedMoodEntry(t, nudgeID, 3, md, ts)
+	// Completed session two days ago for the post-session check-in.
+	checkedID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	_, checkedDoctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Checkin")
+	_ = seedAppointment(t, checkedID, checkedDoctorID, wibDayMidnight(-2), "09:00", "10:00", "video", "completed")
+
+	summary := &jobsCheckinSummary{}
+	if err := s.jobsDeclineNudges(ctx, now, summary); err != nil {
+		t.Fatalf("decline nudges: %v", err)
+	}
+	if summary.declineNudges != 1 {
+		t.Fatalf("declineNudges = %d; want 1 (only the declining patient)", summary.declineNudges)
+	}
+	var declineStamp *time.Time
+	if err := itPool.QueryRow("SELECT lastDeclineNudgeAt FROM `User` WHERE id = ?", decliningID).Scan(&declineStamp); err != nil || declineStamp == nil {
+		t.Fatalf("declining lastDeclineNudgeAt = %v err=%v; want stamped", declineStamp, err)
+	}
+	if n := notificationCountFor(t, decliningID, "We noticed things feel heavier lately"); n != 1 {
+		t.Fatalf("decline notifications = %d; want 1", n)
+	}
+	var alertLevel, alertSource, alertSourceID string
+	var alertAssigned *string
+	if err := itPool.QueryRow(
+		"SELECT level, sourceType, sourceId, assignedDoctorUserId FROM `RiskAlert` WHERE userId = ?", decliningID).
+		Scan(&alertLevel, &alertSource, &alertSourceID, &alertAssigned); err != nil {
+		t.Fatalf("read decline alert: %v", err)
+	}
+	if alertLevel != "elevated" || alertSource != "mood" || alertSourceID != latestMoodID || alertAssigned != nil {
+		t.Fatalf("decline alert = %s/%s/%s/%v; want elevated/mood/<latest mood>/unassigned",
+			alertLevel, alertSource, alertSourceID, alertAssigned)
+	}
+	var raisedAudits int
+	if err := itPool.QueryRow(
+		"SELECT COUNT(*) FROM `AuditLog` WHERE action = 'risk.raised' AND targetType = 'RiskAlert'").Scan(&raisedAudits); err != nil || raisedAudits != 1 {
+		t.Fatalf("risk.raised audits = %d err=%v; want 1", raisedAudits, err)
+	}
+
+	// Second run is silent: the claim holds for seven days, so no duplicate
+	// nudge and no duplicate alert.
+	again := &jobsCheckinSummary{}
+	if err := s.jobsDeclineNudges(ctx, now, again); err != nil {
+		t.Fatalf("decline rerun: %v", err)
+	}
+	if again.declineNudges != 0 {
+		t.Fatalf("decline rerun nudges = %d; want 0", again.declineNudges)
+	}
+	var alertCount int
+	if err := itPool.QueryRow("SELECT COUNT(*) FROM `RiskAlert` WHERE userId = ?", decliningID).Scan(&alertCount); err != nil || alertCount != 1 {
+		t.Fatalf("decline alerts after rerun = %d; want 1", alertCount)
+	}
+
+	// Mood nudge fires once for the stale logger, then the claim holds.
+	mn := &jobsCheckinSummary{}
+	if err := s.jobsMoodNudges(ctx, now, mn); err != nil {
+		t.Fatalf("mood nudges: %v", err)
+	}
+	if mn.moodNudges != 1 {
+		t.Fatalf("moodNudges = %d; want 1", mn.moodNudges)
+	}
+	if n := notificationCountFor(t, nudgeID, "We miss your daily check-in"); n != 1 {
+		t.Fatalf("mood nudge notifications = %d; want 1", n)
+	}
+	mnAgain := &jobsCheckinSummary{}
+	if err := s.jobsMoodNudges(ctx, now, mnAgain); err != nil {
+		t.Fatalf("mood rerun: %v", err)
+	}
+	if mnAgain.moodNudges != 0 {
+		t.Fatalf("mood rerun nudges = %d; want 0", mnAgain.moodNudges)
+	}
+
+	// Post-session check-in fires once 24h after start, then stamps quiet.
+	sc := &jobsCheckinSummary{}
+	if err := s.jobsSessionCheckins(ctx, now, jobsWIB(), sc); err != nil {
+		t.Fatalf("session checkins: %v", err)
+	}
+	if sc.sessionCheckins != 1 {
+		t.Fatalf("sessionCheckins = %d; want 1", sc.sessionCheckins)
+	}
+	if n := notificationCountFor(t, checkedID, "How did your session go?"); n != 1 {
+		t.Fatalf("session checkin notifications = %d; want 1", n)
+	}
+	scAgain := &jobsCheckinSummary{}
+	if err := s.jobsSessionCheckins(ctx, now, jobsWIB(), scAgain); err != nil {
+		t.Fatalf("session rerun: %v", err)
+	}
+	if scAgain.sessionCheckins != 0 {
+		t.Fatalf("session rerun checkins = %d; want 0", scAgain.sessionCheckins)
+	}
+}
+
+func TestIntegrationJobsDeclineAlertAssignedClinician(t *testing.T) {
+	s := newIntegrationServer(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	patientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	dEmail := uniqueEmail(t)
+	dUserID, doctorID := seedDoctor(t, dEmail, "Dr. Integration Decline")
+	_ = seedCompletedAppointment(t, patientID, doctorID)
+	for i, mood := range []int{5, 5, 5, 2, 2, 2} {
+		d := now.AddDate(0, 0, -(6 - i))
+		seedMoodEntry(t, patientID, mood, d.Format("2006-01-02"),
+			time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, time.UTC))
+	}
+
+	summary := &jobsCheckinSummary{}
+	if err := s.jobsDeclineNudges(ctx, now, summary); err != nil {
+		t.Fatalf("decline nudges: %v", err)
+	}
+	if summary.declineNudges != 1 {
+		t.Fatalf("declineNudges = %d; want 1", summary.declineNudges)
+	}
+	var assigned, notified *string
+	if err := itPool.QueryRow(
+		"SELECT assignedDoctorUserId, notifiedDoctorUserId FROM `RiskAlert` WHERE userId = ?", patientID).
+		Scan(&assigned, &notified); err != nil {
+		t.Fatalf("read assigned decline alert: %v", err)
+	}
+	if assigned == nil || *assigned != dUserID {
+		t.Fatalf("assignedDoctorUserId = %v; want %q", assigned, dUserID)
+	}
+	if notified == nil || *notified != dUserID {
+		t.Fatalf("notifiedDoctorUserId = %v; want %q (clinician reached in-app)", notified, dUserID)
+	}
+	if n := notificationCountFor(t, dUserID, "Risk disclosure from a patient"); n != 1 {
+		t.Fatalf("clinician decline notifications = %d; want 1", n)
+	}
+	_ = dEmail
+}
+
+func TestIntegrationJobsDispatchLock(t *testing.T) {
+	s := newIntegrationServer(t)
+	ctx := context.Background()
+
+	first, ok := s.jobsAcquireLock(ctx, jobsLockKey("reminders"), jobsLockTTL("reminders"))
+	if !ok || first == nil {
+		t.Fatal("first lock acquire failed; want held")
+	}
+	if _, ok := s.jobsAcquireLock(ctx, jobsLockKey("reminders"), jobsLockTTL("reminders")); ok {
+		t.Fatal("second lock acquire succeeded while held; want locked-out")
+	}
+	// A locked-out dispatch is a silent success: the run is skipped, not failed.
+	if err := s.jobsDispatch(ctx, "reminders"); err != nil {
+		t.Fatalf("locked-out dispatch: %v; want nil", err)
+	}
+	// The DB path releases by expiry, not by delete: releasing never frees a
+	// held lease early, so a crashed runner wedges the job for at most the TTL.
+	s.jobsReleaseLock(first)
+	if _, ok := s.jobsAcquireLock(ctx, jobsLockKey("reminders"), jobsLockTTL("reminders")); ok {
+		t.Fatal("acquire after release succeeded; want still held until expiry on the DB path")
+	}
+	// An expired row is taken over atomically.
+	now := jobsNowMS()
+	if _, err := itPool.ExecContext(ctx,
+		"INSERT INTO `JobLock` (`key`, expiresAt, createdAt) VALUES (?,?,?)",
+		"test-expired-lock", now.Add(-time.Minute), now.Add(-time.Hour)); err != nil {
+		t.Fatalf("seed expired lock: %v", err)
+	}
+	if _, ok := s.jobsAcquireLock(ctx, "test-expired-lock", time.Hour); !ok {
+		t.Fatal("expired lock takeover failed; want held")
+	}
+}
+
 func TestIntegrationPaymentLiveCheckoutClaim(t *testing.T) {
 	s := newIntegrationServer(t)
 	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Payment")
@@ -618,6 +1053,138 @@ func TestIntegrationPaymentLiveCheckoutClaim(t *testing.T) {
 	// The claim is released on settlement, so a second checkout is allowed.
 	if code := checkout(); code != http.StatusCreated {
 		t.Fatalf("checkout after settlement: %d, want 201", code)
+	}
+}
+
+func seedPendingOrder(t *testing.T, userID, packageID string, amount int64) (string, string) {
+	t.Helper()
+	purchaseID := newID()
+	orderID := "test-order-" + newID()
+	now := time.Now().UTC()
+	_, err := itPool.ExecContext(context.Background(),
+		"INSERT INTO `PackagePurchase` (id, packageId, userId, sessionsLeft, status, paidAt, grantedByUserId, totalPrice, sessionCount, reference, liveKey, createdAt) "+
+			"VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+		purchaseID, packageID, userID, 0, "pending", nil, nil, amount, 3, nil, userID+":"+packageID, now)
+	if err != nil {
+		t.Fatalf("seed pending purchase: %v", err)
+	}
+	_, err = itPool.ExecContext(context.Background(),
+		"INSERT INTO `PaymentOrder` (id, orderId, purchaseId, amount, currency, status, reference, simulated, createdAt, settledAt) "+
+			"VALUES (?,?,?,?,?,?,?,?,?,?)",
+		newID(), orderID, purchaseID, amount, "IDR", "pending", nil, true, now, nil)
+	if err != nil {
+		t.Fatalf("seed payment order: %v", err)
+	}
+	return orderID, purchaseID
+}
+
+func TestIntegrationPaymentOutcomesBeyondSettlement(t *testing.T) {
+	s := newIntegrationServer(t)
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Payment Outcomes")
+	packageID := seedPackage(t, doctorID, 3, 300000)
+	patientEmail := uniqueEmail(t)
+	userID := seedUser(t, patientEmail, "Patient@123", "patient")
+	c := newTestClient(t, s.Mount())
+	c.login(patientEmail, "Patient@123")
+
+	notify := func(payload map[string]any) (int, map[string]any, string) {
+		t.Helper()
+		rec, body, text := c.request(http.MethodPost, "/api/payments/notification", payload)
+		if body == nil {
+			return rec.Code, nil, text
+		}
+		data, _ := body["data"].(map[string]any)
+		return rec.Code, data, text
+	}
+
+	// Pending authorisation: recorded, not granted, and the liveKey claim is
+	// held so a fresh checkout conflicts.
+	order1, _ := seedPendingOrder(t, userID, packageID, 300000)
+	code, data, text := notify(map[string]any{"orderId": order1, "amount": 300000, "outcome": "pending"})
+	if code != http.StatusOK || data["reason"] != "still_pending" || data["applied"] != false {
+		t.Fatalf("pending notify: %d %#v %s; want 200 still_pending/applied=false", code, data, text)
+	}
+	var orderStatus, purchaseStatus string
+	if err := itPool.QueryRow(
+		"SELECT o.status, p.status FROM `PaymentOrder` o JOIN `PackagePurchase` p ON p.id = o.purchaseId WHERE o.orderId = ?",
+		order1).Scan(&orderStatus, &purchaseStatus); err != nil {
+		t.Fatalf("read pending order: %v", err)
+	}
+	if orderStatus != "pending" || purchaseStatus != "pending" {
+		t.Fatalf("pending states = %s/%s; want pending/pending", orderStatus, purchaseStatus)
+	}
+	rec, _, text := c.request(http.MethodPost, "/api/payments/packages/"+packageID+"/checkout", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("checkout while pending: %d %s; want 409 (claim held)", rec.Code, text)
+	}
+
+	// The same order settling later grants exactly once; a replay grants nothing.
+	code, data, text = notify(map[string]any{"orderId": order1, "amount": 300000, "outcome": "paid"})
+	if code != http.StatusOK || data["reason"] != "settled" {
+		t.Fatalf("settle after pending: %d %#v %s", code, data, text)
+	}
+	code, data, text = notify(map[string]any{"orderId": order1, "amount": 300000, "outcome": "paid"})
+	if code != http.StatusOK || data["reason"] != "already_paid" || data["applied"] != false {
+		t.Fatalf("duplicate paid notify: %d %#v %s; want 200 already_paid/applied=false", code, data, text)
+	}
+	var sessionsLeft int
+	if err := itPool.QueryRow("SELECT sessionsLeft FROM `PackagePurchase` WHERE userId = ? AND packageId = ? AND status = 'active' ORDER BY paidAt DESC LIMIT 1",
+		userID, packageID).Scan(&sessionsLeft); err != nil || sessionsLeft != 3 {
+		t.Fatalf("sessionsLeft = %d err=%v; want 3 (no double grant)", sessionsLeft, err)
+	}
+
+	// A tampered amount is rejected and grants nothing.
+	order2, _ := seedPendingOrder(t, userID, packageID, 300000)
+	code, _, text = notify(map[string]any{"orderId": order2, "amount": 300001, "outcome": "paid"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("tampered amount notify: %d %s; want 400", code, text)
+	}
+	var status2 string
+	if err := itPool.QueryRow("SELECT status FROM `PackagePurchase` WHERE userId = ? AND packageId = ? AND status = 'pending'",
+		userID, packageID).Scan(&status2); err != nil || status2 != "pending" {
+		t.Fatalf("purchase after tampered notify = %q err=%v; want still pending", status2, err)
+	}
+
+	// Failure releases both rows so the patient can check out again.
+	code, data, text = notify(map[string]any{"orderId": order2, "amount": 300000, "outcome": "failed"})
+	if code != http.StatusOK || data["reason"] != "released" {
+		t.Fatalf("failed notify: %d %#v %s; want 200 released", code, data, text)
+	}
+	var remaining int
+	if err := itPool.QueryRow("SELECT COUNT(*) FROM `PaymentOrder` WHERE orderId = ?", order2).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("payment order after failure = %d; want 0 rows", remaining)
+	}
+	rec, _, text = c.request(http.MethodPost, "/api/payments/packages/"+packageID+"/checkout", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("checkout after failure release: %d %s; want 201", rec.Code, text)
+	}
+
+	// Expiry releases the same way. The checkout above settled immediately in
+	// simulator mode, so seed a fresh pending order for the expiry path.
+	order3, _ := seedPendingOrder(t, userID, packageID, 300000)
+	code, data, text = notify(map[string]any{"orderId": order3, "amount": 300000, "outcome": "expired"})
+	if code != http.StatusOK || data["reason"] != "released" {
+		t.Fatalf("expired notify: %d %#v %s; want 200 released", code, data, text)
+	}
+	rec, _, text = c.request(http.MethodPost, "/api/payments/packages/"+packageID+"/checkout", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("checkout after expiry release: %d %s; want 201", rec.Code, text)
+	}
+
+	// Unknown orders and malformed payloads never grant.
+	code, data, _ = notify(map[string]any{"orderId": "test-order-" + newID(), "amount": 300000, "outcome": "paid"})
+	if code != http.StatusOK || data["reason"] != "unknown_order" {
+		t.Fatalf("unknown order notify: %d %#v; want 200 unknown_order", code, data)
+	}
+	for _, payload := range []map[string]any{
+		{},
+		{"orderId": order3},
+		{"orderId": order3, "amount": 300000, "outcome": "teleported"},
+		{"orderId": "", "amount": 300000},
+	} {
+		if code, _, text := notify(payload); code != http.StatusBadRequest {
+			t.Fatalf("malformed notify %#v: %d %s; want 400", payload, code, text)
+		}
 	}
 }
 
@@ -1837,5 +2404,371 @@ func TestIntegrationCopilotDraftRestrictedAndGrounded(t *testing.T) {
 	}
 	if insuf, _ := briefing["insufficientData"].(bool); insuf {
 		t.Fatal("briefing insufficientData with one mood entry; want false")
+	}
+}
+
+func seedRiskAlert(t *testing.T, patientID, level string, assignedDoctorUserID *string, createdAt time.Time) string {
+	t.Helper()
+	id := newID()
+	var assigned any
+	if assignedDoctorUserID != nil {
+		assigned = *assignedDoctorUserID
+	}
+	_, err := itPool.ExecContext(context.Background(),
+		"INSERT INTO `RiskAlert` (id, userId, level, reason, sourceType, assignedDoctorUserId, createdAt) VALUES (?,?,?,?,?,?,?)",
+		id, patientID, level, "Integration test disclosure", "test", assigned, createdAt)
+	if err != nil {
+		t.Fatalf("seed risk alert: %v", err)
+	}
+	return id
+}
+
+func riskQueueList(t *testing.T, c *testClient, query string) (int, []any, map[string]any, string) {
+	t.Helper()
+	rec, body, text := c.request(http.MethodGet, "/api/wellness/risk-alerts"+query, nil)
+	if body == nil {
+		return rec.Code, nil, nil, text
+	}
+	items, _ := body["data"].([]any)
+	counts, _ := body["counts"].(map[string]any)
+	return rec.Code, items, counts, text
+}
+
+func riskQueueIDs(items []any) []string {
+	out := make([]string, 0, len(items))
+	for _, raw := range items {
+		if m, ok := raw.(map[string]any); ok {
+			if id, _ := m["id"].(string); id != "" {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+func TestIntegrationRiskQueueListScoping(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientA := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	patientB := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	d1Email := uniqueEmail(t)
+	d1UserID, d1DoctorID := seedDoctor(t, d1Email, "Dr. Queue Treating")
+	d2Email := uniqueEmail(t)
+	d2UserID, _ := seedDoctor(t, d2Email, "Dr. Queue Stranger")
+	_ = d2UserID
+	adminEmail := uniqueEmail(t)
+	seedUser(t, adminEmail, "Admin@123", "admin")
+	_ = seedCompletedAppointment(t, patientA, d1DoctorID)
+
+	base := time.Now().UTC().Add(-time.Hour)
+	a1 := seedRiskAlert(t, patientA, "urgent", nil, base)
+	a2 := seedRiskAlert(t, patientA, "elevated", &d1UserID, base.Add(time.Second))
+	a3 := seedRiskAlert(t, patientA, "urgent", &d2UserID, base.Add(2*time.Second))
+	a4 := seedRiskAlert(t, patientB, "urgent", &d1UserID, base.Add(3*time.Second))
+	_ = seedRiskAlert(t, patientB, "urgent", nil, base.Add(4*time.Second))
+
+	d1 := newTestClient(t, h)
+	d1.login(d1Email, "Doctor@123")
+	d2 := newTestClient(t, h)
+	d2.login(d2Email, "Doctor@123")
+	admin := newTestClient(t, h)
+	admin.login(adminEmail, "Admin@123")
+
+	// Treating doctor: unassigned-with-relationship + own assigned (including
+	// the lapsed-relationship assignment a4), never another doctor's.
+	code, items, counts, text := riskQueueList(t, d1, "")
+	if code != http.StatusOK {
+		t.Fatalf("d1 list: %d %s", code, text)
+	}
+	if got, want := riskQueueIDs(items), []string{a4, a1, a2}; !equalStringSlices(got, want) {
+		t.Fatalf("d1 queue = %v; want %v (urgent first, newest first, then elevated)", got, want)
+	}
+	if counts["unresolved"] != float64(3) || counts["unacknowledged"] != float64(3) || counts["urgentUnacknowledged"] != float64(2) {
+		t.Fatalf("d1 counts = %#v; want 3/3/2", counts)
+	}
+
+	// Stranger: only the alert assigned to them, despite no relationship.
+	code, items, _, text = riskQueueList(t, d2, "")
+	if code != http.StatusOK {
+		t.Fatalf("d2 list: %d %s", code, text)
+	}
+	if got, want := riskQueueIDs(items), []string{a3}; !equalStringSlices(got, want) {
+		t.Fatalf("d2 queue = %v; want %v (assigned outright, nothing else)", got, want)
+	}
+
+	// Admin sees everything.
+	code, items, _, text = riskQueueList(t, admin, "")
+	if code != http.StatusOK {
+		t.Fatalf("admin list: %d %s", code, text)
+	}
+	if len(items) != 5 {
+		t.Fatalf("admin queue = %d items; want 5", len(items))
+	}
+
+	// Role gates: a patient cannot open the queue at all.
+	patEmail := uniqueEmail(t)
+	seedUser(t, patEmail, "Patient@123", "patient")
+	patClient := newTestClient(t, h)
+	patClient.login(patEmail, "Patient@123")
+	if code, _, _, text := riskQueueList(t, patClient, ""); code != http.StatusForbidden {
+		t.Fatalf("patient list: %d %s; want 403", code, text)
+	}
+	anon := newTestClient(t, h)
+	if code, _, _, text := riskQueueList(t, anon, ""); code != http.StatusUnauthorized {
+		t.Fatalf("anon list: %d %s; want 401", code, text)
+	}
+
+	// Reading the queue access-logs every item it returns.
+	var reads int
+	if err := itPool.QueryRow(
+		"SELECT COUNT(*) FROM `AuditLog` WHERE action = 'clinical.read' AND targetType = 'RiskAlert' AND actorId = ?",
+		d1UserID).Scan(&reads); err != nil {
+		t.Fatalf("count queue reads: %v", err)
+	}
+	if reads < 3 {
+		t.Fatalf("d1 clinical.read rows = %d; want at least 3 (one per item)", reads)
+	}
+
+	// Resolving removes from the default view but not from includeResolved.
+	rec, _, text := admin.request(http.MethodPost, "/api/wellness/risk-alerts/"+a1+"/resolve",
+		map[string]any{"note": "Called back."})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve a1: %d %s", rec.Code, text)
+	}
+	code, items, counts, text = riskQueueList(t, d1, "")
+	if code != http.StatusOK {
+		t.Fatalf("d1 list after resolve: %d %s", code, text)
+	}
+	if got, want := riskQueueIDs(items), []string{a4, a2}; !equalStringSlices(got, want) {
+		t.Fatalf("d1 queue after resolve = %v; want %v", got, want)
+	}
+	if counts["unresolved"] != float64(2) {
+		t.Fatalf("counts after resolve = %#v; want unresolved 2", counts)
+	}
+	code, items, _, text = riskQueueList(t, d1, "?includeResolved=true")
+	if code != http.StatusOK {
+		t.Fatalf("d1 includeResolved: %d %s", code, text)
+	}
+	found := false
+	for _, raw := range items {
+		m, _ := raw.(map[string]any)
+		if m["id"] == a1 && m["resolvedAt"] != nil {
+			found = true
+		}
+	}
+	if !found || len(items) != 3 {
+		t.Fatalf("includeResolved missing resolved a1: %d items, found=%v", len(items), found)
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestIntegrationRiskQueueAcknowledgeMatrix(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	d1Email := uniqueEmail(t)
+	d1UserID, d1DoctorID := seedDoctor(t, d1Email, "Dr. Queue Ack")
+	_ = d1UserID
+	d2Email := uniqueEmail(t)
+	_, _ = seedDoctor(t, d2Email, "Dr. Queue Ack Stranger")
+	adminEmail := uniqueEmail(t)
+	seedUser(t, adminEmail, "Admin@123", "admin")
+	_ = seedCompletedAppointment(t, patientID, d1DoctorID)
+	_ = patientID
+
+	alertA := seedRiskAlert(t, patientID, "urgent", nil, time.Now().UTC())
+
+	d1 := newTestClient(t, h)
+	d1.login(d1Email, "Doctor@123")
+	d2 := newTestClient(t, h)
+	d2.login(d2Email, "Doctor@123")
+	admin := newTestClient(t, h)
+	admin.login(adminEmail, "Admin@123")
+
+	// Stranger clinician: 403. Patient: 403 (outer RequireRole).
+	rec, _, text := d2.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertA+"/acknowledge", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("stranger ack: %d %s; want 403", rec.Code, text)
+	}
+	patEmail := uniqueEmail(t)
+	seedUser(t, patEmail, "Patient@123", "patient")
+	pat := newTestClient(t, h)
+	pat.login(patEmail, "Patient@123")
+	rec, _, text = pat.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertA+"/acknowledge", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("patient ack: %d %s; want 403", rec.Code, text)
+	}
+	// Anonymous (with CSRF so the request reaches auth): 401.
+	anon := newTestClient(t, h)
+	anon.ensureCSRF()
+	rec, _, text = anon.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertA+"/acknowledge", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anon ack: %d %s; want 401", rec.Code, text)
+	}
+	// Malformed id: 400. Well-formed but unknown: 404.
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/not-a-uuid/acknowledge", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed id ack: %d %s; want 400", rec.Code, text)
+	}
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+newID()+"/acknowledge", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown id ack: %d %s; want 404", rec.Code, text)
+	}
+
+	// Treating doctor acknowledges: 200 with read-back identity.
+	rec, body, text := d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertA+"/acknowledge", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("treating ack: %d %s", rec.Code, text)
+	}
+	if got := dataObject(t, body)["acknowledgedById"]; got != d1UserID {
+		t.Fatalf("acknowledgedById = %#v; want %q", got, d1UserID)
+	}
+	// Double acknowledgement, by anyone: 400 both times.
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertA+"/acknowledge", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("double ack: %d %s; want 400", rec.Code, text)
+	}
+	rec, _, text = admin.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertA+"/acknowledge", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("admin ack of acked alert: %d %s; want 400", rec.Code, text)
+	}
+
+	// Admin can acknowledge an unassigned alert outright.
+	alertB := seedRiskAlert(t, patientID, "elevated", nil, time.Now().UTC())
+	rec, _, text = admin.request(http.MethodPost, "/api/wellness/risk-alerts/"+alertB+"/acknowledge", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin ack: %d %s", rec.Code, text)
+	}
+	var ackAudits int
+	if err := itPool.QueryRow(
+		"SELECT COUNT(*) FROM `AuditLog` WHERE action = 'risk.acknowledged' AND targetId IN (?, ?)",
+		alertA, alertB).Scan(&ackAudits); err != nil {
+		t.Fatalf("count ack audits: %v", err)
+	}
+	if ackAudits != 2 {
+		t.Fatalf("risk.acknowledged rows = %d; want 2", ackAudits)
+	}
+}
+
+func TestIntegrationRiskQueueResolveMatrix(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	patientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	d1Email := uniqueEmail(t)
+	d1UserID, d1DoctorID := seedDoctor(t, d1Email, "Dr. Queue Resolve")
+	_ = d1UserID
+	d2Email := uniqueEmail(t)
+	_, _ = seedDoctor(t, d2Email, "Dr. Queue Resolve Stranger")
+	_ = seedCompletedAppointment(t, patientID, d1DoctorID)
+
+	d1 := newTestClient(t, h)
+	d1.login(d1Email, "Doctor@123")
+	d2 := newTestClient(t, h)
+	d2.login(d2Email, "Doctor@123")
+
+	// Resolving without a prior acknowledgement implies it.
+	r1 := seedRiskAlert(t, patientID, "urgent", nil, time.Now().UTC())
+	rec, body, text := d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r1+"/resolve",
+		map[string]any{"note": "Followed up by phone."})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve with note: %d %s", rec.Code, text)
+	}
+	if got := dataObject(t, body)["resolutionNote"]; got != "Followed up by phone." {
+		t.Fatalf("resolutionNote = %#v; want the trimmed note", got)
+	}
+	var ackedAt *time.Time
+	var resNote *string
+	if err := itPool.QueryRow("SELECT acknowledgedAt, resolutionNote FROM `RiskAlert` WHERE id = ?", r1).
+		Scan(&ackedAt, &resNote); err != nil {
+		t.Fatalf("read resolved alert: %v", err)
+	}
+	if ackedAt == nil {
+		t.Fatal("resolve without prior ack left acknowledgedAt NULL; want implied ack")
+	}
+	if resNote == nil || *resNote != "Followed up by phone." {
+		t.Fatalf("stored note = %#v; want trimmed note", resNote)
+	}
+	var impliedMeta string
+	if err := itPool.QueryRow(
+		"SELECT meta FROM `AuditLog` WHERE action = 'risk.resolved' AND targetId = ? ORDER BY createdAt DESC LIMIT 1", r1).
+		Scan(&impliedMeta); err != nil {
+		t.Fatalf("read resolve audit: %v", err)
+	}
+	if !strings.Contains(impliedMeta, "impliedAcknowledgement") {
+		t.Fatalf("resolve audit meta = %s; want impliedAcknowledgement true", impliedMeta)
+	}
+
+	// Missing and whitespace notes resolve without a stored note.
+	r2 := seedRiskAlert(t, patientID, "elevated", nil, time.Now().UTC())
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r2+"/resolve", map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve without note: %d %s", rec.Code, text)
+	}
+	r3 := seedRiskAlert(t, patientID, "elevated", nil, time.Now().UTC())
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r3+"/resolve",
+		map[string]any{"note": "   "})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve whitespace note: %d %s", rec.Code, text)
+	}
+	if err := itPool.QueryRow("SELECT resolutionNote FROM `RiskAlert` WHERE id = ?", r3).Scan(&resNote); err != nil {
+		t.Fatalf("read whitespace-note alert: %v", err)
+	}
+	if resNote != nil {
+		t.Fatalf("whitespace note stored = %q; want NULL", *resNote)
+	}
+
+	// Validation: too long, unknown key, null note.
+	r4 := seedRiskAlert(t, patientID, "urgent", nil, time.Now().UTC())
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r4+"/resolve",
+		map[string]any{"note": strings.Repeat("x", 1001)})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("long note resolve: %d %s; want 400", rec.Code, text)
+	}
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r4+"/resolve",
+		map[string]any{"note": "ok", "extra": 1})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown key resolve: %d %s; want 400", rec.Code, text)
+	}
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r4+"/resolve",
+		map[string]any{"note": nil})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("null note resolve: %d %s; want 400", rec.Code, text)
+	}
+
+	// Double resolve: 400. Stranger on a fresh alert: 403.
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+r1+"/resolve",
+		map[string]any{"note": "again"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("double resolve: %d %s; want 400", rec.Code, text)
+	}
+	r5 := seedRiskAlert(t, patientID, "urgent", nil, time.Now().UTC())
+	rec, _, text = d2.request(http.MethodPost, "/api/wellness/risk-alerts/"+r5+"/resolve",
+		map[string]any{"note": "intruder"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("stranger resolve: %d %s; want 403", rec.Code, text)
+	}
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/not-a-uuid/resolve",
+		map[string]any{"note": "x"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed id resolve: %d %s; want 400", rec.Code, text)
+	}
+	rec, _, text = d1.request(http.MethodPost, "/api/wellness/risk-alerts/"+newID()+"/resolve",
+		map[string]any{"note": "x"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown id resolve: %d %s; want 404", rec.Code, text)
 	}
 }
