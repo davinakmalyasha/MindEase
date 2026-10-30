@@ -269,12 +269,12 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     <div className="px-6 pt-5 flex items-center gap-3 flex-wrap">
                                         <AiSourceBadge source={briefingSource} />
                                         {typeof cached === "boolean" && (
-                                            <span className="text-[11px] font-bold text-gray-400">
+                                            <span className="text-[11px] font-bold text-gray-500">
                                                 {cached ? "Saved briefing" : "Just generated"}
                                             </span>
                                         )}
                                         {briefingSource !== "model" && degradedReason && (
-                                            <span className="text-[11px] font-medium text-gray-400">
+                                            <span className="text-[11px] font-medium text-gray-500">
                                                 Reason: {degradedReason}
                                             </span>
                                         )}
@@ -298,7 +298,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     </motion.p>
                                     {sources.length > 0 && (
                                         <div className="mx-6 mb-5 rounded-xl bg-white border border-violet-100 px-4 py-3">
-                                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                                                 <ListChecks className="w-3.5 h-3.5" /> Grounded in {sources.length} record{sources.length === 1 ? "" : "s"}
                                             </p>
                                             <ul className="space-y-1">
@@ -390,7 +390,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     {copilot ? "Re-draft" : "Draft prep notes"}
                                 </button>
                             </div>
-                            <p className="text-xs text-gray-400 font-medium mb-4">
+                            <p className="text-xs text-gray-500 font-medium mb-4">
                                 Advisory bullets for you only — never a diagnosis, plan or verdict. Drafts are generated on demand and never stored.
                             </p>
                             {copilot ? (
@@ -402,7 +402,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     )}
                                     <p className="text-gray-700 leading-relaxed font-medium whitespace-pre-line">{copilot}</p>
                                     {copilotSources.length > 0 && (
-                                        <p className="text-[11px] text-gray-400 font-medium mt-3">
+                                        <p className="text-[11px] text-gray-500 font-medium mt-3">
                                             Grounded in {copilotSources.length} record{copilotSources.length === 1 ? "" : "s"}:{" "}
                                             {copilotSources.map((s: any) => s.label).join(" · ")}
                                         </p>
@@ -421,7 +421,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                     </button>
                                 </div>
                             ) : (
-                                <p className="text-sm text-gray-400 text-center py-8">
+                                <p className="text-sm text-gray-500 text-center py-8">
                                     {isCopilotLoading ? "Drafting from the patient record…" : "No draft yet. Generate one when you start preparing."}
                                 </p>
                             )}

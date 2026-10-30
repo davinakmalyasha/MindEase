@@ -89,8 +89,7 @@ func TestRateLimitDecrementDoesNotRefreshWindow(t *testing.T) {
 	time.Sleep(70 * time.Millisecond)
 	// A successful-login decrement must not push the window out: after another
 	// 70ms the original window has elapsed and the next increment restarts at 1.
-	if _, _ = s.bump("auth", key, window, -1); true {
-	}
+	s.bump("auth", key, window, -1)
 	time.Sleep(70 * time.Millisecond)
 	if count, _ := s.bump("auth", key, window, 1); count != 1 {
 		t.Fatalf("post-window count = %d; want 1 (decrement must not extend)", count)
