@@ -15,6 +15,11 @@ All notable changes to this project. Format follows
   acknowledged quietly, and provider failure or an incomplete session leaving
   no phantom rows. See `server-go/internal/server/payments_live_integration_test.go`.
 
+### Security
+
+- `follow-redirects` 1.16.1 → 1.16.2 (GHSA-mrwp-f3q8-3g9p), transitively via
+  axios; the lockfile carries no other change.
+
 ## [0.6.0] - 2026-10-31
 
 Clinician copilot plus the hardening sweep behind it: advisory session-prep
