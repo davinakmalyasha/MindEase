@@ -4,7 +4,10 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.1] - 2026-10-31
+
+Patch release: coverage for the live payment path and one dependency advisory.
+No product behaviour changed.
 
 ### Added
 
