@@ -10,7 +10,7 @@ papered over.
 
 | Gate | Command | Runs against | Count |
 |---|---|---|---|
-| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 93 tests, 13 files |
+| **Go API** | `cd server-go && TEST_DATABASE_URL=... go test ./...` | Unit in-process; integration against real MySQL 8 | 97 tests, 14 files |
 | **Realtime** | `cd server-realtime && go test -race -cover ./...` | In-memory, real `gorilla/websocket` connections | 32 tests, 5 files |
 | **Web** | `cd client && npm run lint && npm test && npm run build` | jsdom | 52 tests, 8 files |
 
@@ -76,7 +76,7 @@ go vet ./...                                   # CI runs this and golangci-lint 
 `integration_test.go` runs the real handler chain against MySQL. `TestMain`
 creates the database if needed, drops every table, and applies the embedded
 migrations; each test wipes the data tables first, so every assertion starts
-from a known state. The 34 integration tests pin:
+from a known state. The 38 integration tests pin:
 
 - refresh rotation, replay detection and the session revocation that follows it
 - the five-failure lockout
@@ -128,6 +128,13 @@ from a known state. The 34 integration tests pin:
   (confirmed-only, participant-only, escaping, UID/DTSTART shape), and the
   reschedule rules (owner-only, terminal-state and past rejection, overlap
   409, reset to pending with room/reminder state cleared)
+- the live payment path end to end against a fake Snap provider: checkout posts
+  the order with Basic auth and the package price, holds the `liveKey` claim,
+  `settlement` records without granting, `capture` settles exactly once and
+  releases the claim, a replay is `already_paid`, a tampered amount or stale
+  signature is rejected, a signed-but-wrong amount is rejected, `expire`
+  releases both rows, and a provider rejection or incomplete session leaves no
+  phantom rows and allows a retry
 - the check-in paths: the mood-decline nudge and its `RiskAlert` (unassigned
   with `risk.raised`, or assigned with the clinician notified and stamped),
   the mood-nudge and post-session check-in firing exactly once, and the
@@ -261,23 +268,21 @@ iteration so the IP limiter does not dominate the result; no limit is disabled.
 
 ## What remains uncovered
 
-The integration suite is 34 tests, not 519. Ported: the races and constraints
+The integration suite is 38 tests, not 519. Ported: the races and constraints
 listed above, plus the browser flows. Still without a handler-level test:
 
-- the live Midtrans webhook end to end in `midtrans` mode over HTTP (the
-  status matrix is unit-tested, the simulator outcomes are covered through the
-  notification route; the live Snap creation and its phantom-row cleanup are
-  not)
+- a real Midtrans sandbox or production gateway (the live path is exercised
+  against a fake Snap endpoint with real signatures; the provider's own
+  behaviour, retry schedule and dashboard reconciliation are not)
 - the concurrent-acknowledgement race under true concurrency (the
   `RowsAffected` guard is pinned sequentially, not by two simultaneous writers)
 - the scheduler predicates and the weekly-report WIB Monday boundary
 - the waitlist maintenance paths (48-hour requeue, 90-day expiry)
 - the realtime `risk:alert` fanout into the queue UI's invalidation
 
-The first item is the one that still matters most: money must not move on an
-untested path, and the live path is the one real deployments would take. The
-rest are exercised by code review and partly by the journeys. Naming
-them is the honest form of the coverage claim.
+The first item is the one that still matters most: the fake proves our side of
+the contract, not the provider's. The rest are exercised by code review and
+partly by the journeys. Naming them is the honest form of the coverage claim.
 
 ## Adding a test
 

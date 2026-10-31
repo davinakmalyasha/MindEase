@@ -4,6 +4,17 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Live payment path covered end to end against a fake Snap provider:
+  checkout + Basic auth + claim, `settlement` recording without granting,
+  `capture` settling exactly once, replay `already_paid`, tampered and
+  signed-but-wrong amounts rejected, `expire` releasing, unknown orders
+  acknowledged quietly, and provider failure or an incomplete session leaving
+  no phantom rows. See `server-go/internal/server/payments_live_integration_test.go`.
+
 ## [0.6.0] - 2026-10-31
 
 Clinician copilot plus the hardening sweep behind it: advisory session-prep
