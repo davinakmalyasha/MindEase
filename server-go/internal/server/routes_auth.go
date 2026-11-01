@@ -146,6 +146,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	email := strings.TrimSpace(body.Email)
 	if _, err := s.userByEmail(r.Context(), email); err == nil {
+		// Burn comparable work so duplicate vs new accounts do not differ
+		// by timing. Status still differs (UX needs it), so enumeration is
+		// rate-limited rather than closed; see SECURITY.md.
+		_, _ = hashPassword(body.Password)
 		s.Fail(w, http.StatusBadRequest, "Email already registered")
 		return
 	} else if err != sql.ErrNoRows {
