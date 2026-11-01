@@ -1142,8 +1142,8 @@ func apptRowsAffectedOne(res sql.Result) (bool, error) {
 
 func (s *Server) handleApptMy(w http.ResponseWriter, r *http.Request) {
 	user := CurrentUser(r)
-	page := apptPageParam(r.URL.Query().Get("page"), 1)
-	limit := apptPageParam(r.URL.Query().Get("limit"), 20)
+	page := apptClampInt(r.URL.Query().Get("page"), 1, 1, 1000)
+	limit := apptClampInt(r.URL.Query().Get("limit"), 20, 1, 50)
 
 	result, err := s.apptGetMy(r.Context(), user, page, limit)
 	if err != nil {

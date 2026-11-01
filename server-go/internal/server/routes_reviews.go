@@ -360,6 +360,10 @@ func (s *Server) reviewList(ctx context.Context, doctorID string, limit, offset 
 
 func (s *Server) handleReviewSummary(w http.ResponseWriter, r *http.Request) {
 	doctorID := chi.URLParam(r, "doctorId")
+	if !apptUUID7OK(doctorID) {
+		s.Fail(w, http.StatusBadRequest, "Invalid doctor id")
+		return
+	}
 
 	avg, count, err := s.reviewAggregate(r.Context(), doctorID)
 	if err != nil {

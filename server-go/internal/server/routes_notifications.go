@@ -410,9 +410,14 @@ func (s *Server) handleNotifUpdatePreferences(w http.ResponseWriter, r *http.Req
 func (s *Server) handleNotifMarkRead(w http.ResponseWriter, r *http.Request) {
 	user := CurrentUser(r)
 	notificationID := chi.URLParam(r, "id")
-	if _, err := s.DB.ExecContext(r.Context(),
-		"UPDATE `Notification` SET isRead = TRUE WHERE id = ? AND userId = ?", notificationID, user.ID); err != nil {
+	res, err := s.DB.ExecContext(r.Context(),
+		"UPDATE `Notification` SET isRead = TRUE WHERE id = ? AND userId = ?", notificationID, user.ID)
+	if err != nil {
 		s.msgRespondError(w, r, err, http.StatusInternalServerError, "Failed to mark as read.")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		s.Fail(w, http.StatusNotFound, "Notification not found")
 		return
 	}
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success"})
