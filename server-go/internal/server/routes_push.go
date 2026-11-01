@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +14,26 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-sql-driver/mysql"
 )
+
+// pushEndpointAllowed rejects non-HTTPS endpoints, credentials in URL,
+// and hosts that resolve to private/loopback ranges by shape (exact IP
+// check happens at send time). Web-push endpoints are always public HTTPS.
+func pushEndpointAllowed(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" ||
+		strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "169.254.") {
+		return false
+	}
+	return true
+}
 
 // registerPush ports routes/push.routes.ts and the registration half of
 // push.service.ts. Outbound web-push delivery (web-push's sendNotification)
@@ -60,6 +81,10 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(endpoint) < 10 {
+		s.validationFail(w, "body.endpoint", "Invalid endpoint")
+		return
+	}
+	if !pushEndpointAllowed(endpoint) {
 		s.validationFail(w, "body.endpoint", "Invalid endpoint")
 		return
 	}
