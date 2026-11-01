@@ -1101,9 +1101,49 @@ func msgUploadFilterAllows(extension, mimeType string) bool {
 	if !msgAllowedExtensions[extension] {
 		return false
 	}
-	return strings.HasPrefix(mimeType, "image/") ||
-		strings.HasPrefix(mimeType, "application/") ||
-		mimeType == "text/plain"
+	// Extension and declared type must agree; the caller re-checks the
+	// sniffed bytes so a .pdf labelled image/png cannot bypass intent.
+	switch extension {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+		return strings.HasPrefix(mimeType, "image/")
+	case ".pdf":
+		return mimeType == "application/pdf"
+	case ".doc":
+		return mimeType == "application/msword"
+	case ".docx":
+		return mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".txt":
+		return mimeType == "text/plain"
+	default:
+		return false
+	}
+}
+
+// msgSniffedTypeAllowed verifies the server-sniffed content agrees with the
+// extension, so a client-supplied Content-Type header alone cannot smuggle
+// HTML/SVG inside an image extension.
+func msgSniffedTypeAllowed(extension, sniffed string) bool {
+	switch extension {
+	case ".jpg", ".jpeg":
+		return sniffed == "image/jpeg"
+	case ".png":
+		return sniffed == "image/png"
+	case ".webp":
+		return sniffed == "image/webp"
+	case ".gif":
+		return sniffed == "image/gif"
+	case ".pdf":
+		return sniffed == "application/pdf"
+	case ".txt":
+		return sniffed == "text/plain; charset=utf-8" || sniffed == "text/plain"
+	case ".doc", ".docx":
+		// Office binaries sniff as application/octet-stream or zip;
+		// accept the declared allowlist here and rely on safe serving
+		// headers (attachment + nosniff + sandbox) at download time.
+		return strings.HasPrefix(sniffed, "application/")
+	default:
+		return false
+	}
 }
 
 // msgReadUpload consumes the multipart body with multer's limits:
@@ -1207,6 +1247,9 @@ func (s *Server) msgReadUpload(r *http.Request) (*msgUpload, string) {
 		}
 		if len(data) > 5*1024*1024 {
 			return nil, "File too large"
+		}
+		if !msgSniffedTypeAllowed(extension, http.DetectContentType(data)) {
+			return nil, "File type not allowed (images, PDF, DOC, TXT up to 5MB)."
 		}
 		upload.data = data
 		upload.originalName = fileName

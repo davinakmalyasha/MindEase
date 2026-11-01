@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -227,6 +228,8 @@ func (s *Server) handleUserUpdateProfile(w http.ResponseWriter, r *http.Request)
 
 // userSaveAvatar validates one avatar upload and stores it through the shared
 // upload layer (S3 when configured, the local uploads directory otherwise).
+// Extension allowlist + server-sniffed bytes must agree so a polyglot
+// GIF89a+HTML cannot pass as image/ with an attacker-chosen extension.
 func (s *Server) userSaveAvatar(ctx context.Context, file *multipart.FileHeader) (string, string) {
 	if file.Size > 5*1024*1024 {
 		return "", "File too large: avatars are limited to 5 MB"
@@ -243,7 +246,27 @@ func (s *Server) userSaveAvatar(ctx context.Context, file *multipart.FileHeader)
 	if len(data) > 5*1024*1024 {
 		return "", "File too large: avatars are limited to 5 MB"
 	}
-	if !strings.HasPrefix(http.DetectContentType(data), "image/") {
+	sniffed := http.DetectContentType(data)
+	allowed := map[string]bool{
+		"image/jpeg": true, "image/png": true, "image/webp": true, "image/gif": true,
+	}
+	if !allowed[sniffed] {
+		return "", "Avatars must be an image file"
+	}
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" && ext != ".gif" {
+		return "", "Avatars must be an image file"
+	}
+	if (ext == ".jpg" || ext == ".jpeg") && sniffed != "image/jpeg" {
+		return "", "Avatars must be an image file"
+	}
+	if ext == ".png" && sniffed != "image/png" {
+		return "", "Avatars must be an image file"
+	}
+	if ext == ".webp" && sniffed != "image/webp" {
+		return "", "Avatars must be an image file"
+	}
+	if ext == ".gif" && sniffed != "image/gif" {
 		return "", "Avatars must be an image file"
 	}
 	url, err := s.msgSaveUpload(ctx, data, file.Filename)
