@@ -24,8 +24,8 @@ WebSocket service.
 <p align="center"><sub>Recorded from the seeded local stack by <code>client/scripts/demo.js</code>.</sub></p>
 
 > **Solo build · portfolio-complete · not deployed.** The latest release is
-> [`v0.5.1`](https://github.com/davinakmalyasha/MindEase/releases/tag/v0.5.1);
-> `main` carries the final sweep toward `v0.5.2`. If you read one file, make it
+> [`v0.6.1`](https://github.com/davinakmalyasha/MindEase/releases/tag/v0.6.1);
+> `main` carries the sweep after `v0.6.1`. If you read one file, make it
 > [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md); if you run one command, make it
 > `make up`.
 
@@ -111,13 +111,14 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **47,056** | lines of TypeScript, Go and SQL — 19,480 application, 1,049 tests, 1,852 migration SQL, 24,675 Go |
+| **47,651** | lines of TypeScript, Go and SQL — 19,625 application, 1,049 tests, 1,852 migration SQL, 25,125 Go |
 | **162** | API routes · **28** tables · **20** migrations |
-| **129** | Go tests in 19 files · **52** client unit tests · **12** Playwright journeys |
+| **129** | Go tests in 19 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
-Every figure above is measured, not estimated. `make numbers` re-derives them and
-exits non-zero if any disagrees with what is written here.
+Route, table, migration, test and journey counts above are gated by
+`make numbers` (fails on drift). Line counts are measured at release time
+via the same command and will move with code.
 
 **Also worth reading:** [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) — the two
 bugs this repository's own clinical safety path contained, how a 400-test suite
@@ -178,17 +179,17 @@ Then open **http://localhost:3000**. `make help` lists everything else.
 MindEase/
 ├─ server-go/           The API. Go 1.27, chi + database/sql over MySQL.
 │  ├─ cmd/              api, migrate (the only schema runner), seed
-│  ├─ internal/server/  routes, middleware, auth, jobs — 160 registrations
+│  ├─ internal/server/  routes, middleware, auth, jobs — 162 registrations
 │  ├─ internal/config/  env loading with the production guards
 │  ├─ internal/db/      pool and DSN parsing
 │  ├─ internal/migrate/ embedded runner, baselined against Prisma's table
 │  └─ migrations/       20 hand-written MySQL migrations, embedded at build time
 ├─ client/              Next.js 16 App Router, React 19, next-intl
-│  ├─ app/              37 routes; every authenticated one is a client component
-│  ├─ components/       53 components
+│  ├─ app/              36 pages; every authenticated one is a client component
+│  ├─ components/       55 components
 │  ├─ hooks/queries/    TanStack Query — the house data-fetching pattern
 │  ├─ messages/         en.json and id.json, kept in parity by a test
-│  ├─ e2e/              12 Playwright journeys
+│  ├─ e2e/              12 Playwright tests in 11 journeys
 │  └─ tests/            52 unit tests
 ├─ server-realtime/     Go WebSocket hub. 32 tests with -race.
 ├─ perf/k6/             smoke, mixed-read load and two-process replica scripts

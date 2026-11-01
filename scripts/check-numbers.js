@@ -54,15 +54,20 @@ M.migrationSqlLines = () =>
         .filter((f) => f.endsWith(".up.sql"))
         .reduce((n, f) => n + lineCount(`server-go/migrations/${f}`), 0);
 
-/** Route registrations in the domain files plus the four core endpoints. */
+/** Route registrations in domain files plus core endpoints (excludes Header.Get). */
 M.routes = () => {
     const dir = "server-go/internal/server";
     const files = fs.readdirSync(path.join(ROOT, dir)).filter((f) => /^routes_.*\.go$/.test(f));
     let n = 0;
     for (const f of files) {
-        n += (read(`${dir}/${f}`).match(/\.(Get|Post|Put|Patch|Delete)\("/g) || []).length;
+        const src = read(`${dir}/${f}`);
+        const matches = src.match(/\.(Get|Post|Put|Patch|Delete)\("/g) || [];
+        const headerFalse = (src.match(/\.Header\.Get\("/g) || []).length;
+        n += matches.length - headerFalse;
     }
-    return n + 4; // health, health/db, csrf-token, openapi.json
+    // Header.Get excluded false positives (e.g. r.Header.Get("Content-Type")).
+    // server.go mounts 5 core endpoints, jobs.go mounts 1 internal trigger.
+    return n + 6;
 };
 
 function goModules() {
@@ -153,8 +158,8 @@ const CLAIMS = [
         measure: M.routes, second: M.models, third: M.migrations },
     { doc: "README.md", anchor: /\*\*(\d+)\*\* \| Go tests in (\d+) files .*\*\*(\d+)\*\* client unit tests/,
         measure: M.goTests, second: M.goTestFiles, third: M.clientTests },
-    { doc: "README.md", anchor: /\*\*(\d+)\*\* Playwright journeys/,
-        measure: M.playwrightTests },
+    { doc: "README.md", anchor: /\*\*(\d+)\*\* Playwright tests in (\d+) journeys/,
+        measure: M.playwrightTests, second: M.playwrightJourneys },
     { doc: "README.md", anchor: /all (\d+) migrations\b/,
         measure: M.migrations },
 
