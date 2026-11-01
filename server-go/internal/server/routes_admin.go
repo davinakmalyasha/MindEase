@@ -1403,8 +1403,16 @@ func adminJSNullable(p *string) string {
 }
 
 // adminCSVEscape is the controller's `escape`: quote when the value contains
-// a quote, a comma or a newline, doubling embedded quotes.
+// a quote, a comma or a newline, doubling embedded quotes. Cells starting
+// with =,+,-,@,tab,CR are prefixed with a single quote so Excel/LibreOffice
+// do not evaluate patient-controlled text as a formula (OWASP CSV injection).
 func adminCSVEscape(v string) string {
+	if len(v) > 0 {
+		switch v[0] {
+		case '=', '+', '-', '@', '\t', '\r':
+			v = "'" + v
+		}
+	}
 	if strings.ContainsAny(v, "\",\n") {
 		return `"` + strings.ReplaceAll(v, `"`, `""`) + `"`
 	}
