@@ -18,6 +18,7 @@ export const useMyAppointments = () =>
             // Paginated shape: { rows, total, ... } — older shape: array
             return (Array.isArray(data) ? data : data?.rows) || [];
         },
+        retry: 1,
     });
 
 // Status changes with optimistic updates (instant UI, rollback on failure)

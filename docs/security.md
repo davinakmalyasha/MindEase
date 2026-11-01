@@ -665,7 +665,7 @@ every IP-keyed limit is bypassable.
 | Anonymous | Brute-force a password | `authLimiter` 20/15min per-IP failures-only, `failedAttempts`/`lockedUntil` on the account, Argon2 hashing cost |
 | Anonymous | Reset a victim's password or verify their email | Separate OTPs per flow, hashed, expiry-bound, attempt-limited, `resetLimiter` and `twoFactorLimiter` |
 | Anonymous | Brute-force a 6-digit TOTP | `accountLimiter` keyed on the pending token (stable per attempt, not per IP) |
-| Anonymous | Read the API surface | `/api/docs` production-gated and separately limited; `/api/openapi.json` is machine-readable and deliberately not gated |
+| Anonymous | Read the API surface | `/api/openapi.json` is machine-readable and deliberately not gated |
 | Anonymous | Join a consultation | `joinRoom` requires the appointment's patient or clinician; token is room-scoped and window-bounded |
 | Patient | Read another patient's records | Every clinical read is ownership-gated in the service, not the route |
 | Patient | Confirm or complete their own appointment | Controller rejects the transition; only a doctor may confirm |

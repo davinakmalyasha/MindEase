@@ -464,7 +464,7 @@ is not served.
 | Push | `/api/push/{public-key,subscribe,unsubscribe}` |
 | Realtime | `/api/realtime/ticket` (short-lived WebSocket ticket) |
 | Admin | `/api/admin/{stats,users,audit-logs,doctors/applications,broadcast,review-reports,reviews/:id/hide,export/:kind}` |
-| System | `/api/health`, `/api/health/db`, `/api/readyz`, `/api/csrf-token`, `/api/docs` |
+| System | `/api/health`, `/api/health/db`, `/api/readyz`, `/api/csrf-token`, `/api/openapi.json` |
 
 ## Security features
 

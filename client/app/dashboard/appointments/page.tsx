@@ -47,7 +47,7 @@ export default function AppointmentHistory() {
     const [isFetchingRebook, setIsFetchingRebook] = useState(false);
     const [followUpTarget, setFollowUpTarget] = useState<any>(null);
 
-    const { data: appointments = [], isLoading } = useMyAppointments();
+    const { data: appointments = [], isLoading, isError, refetch } = useMyAppointments();
     const statusMutation = useUpdateAppointmentStatus();
 
     const handleStatusUpdate = async (id: string, status: string) => {
@@ -127,6 +127,17 @@ export default function AppointmentHistory() {
                             </div>
                         </div>
                     ))}
+                </div>
+            ) : isError ? (
+                <div role="alert" className="bg-white border border-rose-200 rounded-[2.5rem] py-20 text-center">
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2 font-outfit">Could not load consultations</h3>
+                    <p className="text-gray-500 max-w-sm mx-auto">The request failed. Your history is not empty — it could not be reached.</p>
+                    <button
+                        onClick={() => refetch()}
+                        className="mt-8 px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all"
+                    >
+                        Retry
+                    </button>
                 </div>
             ) : appointments.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4">
