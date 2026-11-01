@@ -200,10 +200,16 @@ check-stale-writes: ## Fail when a response can overwrite a newer one, or a fail
 
 .PHONY: check-ui-hygiene
 check-ui-hygiene: ## UI-hygiene ratchet: hardcoded strings and locale bypasses may fall, never rise. Required in CI.
+	cd $(CLIENT) && node scripts/check-ui-hygiene.test.js
 	cd $(CLIENT) && node scripts/check-ui-hygiene.js
 
+.PHONY: check-dependencies
+check-dependencies: ## Fail on unused or missing npm dependencies. Required in CI client job.
+	cd $(CLIENT) && node scripts/check-dependencies.test.js
+	cd $(CLIENT) && node scripts/check-dependencies.js
+
 .PHONY: check
-check: typecheck lint lint-go check-encoding check-workflows check-a11y-ids check-csp check-i18n check-a11y check-load-states check-stale-writes check-ui-hygiene check-numbers ## Every static gate, no database needed
+check: typecheck lint lint-go check-encoding check-workflows check-a11y-ids check-csp check-i18n check-a11y check-load-states check-stale-writes check-ui-hygiene check-dependencies check-numbers ## Every static gate, no database needed
 
 .PHONY: build
 build: ## Production-build the client
@@ -220,7 +226,7 @@ migrate: ## Build the schema from the committed migrations. The real path.
 	cd $(API_GO) && DATABASE_URL=$(TEST_DB_URL) go run ./cmd/migrate
 
 .PHONY: test-api
-test-api: ## Run the Go API unit tests
+test-api: ## Run the Go API unit tests (integration suite skips without TEST_DATABASE_URL)
 	cd $(API_GO) && go test ./...
 
 .PHONY: test-client
@@ -228,16 +234,16 @@ test-client: ## Run the client unit tests
 	cd $(CLIENT) && npm test
 
 .PHONY: test-go
-test-go: ## Run the Go tests (API and realtime) with the race detector
-	cd $(API_GO) && go test ./...
+test-go: ## Run the Go tests (API and realtime) with the race detector (DB-backed integration only with TEST_DATABASE_URL)
+	cd $(API_GO) && go test -race ./...
 	cd $(REALTIME) && go test -race -cover ./...
 
 .PHONY: test-all
-test-all: test-client test-go ## Everything that does not need Docker
+test-all: test-client test-go ## Unit tests + race detector; DB integration runs only when TEST_DATABASE_URL is set
 
 .PHONY: coverage-go
-coverage-go: ## Measure Go statement coverage (API integration needs TEST_DATABASE_URL)
-	cd $(API_GO) && go test -covermode=atomic -coverprofile=coverage.out ./...
+coverage-go: ## Measure Go statement coverage (API integration included only when TEST_DATABASE_URL is set)
+	cd $(API_GO) && TEST_DATABASE_URL=$(TEST_DB_URL) go test -covermode=atomic -coverprofile=coverage.out ./...
 	cd $(API_GO) && go tool cover -func=coverage.out | tail -1
 	cd $(REALTIME) && go test -race -covermode=atomic -coverprofile=coverage.out ./...
 	cd $(REALTIME) && go tool cover -func=coverage.out | tail -1
@@ -346,14 +352,14 @@ e2e: ## Run the Playwright journeys. Needs the stack up and seeded.
 	cd $(CLIENT) && npx playwright test
 
 .PHONY: verify
-verify: ## The full pre-push gate, in the order CI runs it
+verify: ## Fast pre-push gate, in the order CI runs it (unit-only; e2e needs Docker)
 	@echo "==> compose config"
 	docker compose config -q
 	@echo "==> static gates"
 	$(MAKE) check
 	@echo "==> client build"
 	$(MAKE) build
-	@echo "==> tests"
+	@echo "==> tests (unit-only; integration needs TEST_DATABASE_URL, e2e needs make up)"
 	$(MAKE) test-all
 	@echo ""
 	@echo "Not run here (need Docker or a browser): make up, make e2e"
