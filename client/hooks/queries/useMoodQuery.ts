@@ -207,15 +207,31 @@ export interface TrajectoryResponse {
         latest: number | null;
         totalChange: number | null;
         direction: "improving" | "worsening" | "stable" | "insufficient-data";
+        mcid: number;
+        clinicallySignificantChange: boolean;
+        daysSinceLast: number | null;
+        isStale: boolean;
     };
 }
 
-export const useAssessmentTrajectory = (type: "phq9" | "gad7") =>
+export const useAssessmentTrajectory = (type: "phq9" | "gad7" | "phq2" | "gad2") =>
     useQuery({
         queryKey: [...moodKeys.assessments, "trajectory", type],
         queryFn: async () => {
             const res = await api.get(`/wellness/assessments/trajectory?type=${type}`);
             return res.data?.data as TrajectoryResponse;
+        },
+    });
+
+export const useAssessmentStatus = () =>
+    useQuery({
+        queryKey: [...moodKeys.assessments, "status"],
+        queryFn: async () => {
+            const res = await api.get("/wellness/assessments/status");
+            return res.data?.data as Record<
+                string,
+                { last: { id: string; score: number; severity: string; createdAt: string } | null; daysSinceLast: number | null; isStale: boolean; mcid?: number }
+            >;
         },
     });
 

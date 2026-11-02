@@ -97,7 +97,10 @@
     "openBriefing": "Buka ringkasan",
     "mainNavigation": "Navigasi utama",
     "openNavigation": "Buka menu navigasi",
-    "closeNavigation": "Tutup menu navigasi"
+    "closeNavigation": "Tutup menu navigasi",
+    "toolkit": "Perangkat",
+    "thoughts": "Catatan pikiran",
+    "caseload": "Beban kasus"
   },
   "mood": {
     "title": "Pelacak Suasana Hati",
@@ -136,7 +139,7 @@
     },
     "assessments": {
       "title": "Penilaian Mandiri",
-      "subtitle": "Skrining standar (PHQ-9 & GAD-7) untuk memantau kesejahteraan Anda dari waktu ke waktu — dokter Anda melihat skor terbaru",
+      "subtitle": "Skrining standar (PHQ-9, GAD-7 dan check-in 2 item) untuk memantau kesejahteraan Anda — dokter Anda melihat skor terbaru",
       "questionHint": "Dalam dua minggu terakhir, seberapa sering Anda terganggu oleh hal-hal berikut?",
       "back": "Kembali",
       "next": "Lanjut",
@@ -164,7 +167,10 @@
       "direction_improving": "Menurun",
       "direction_worsening": "Meningkat",
       "direction_stable": "Relatif stabil",
-      "direction_insufficient_data": "Pengukuran masih terlalu sedikit"
+      "direction_insufficient_data": "Pengukuran masih terlalu sedikit",
+      "staleHint": "Tidak ada skrining selama {days} hari — tren ini sudah basi. Isi ulang agar bermakna.",
+      "mcidHint": "Perubahan bermakna: {change} poin (ambang {mcid}). Diskusikan dengan psikolog Anda; ini bukan diagnosis.",
+      "shortHint": "Dua pertanyaan, satu menit. Isi skrining penuh bila hasilnya tinggi."
     },
     "analytics": {
       "title": "Analitik Praktik",
@@ -288,7 +294,21 @@
       "severity_mild": "Ringan",
       "severity_moderate": "Sedang",
       "severity_moderatelySevere": "Sedang hingga berat",
-      "severity_severe": "Berat"
+      "severity_severe": "Berat",
+      "statOverdue": "Terlambat",
+      "statFollowUpDue": "Perlu tindak lanjut",
+      "overdueBadge": "Terlambat {hours} jam",
+      "followUpBadge": "Perlu check-in",
+      "outcomeLabel": "Apa yang Anda lakukan?",
+      "outcomePlaceholder": "Pilih hasil",
+      "outcome_contacted": "Menghubungi pasien",
+      "outcome_scheduled": "Menjadwalkan sesi",
+      "outcome_referred": "Merujuk",
+      "outcome_hotline-given": "Memberi hotline",
+      "outcome_no-answer": "Tidak menjawab",
+      "outcome_other": "Lainnya",
+      "followUpLabel": "Check-in sebelum (opsional)",
+      "slaHint": "Mendesak: dilihat 4 jam, selesai 24 jam. Meningkat: dilihat 24 jam, selesai 72 jam. Keterlambatan tidak memicu eskalasi otomatis."
     },
     "safetyPlan": {
       "title": "Rencana keamanan saya",
@@ -322,7 +342,12 @@
       "conflictReload": "Muat versi terbaru",
       "conflictKeep": "Simpan punya saya dulu",
       "conflictReloaded": "Versi terbaru telah dimuat.",
-      "conflictUnsaveable": "Selama pesan ini tampil, tulisan di layar ini belum tersimpan. Salin dulu yang ingin Anda pertahankan sebelum memuat versi terbaru."
+      "conflictUnsaveable": "Selama pesan ini tampil, tulisan di layar ini belum tersimpan. Salin dulu yang ingin Anda pertahankan sebelum memuat versi terbaru.",
+      "reviewStale": "Belum ditinjau bersama sekian lama — bawa ke sesi berikutnya.",
+      "print": "Cetak",
+      "offlineHint": "Tersimpan di browser ini. Salinan cetak tetap bisa dibaca tanpa ponsel.",
+      "openCrisis": "Sumber daya krisis",
+      "openToolkit": "Perangkat coping"
     },
     "carePlan": {
       "title": "Rencana perawatan saya",
@@ -342,7 +367,80 @@
       "status_dropped": "Dihentikan",
       "loading": "Memuat rencana perawatan Anda",
       "actionFailed": "Tidak berhasil. Coba lagi.",
-      "footerNote": "Rencana ini milik Anda. Tujuan yang Anda putuskan sudah tidak tepat dapat ditandai dihentikan, bukan dihapus - berguna untuk bisa melihat bahwa sesuatu pernah dicoba dan arahnya diubah."
+      "footerNote": "Rencana ini milik Anda. Tujuan yang Anda putuskan sudah tidak tepat dapat ditandai dihentikan, bukan dihapus - berguna untuk bisa melihat bahwa sesuatu pernah dicoba dan arahnya diubah.",
+      "barrierLabel": "Apa hambatannya?",
+      "barrierPlaceholder": "Apa yang menyulitkan? Tulis agar bisa direncanakan.",
+      "relapseTitle": "Tetap pulih",
+      "relapseHint": "Apa yang berhasil, apa yang perlu diwaspadai, dan siapa yang dihubungi — ditulis saat stabil, dibaca saat sulit.",
+      "relapseSummaryLabel": "Apa yang berhasil",
+      "earlyWarningsLabel": "Tanda awal",
+      "supportContactsLabel": "Siapa yang dihubungi",
+      "dueDateLabel": "Tenggat",
+      "overdueLabel": "Terlambat",
+      "reviewOverdue": "Tinjauan terlambat — perbarui rencana bersama.",
+      "back": "Kembali"
+    },
+    "thoughts": {
+      "title": "Catatan pikiran",
+      "subtitle": "Latihan CBT: situasi, pikiran, bukti, pandangan seimbang. Tidak pernah dibuatkan, hanya ditulis oleh Anda.",
+      "situationLabel": "Situasi",
+      "situationPlaceholder": "Di mana Anda? Apa yang terjadi?",
+      "thoughtLabel": "Pikiran otomatis",
+      "thoughtPlaceholder": "Apa yang terlintas di pikiran?",
+      "evidenceForLabel": "Bukti yang mendukung",
+      "evidenceAgainstLabel": "Bukti yang menentang",
+      "balancedLabel": "Pandangan seimbang",
+      "moodBeforeLabel": "Suasana sebelum (1-5)",
+      "moodAfterLabel": "Suasana sesudah (1-5)",
+      "save": "Simpan catatan",
+      "empty": "Belum ada catatan pikiran. Mulai dari satu situasi.",
+      "deleteConfirm": "Hapus catatan ini?"
+    },
+    "toolkit": {
+      "title": "Perangkat coping",
+      "subtitle": "Latihan statis yang bisa dibuka offline. Tanpa AI, tanpa pelacakan.",
+      "breathingTitle": "Napas kotak",
+      "breathingBody": "Tarik 4, tahan 4, hembus 4, tahan 4. Empat putaran. Pelan adalah intinya.",
+      "groundingTitle": "Grounding 5-4-3-2-1",
+      "groundingBody": "Sebutkan 5 yang terlihat, 4 yang terdengar, 3 yang bisa disentuh, 2 yang tercium, 1 yang terasa. Ucapkan keras bila bisa.",
+      "urgeTitle": "Lewati gelombangnya",
+      "urgeBody": "Dorongan memuncak dan turun dalam 20 menit. Pasang timer, minum air, keluar sebentar, kirim pesan ke satu orang.",
+      "sleepTitle": "Tidur malam ini",
+      "sleepBody": "Bangun jam yang sama, tanpa tidur siang setelah jam 3 sore, layar mati 30 menit sebelum tidur, kasur hanya untuk tidur.",
+      "phaseIn": "Tarik napas",
+      "phaseHold": "Tahan",
+      "phaseOut": "Hembuskan",
+      "start": "Mulai",
+      "pause": "Jeda"
+    },
+    "feedback": {
+      "title": "Bagaimana kecocokannya?",
+      "subtitle": "Empat ketukan tentang didengar, tujuan, pendekatan dan kecocokan. Ini bukan penilaian untuk klinisi Anda.",
+      "listening": "Merasa didengar",
+      "goals": "Sesuai tujuan",
+      "approach": "Cocok pendekatan",
+      "overall": "Cocok keseluruhan",
+      "commentPlaceholder": "Ada yang ingin mereka ketahui? (opsional)",
+      "submit": "Kirim umpan balik",
+      "saved": "Terima kasih — klinisi Anda melihat kecocokan, bukan bintang.",
+      "missing": "Belum ada catatan kecocokan untuk sesi ini."
+    },
+    "caseload": {
+      "title": "Beban kasus",
+      "subtitle": "Siapa yang Anda tangani, apa yang terlambat, dan rencana keamanan mana yang perlu ditinjau bersama.",
+      "patients": "Pasien saya",
+      "upcoming": "Mendatang",
+      "overdueRisk": "Risiko terlambat",
+      "unreviewedSafety": "Rencana keamanan perlu ditinjau",
+      "empty": "Tidak ada yang terlambat. Antrean adalah pekerjaan; ini ringkasannya."
+    },
+    "consent": {
+      "title": "Persetujuan AI dan data",
+      "aiReadTitle": "Izinkan AI membaca jawaban pra-sesi saya",
+      "aiReadBody": "Mati secara default. Bila menyala, ringkasan boleh mengutip jawaban Anda ke model. Bisa diubah kapan saja; ringkasan lama tetap berlabel.",
+      "dataShareTitle": "Penggunaan anonim untuk perbaikan",
+      "dataShareBody": "Mati secara default. Bila menyala, skor anonim boleh dipakai untuk memperbaiki skrining. Bukan kata-kata Anda.",
+      "saved": "Persetujuan disimpan"
     }
   },
   "staticPages": {
@@ -420,7 +518,9 @@
           "title": "3. Jauhkan bahaya langsung",
           "description": "Jika Anda memiliki akses ke sesuatu yang dapat membahayakan Anda, jauhkan diri Anda darinya — atau minta orang yang Anda percaya untuk memindahkannya."
         }
-      ]
+      ],
+      "safetyPlanLink": "Rencana keamanan saya",
+      "toolkitLink": "Perangkat coping"
     },
     "faq": {
       "title": "Pertanyaan yang sering",

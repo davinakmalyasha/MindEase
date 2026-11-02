@@ -185,7 +185,7 @@ export default function SafetyPlanPage() {
     if (isLoading) {
         return (
             <DashboardLayout>
-                <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400">
+                <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-500">
                     <Loader2 className="h-5 w-5 animate-spin" />
                     {t("loading")}
                 </div>
@@ -245,15 +245,29 @@ export default function SafetyPlanPage() {
                 </div>
             )}
 
-            {data?.lastReviewedAt && (
-                <p className="mb-6 text-xs text-gray-400">
-                    {t("lastReviewed")}{" "}
-                    {new Date(data.lastReviewedAt).toLocaleDateString(undefined, {
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                    })}
+            {exists && !data?.lastReviewedAt && (
+                <p role="status" className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-2 text-xs font-bold text-amber-800">
+                    {t("reviewStale")}
                 </p>
+            )}
+
+            {data?.lastReviewedAt && (
+                <div className="mb-6 flex flex-wrap items-center gap-3">
+                    <p className="text-xs text-gray-500">
+                        {t("lastReviewed")}{" "}
+                        {new Date(data.lastReviewedAt).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                        })}
+                    </p>
+                    <button type="button" onClick={() => window.print()} className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200">
+                        {t("print")}
+                    </button>
+                </div>
+            )}
+            {exists && (
+                <p className="mb-4 text-[11px] text-gray-500">{t("offlineHint")}</p>
             )}
 
             <div className="space-y-5">
@@ -394,7 +408,7 @@ export default function SafetyPlanPage() {
                 </div>
             )}
 
-            <p className="mt-6 text-xs leading-relaxed text-gray-400">{t("footerNote")}</p>
+            <p className="mt-6 text-xs leading-relaxed text-gray-500">{t("footerNote")}</p>
         </DashboardLayout>
     );
 }
@@ -415,7 +429,7 @@ function Field({
     return (
         <div>
             <label className="mb-1 block text-sm font-extrabold text-gray-900">{title}</label>
-            <p className="mb-2 text-xs text-gray-400">{hint}</p>
+            <p className="mb-2 text-xs text-gray-500">{hint}</p>
             <textarea
                 value={value}
                 onChange={onChange}
@@ -430,7 +444,7 @@ function Field({
 function Preview({ label, value, empty }: { label: string; value: string; empty: string }) {
     return (
         <div className="mb-4 border-b border-gray-100 pb-3 last:border-0">
-            <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{label}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{label}</p>
             <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">{value.trim() || empty}</p>
         </div>
     );

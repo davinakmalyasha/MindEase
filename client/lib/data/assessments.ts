@@ -1,4 +1,4 @@
-export type AssessmentType = "phq9" | "gad7";
+export type AssessmentType = "phq9" | "gad7" | "phq2" | "gad2";
 
 export interface AssessmentQuestion {
     text: string;
@@ -47,6 +47,26 @@ export const ASSESSMENTS: Record<AssessmentType, AssessmentMeta> = {
             { text: "Being so restless that it is hard to sit still" },
             { text: "Becoming easily annoyed or irritable" },
             { text: "Feeling afraid, as if something awful might happen" },
+        ],
+    },
+    phq2: {
+        id: "phq2",
+        name: "PHQ-2",
+        description: "Two-question check-in — the first two PHQ-9 items. Use it weekly; take the full PHQ-9 when it is elevated.",
+        maxScore: 6,
+        questions: [
+            { text: "Little interest or pleasure in doing things" },
+            { text: "Feeling down, depressed, or hopeless" },
+        ],
+    },
+    gad2: {
+        id: "gad2",
+        name: "GAD-2",
+        description: "Two-question check-in — the first two GAD-7 items. Use it weekly; take the full GAD-7 when it is elevated.",
+        maxScore: 6,
+        questions: [
+            { text: "Feeling nervous, anxious, or on edge" },
+            { text: "Not being able to stop or control worrying" },
         ],
     },
 };

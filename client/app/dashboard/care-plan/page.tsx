@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useLocale } from "next-intl";
+import { formatDate } from "@/lib/format";
 import { Target, Plus, Loader2, Check, X } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import api from "@/lib/api";
@@ -29,6 +31,7 @@ interface CareStep {
     title: string;
     done: boolean;
     order: number;
+    dueDate: string | null;
 }
 
 interface CareGoal {
@@ -37,6 +40,7 @@ interface CareGoal {
     detail: string | null;
     status: string;
     targetDate: string | null;
+    barrier: string | null;
     order: number;
     steps: CareStep[];
 }
@@ -47,6 +51,10 @@ interface CarePlan {
     status: string;
     summary: string | null;
     reviewAt: string | null;
+    relapseSummary: string | null;
+    earlyWarnings: string | null;
+    supportContacts: string | null;
+    version: number;
     goals: CareGoal[];
 }
 
@@ -56,11 +64,15 @@ const STATUSES = ["open", "in_progress", "achieved", "dropped"] as const;
 
 export default function CarePlanPage() {
     const t = useTranslations("features.carePlan");
+    const locale = useLocale();
     const { toast } = useToast();
     const qc = useQueryClient();
     const [newGoal, setNewGoal] = useState("");
     const [newStepFor, setNewStepFor] = useState<string | null>(null);
     const [newStep, setNewStep] = useState("");
+    const [newStepDue, setNewStepDue] = useState("");
+    const [barrierFor, setBarrierFor] = useState<string | null>(null);
+    const [barrierText, setBarrierText] = useState("");
 
     const { data, isLoading, isError, refetch } = useQuery({
         queryKey: carePlanKeys.mine,
@@ -97,11 +109,27 @@ export default function CarePlanPage() {
 
     const addStep = useMutation({
         mutationFn: async (goalId: string) => {
-            await api.post(`/care-plan/goals/${goalId}/steps`, { title: newStep.trim() });
+            await api.post(`/care-plan/goals/${goalId}/steps`, {
+                title: newStep.trim(),
+                dueDate: newStepDue || undefined,
+            });
         },
         onSuccess: (_d, goalId) => {
             setNewStep("");
+            setNewStepDue("");
             setNewStepFor(null);
+            invalidate();
+        },
+        onError: () => toast(t("actionFailed"), "error"),
+    });
+
+    const saveBarrier = useMutation({
+        mutationFn: async ({ id, barrier }: { id: string; barrier: string }) => {
+            await api.put(`/care-plan/goals/${id}`, { barrier: barrier.trim() || null });
+        },
+        onSuccess: () => {
+            setBarrierFor(null);
+            setBarrierText("");
             invalidate();
         },
         onError: () => toast(t("actionFailed"), "error"),
@@ -117,7 +145,7 @@ export default function CarePlanPage() {
     if (isLoading) {
         return (
             <DashboardLayout>
-                <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400">
+                <div className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-500">
                     <Loader2 className="h-5 w-5 animate-spin" />
                     {t("loading")}
                 </div>
@@ -170,6 +198,22 @@ export default function CarePlanPage() {
                 </p>
             )}
 
+            {(data?.relapseSummary || data?.earlyWarnings || data?.supportContacts) && (
+                <div className="mb-6 rounded-3xl border border-emerald-100 bg-emerald-50/60 p-5">
+                    <h2 className="font-extrabold text-gray-900">{t("relapseTitle")}</h2>
+                    <p className="mt-1 text-xs text-gray-500">{t("relapseHint")}</p>
+                    {data?.relapseSummary && (
+                        <p className="mt-3 text-sm text-gray-700"><strong>{t("relapseSummaryLabel")}: </strong>{data.relapseSummary}</p>
+                    )}
+                    {data?.earlyWarnings && (
+                        <p className="mt-1 text-sm text-gray-700"><strong>{t("earlyWarningsLabel")}: </strong>{data.earlyWarnings}</p>
+                    )}
+                    {data?.supportContacts && (
+                        <p className="mt-1 text-sm text-gray-700"><strong>{t("supportContactsLabel")}: </strong>{data.supportContacts}</p>
+                    )}
+                </div>
+            )}
+
             <div className="mb-4 flex flex-wrap gap-2">
                 <input
                     value={newGoal}
@@ -195,7 +239,7 @@ export default function CarePlanPage() {
             {(data?.goals.length ?? 0) === 0 ? (
                 <div className="rounded-3xl border border-gray-100 bg-white p-10 text-center">
                     <p className="font-bold text-gray-700">{t("empty")}</p>
-                    <p className="mt-1 text-sm text-gray-400">{t("emptyHint")}</p>
+                    <p className="mt-1 text-sm text-gray-500">{t("emptyHint")}</p>
                 </div>
             ) : (
                 <ul className="space-y-4">
@@ -216,10 +260,56 @@ export default function CarePlanPage() {
                                         <p className="mt-1 text-sm text-gray-500">{goal.detail}</p>
                                     )}
                                     {goal.targetDate && (
-                                        <p className="mt-1 text-xs text-gray-400">
+                                        <p className="mt-1 text-xs text-gray-500">
                                             {t("target")}{" "}
-                                            {new Date(goal.targetDate).toLocaleDateString()}
+                                            {formatDate(goal.targetDate, locale)}
                                         </p>
+                                    )}
+                                    {goal.barrier && (
+                                        <p className="mt-1 text-xs text-amber-700">
+                                            {t("barrierLabel")} {goal.barrier}
+                                        </p>
+                                    )}
+                                    {barrierFor === goal.id ? (
+                                        <div className="mt-2 flex gap-2">
+                                            <input
+                                                autoFocus
+                                                value={barrierText}
+                                                onChange={(e) => setBarrierText(e.target.value)}
+                                                placeholder={t("barrierPlaceholder")}
+                                                maxLength={2000}
+                                                aria-label={t("barrierLabel")}
+                                                className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-1.5 text-sm"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => saveBarrier.mutate({ id: goal.id, barrier: barrierText })}
+                                                className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs font-bold text-white"
+                                            >
+                                                <Check className="h-3.5 w-3.5" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setBarrierFor(null);
+                                                    setBarrierText("");
+                                                }}
+                                                className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600"
+                                            >
+                                                <X className="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setBarrierFor(goal.id);
+                                                setBarrierText(goal.barrier ?? "");
+                                            }}
+                                            className="mt-1 text-xs font-bold text-amber-700 underline underline-offset-2"
+                                        >
+                                            {t("barrierLabel")}
+                                        </button>
                                     )}
                                 </div>
                                 <select
@@ -240,7 +330,9 @@ export default function CarePlanPage() {
 
                             {goal.steps.length > 0 && (
                                 <ul className="mt-4 space-y-2">
-                                    {goal.steps.map((step) => (
+                                    {goal.steps.map((step) => {
+                                        const overdue = step.dueDate && !step.done && new Date(step.dueDate) < new Date();
+                                        return (
                                         <li key={step.id}>
                                             <label className="flex items-center gap-2.5 text-sm">
                                                 <input
@@ -261,14 +353,22 @@ export default function CarePlanPage() {
                                                 >
                                                     {step.title}
                                                 </span>
+                                                {step.dueDate && (
+                                                    <span className={cn("text-[11px] font-bold", overdue ? "text-rose-600" : "text-gray-500")}>
+                                                        {t("dueDateLabel")}: {formatDate(step.dueDate, locale)}
+                                                        {overdue ? ` · ${t("overdueLabel")}` : ""}
+                                                    </span>
+                                                )}
                                             </label>
                                         </li>
-                                    ))}
+                                        );
+                                    })}
                                 </ul>
                             )}
 
                             {newStepFor === goal.id ? (
-                                <div className="mt-3 flex gap-2">
+                                <div className="mt-3 space-y-2">
+                                    <div className="flex gap-2">
                                     <input
                                         autoFocus
                                         value={newStep}
@@ -279,11 +379,13 @@ export default function CarePlanPage() {
                                         }}
                                         placeholder={t("newStepPlaceholder")}
                                         maxLength={200}
+                                        aria-label={t("newStepPlaceholder")}
                                         className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-1.5 text-sm"
                                     />
                                     <button
                                         type="button"
                                         onClick={() => addStep.mutate(goal.id)}
+                                        aria-label={t("addStep")}
                                         className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs font-bold text-white"
                                     >
                                         <Check className="h-3.5 w-3.5" />
@@ -293,11 +395,21 @@ export default function CarePlanPage() {
                                         onClick={() => {
                                             setNewStepFor(null);
                                             setNewStep("");
+                                            setNewStepDue("");
                                         }}
+                                        aria-label={t("back")}
                                         className="rounded-xl bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600"
                                     >
                                         <X className="h-3.5 w-3.5" />
                                     </button>
+                                    </div>
+                                    <input
+                                        type="date"
+                                        value={newStepDue}
+                                        onChange={(e) => setNewStepDue(e.target.value)}
+                                        aria-label={t("dueDateLabel")}
+                                        className="rounded-xl border border-gray-200 px-3 py-1.5 text-sm"
+                                    />
                                 </div>
                             ) : (
                                 <button
@@ -314,7 +426,7 @@ export default function CarePlanPage() {
                 </ul>
             )}
 
-            <p className="mt-6 text-xs leading-relaxed text-gray-400">{t("footerNote")}</p>
+            <p className="mt-6 text-xs leading-relaxed text-gray-500">{t("footerNote")}</p>
         </DashboardLayout>
     );
 }

@@ -110,6 +110,12 @@ export default async function CrisisPage() {
                     <Link href="/appointments" className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all">
                         Book a Session
                     </Link>
+                    <Link href="/dashboard/safety-plan" className="px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold hover:bg-gray-50 transition-all">
+                        {t("safetyPlanLink")}
+                    </Link>
+                    <Link href="/dashboard/toolkit" className="px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold hover:bg-gray-50 transition-all">
+                        {t("toolkitLink")}
+                    </Link>
                     <Link href="/" className="px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold hover:bg-gray-50 transition-all">
                         Back to Home
                     </Link>

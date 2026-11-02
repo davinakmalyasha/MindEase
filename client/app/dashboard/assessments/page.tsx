@@ -88,7 +88,7 @@ function AssessmentsContent() {
     const t = useTranslations("features.assessments");
     const searchParams = useSearchParams();
     const { user } = useAuth();
-    const [activeType, setActiveType] = useState<"phq9" | "gad7">("phq9");
+    const [activeType, setActiveType] = useState<"phq9" | "gad7" | "phq2" | "gad2">("phq9");
     const [step, setStep] = useState(0);
     const [answers, setAnswers] = useState<number[]>([]);
     const [result, setResult] = useState<SubmittedAssessment | null>(null);
@@ -159,8 +159,8 @@ const { data: trajectory } = useAssessmentTrajectory(activeType);
                         <h2 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
                             <ClipboardCheck className="w-5 h-5 text-teal-500" /> {meta.name} Screening
                         </h2>
-                        <div className="flex gap-2">
-                            {(Object.keys(ASSESSMENTS) as ("phq9" | "gad7")[]).map((t) => (
+                        <div className="flex flex-wrap gap-2">
+                            {(Object.keys(ASSESSMENTS) as ("phq9" | "gad7" | "phq2" | "gad2")[]).map((t) => (
                                 <button
                                     key={t}
                                     onClick={() => {
@@ -335,6 +335,16 @@ const { data: trajectory } = useAssessmentTrajectory(activeType);
                                 <TrendingUp className="w-4 h-4 text-indigo-500" /> {t("trajectoryTitle")}
                             </h3>
                             <p className="text-xs text-gray-500 mb-4">{t("trajectoryHint")}</p>
+                            {trajectory.summary.isStale && (
+                                <p role="status" className="mb-3 rounded-2xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-bold text-amber-800">
+                                    {t("staleHint", { days: trajectory.summary.daysSinceLast ?? 28 })}
+                                </p>
+                            )}
+                            {trajectory.summary.clinicallySignificantChange && (
+                                <p role="status" className="mb-3 rounded-2xl bg-indigo-50 border border-indigo-200 px-3 py-2 text-xs font-bold text-indigo-800">
+                                    {t("mcidHint", { mcid: trajectory.summary.mcid, change: trajectory.summary.totalChange ?? 0 })}
+                                </p>
+                            )}
                             <TrajectoryChart
                                 points={trajectory.points}
                                 instrument={trajectory.instrument}

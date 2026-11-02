@@ -97,7 +97,10 @@
     "openBriefing": "Open briefing",
     "mainNavigation": "Main navigation",
     "openNavigation": "Open navigation menu",
-    "closeNavigation": "Close navigation menu"
+    "closeNavigation": "Close navigation menu",
+    "toolkit": "Toolkit",
+    "thoughts": "Thought records",
+    "caseload": "Caseload"
   },
   "mood": {
     "title": "Mood Tracker",
@@ -136,7 +139,7 @@
     },
     "assessments": {
       "title": "Self-Assessments",
-      "subtitle": "Standardized screenings (PHQ-9 & GAD-7) to track your wellbeing over time — your doctor sees the latest scores",
+      "subtitle": "Standardized screenings (PHQ-9, GAD-7 and 2-item check-ins) to track your wellbeing over time — your doctor sees the latest scores",
       "questionHint": "Over the last two weeks, how often have you been bothered by the following?",
       "back": "Back",
       "next": "Next",
@@ -164,7 +167,10 @@
       "direction_improving": "Moving down",
       "direction_worsening": "Moving up",
       "direction_stable": "Broadly steady",
-      "direction_insufficient_data": "Not enough sittings yet"
+      "direction_insufficient_data": "Not enough sittings yet",
+      "staleHint": "No screening in {days} days — this trajectory is stale. A fresh check-in keeps it meaningful.",
+      "mcidHint": "Meaningful change: {change} points (threshold {mcid}). Discuss it with your psychologist; it is not a diagnosis.",
+      "shortHint": "Two questions, one minute. Take the full screening when this is elevated."
     },
     "analytics": {
       "title": "Practice Analytics",
@@ -288,7 +294,21 @@
       "severity_mild": "Mild",
       "severity_moderate": "Moderate",
       "severity_moderatelySevere": "Moderately severe",
-      "severity_severe": "Severe"
+      "severity_severe": "Severe",
+      "statOverdue": "Overdue",
+      "statFollowUpDue": "Follow-up due",
+      "overdueBadge": "Overdue {hours}h",
+      "followUpBadge": "Check-in due",
+      "outcomeLabel": "What did you do?",
+      "outcomePlaceholder": "Select an outcome",
+      "outcome_contacted": "Contacted patient",
+      "outcome_scheduled": "Scheduled session",
+      "outcome_referred": "Referred on",
+      "outcome_hotline-given": "Gave hotline",
+      "outcome_no-answer": "No answer",
+      "outcome_other": "Other",
+      "followUpLabel": "Check in by (optional)",
+      "slaHint": "Urgent: seen in 4h, resolved in 24h. Elevated: seen in 24h, resolved in 72h. Overdue never escalates by itself."
     },
     "safetyPlan": {
       "title": "My safety plan",
@@ -322,7 +342,12 @@
       "conflictReload": "Load the newer version",
       "conflictKeep": "Keep mine for now",
       "conflictReloaded": "Loaded the newer version.",
-      "conflictUnsaveable": "While this is showing, the text on this screen is not saved. Copy anything you want to keep before loading the newer version."
+      "conflictUnsaveable": "While this is showing, the text on this screen is not saved. Copy anything you want to keep before loading the newer version.",
+      "reviewStale": "Not reviewed together in a while — bring it to your next session.",
+      "print": "Print",
+      "offlineHint": "Saved in this browser. A printed copy works with no phone at all.",
+      "openCrisis": "Crisis resources",
+      "openToolkit": "Coping toolkit"
     },
     "carePlan": {
       "title": "My care plan",
@@ -342,7 +367,80 @@
       "status_dropped": "Dropped",
       "loading": "Loading your care plan",
       "actionFailed": "That did not work. Try again.",
-      "footerNote": "This plan is yours. A goal you decide is no longer right can be marked dropped rather than deleted - it is useful to be able to see that something was tried and changed course."
+      "footerNote": "This plan is yours. A goal you decide is no longer right can be marked dropped rather than deleted - it is useful to be able to see that something was tried and changed course.",
+      "barrierLabel": "What gets in the way?",
+      "barrierPlaceholder": "What makes this hard? Write it so you can plan around it.",
+      "relapseTitle": "Staying well",
+      "relapseHint": "What worked, what to watch for, and who to contact — written while things are steady, read when they are not.",
+      "relapseSummaryLabel": "What worked",
+      "earlyWarningsLabel": "Early warning signs",
+      "supportContactsLabel": "Who to contact",
+      "dueDateLabel": "Due",
+      "overdueLabel": "Overdue",
+      "reviewOverdue": "Review overdue — update the plan together.",
+      "back": "Back"
+    },
+    "thoughts": {
+      "title": "Thought records",
+      "subtitle": "A CBT exercise: situation, thought, evidence, balanced view. Never generated, only written by you.",
+      "situationLabel": "Situation",
+      "situationPlaceholder": "Where were you? What happened?",
+      "thoughtLabel": "Automatic thought",
+      "thoughtPlaceholder": "What went through your mind?",
+      "evidenceForLabel": "Evidence for",
+      "evidenceAgainstLabel": "Evidence against",
+      "balancedLabel": "Balanced view",
+      "moodBeforeLabel": "Mood before (1-5)",
+      "moodAfterLabel": "Mood after (1-5)",
+      "save": "Save record",
+      "empty": "No thought records yet. Start with one situation.",
+      "deleteConfirm": "Delete this record?"
+    },
+    "toolkit": {
+      "title": "Coping toolkit",
+      "subtitle": "Static exercises that work offline. No AI, no tracking, no account needed to read.",
+      "breathingTitle": "Box breathing",
+      "breathingBody": "In 4, hold 4, out 4, hold 4. Four rounds. Slow is the point.",
+      "groundingTitle": "5-4-3-2-1 grounding",
+      "groundingBody": "Name 5 things you see, 4 you hear, 3 you can touch, 2 you smell, 1 you taste. Out loud if you can.",
+      "urgeTitle": "Ride the wave",
+      "urgeBody": "Urges peak and fall in about 20 minutes. Set a timer, drink water, step outside, text one person.",
+      "sleepTitle": "Tonight's sleep",
+      "sleepBody": "Same wake time, no naps after 3pm, screens off 30 minutes before bed, bed is for sleep only.",
+      "phaseIn": "Breathe in",
+      "phaseHold": "Hold",
+      "phaseOut": "Breathe out",
+      "start": "Start",
+      "pause": "Pause"
+    },
+    "feedback": {
+      "title": "How was the alliance?",
+      "subtitle": "Four quick taps about being heard, goals, approach and fit. This is not a rating of your clinician.",
+      "listening": "Felt heard",
+      "goals": "On goals",
+      "approach": "Approach fit",
+      "overall": "Overall fit",
+      "commentPlaceholder": "Anything you want them to know? (optional)",
+      "submit": "Send feedback",
+      "saved": "Thanks — your clinician sees the alliance, not a star rating.",
+      "missing": "No alliance recorded for this session yet."
+    },
+    "caseload": {
+      "title": "Caseload",
+      "subtitle": "Who you treat, what is overdue, and which safety plans need a joint review.",
+      "patients": "My patients",
+      "upcoming": "Upcoming",
+      "overdueRisk": "Overdue risk",
+      "unreviewedSafety": "Safety plans needing review",
+      "empty": "Nothing overdue. The queue is the work; this is the overview."
+    },
+    "consent": {
+      "title": "AI and data consent",
+      "aiReadTitle": "Let AI read my pre-session answers",
+      "aiReadBody": "Off by default. When on, the briefing may quote your answers to a model. You can change this any time; past briefings keep their provenance label.",
+      "dataShareTitle": "Anonymous use for improvement",
+      "dataShareBody": "Off by default. When on, anonymised scores may be used to improve screening. Never your words.",
+      "saved": "Consent saved"
     }
   },
   "staticPages": {
@@ -420,7 +518,9 @@
           "title": "3. Remove immediate danger",
           "description": "If you have access to anything that could harm you, put distance between yourself and it — or have someone you trust remove it."
         }
-      ]
+      ],
+      "safetyPlanLink": "My safety plan",
+      "toolkitLink": "Coping toolkit"
     },
     "faq": {
       "title": "Frequently asked",

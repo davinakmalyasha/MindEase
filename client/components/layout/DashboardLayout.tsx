@@ -64,10 +64,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             { id: "journal", label: t("journal"), href: "/dashboard/journal", icon: BookOpen, roles: ["patient"] },
             { id: "carePlan", label: t("carePlan"), href: "/dashboard/care-plan", icon: Target, roles: ["patient"] },
             { id: "safetyPlan", label: t("safetyPlan"), href: "/dashboard/safety-plan", icon: LifeBuoy, roles: ["patient"] },
+            { id: "toolkit", label: t("toolkit"), href: "/dashboard/toolkit", icon: HeartPulse, roles: ["patient"] },
+            { id: "thoughts", label: t("thoughts"), href: "/dashboard/thoughts", icon: BookOpen, roles: ["patient"] },
             { id: "mySchedule", label: t("mySchedule"), href: "/dashboard/doctor/schedule", icon: CalendarClock, roles: ["doctor"] },
             // The triage queue. Placed first among the clinician entries because it is
             // the one page that can contain something time-critical.
             { id: "riskQueue", label: t("riskQueue"), href: "/dashboard/doctor/risk", icon: ShieldAlert, roles: ["doctor"] },
+            { id: "caseload", label: t("caseload"), href: "/dashboard/doctor/caseload", icon: LayoutDashboard, roles: ["doctor"] },
             // Was pointed at `/dashboard/appointments`, the same href as
             // "My Appointments". Two nav entries, one destination: both highlighted at
             // once, and this one landed on a page with no briefings on it. There was

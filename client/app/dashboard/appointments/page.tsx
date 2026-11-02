@@ -22,6 +22,7 @@ import {
     CalendarPlus,
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { SessionFeedback } from "@/components/feedback/SessionFeedback";
 import ReviewModal from "@/components/ReviewModal";
 import RescheduleModal from "@/components/appointments/RescheduleModal";
 import RebookModal from "@/components/appointments/RebookModal";
@@ -364,12 +365,17 @@ export default function AppointmentHistory() {
                                         )}
 
                                         {user.role === "patient" && app.status === "completed" && (
+                                            <>
                                             <button
                                                 onClick={() => setReviewTarget(app)}
                                                 className="flex items-center gap-1 px-3 py-2 bg-amber-500 text-white rounded-xl font-bold text-xs hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
                                             >
                                                 <Star className="w-4 h-4" /> Rate
                                             </button>
+                                            <div className="mt-3 w-full">
+                                                <SessionFeedback appointmentId={app.id} />
+                                            </div>
+                                            </>
                                         )}
 
                                         {user.role === "doctor" && app.status === "completed" && !app.followUp && (

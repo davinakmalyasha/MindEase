@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ShieldCheck, Loader2, QrCode, KeyRound, CheckCircle2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { ConsentToggles } from "@/components/consent/ConsentToggles";
 import Spinner from "@/components/ui/Spinner";
 import api, { getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -279,6 +280,9 @@ export default function SecurityPage() {
                         </div>
                     )}
                 </motion.div>
+                <div className="mt-6">
+                    <ConsentToggles />
+                </div>
             </div>
         </DashboardLayout>
     );

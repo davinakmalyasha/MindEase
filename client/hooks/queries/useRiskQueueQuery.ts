@@ -22,6 +22,8 @@ export interface RiskQueueCounts {
     unresolved: number;
     unacknowledged: number;
     urgentUnacknowledged: number;
+    overdue: number;
+    followUpDue: number;
 }
 
 export interface RiskQueueItem {
@@ -36,6 +38,11 @@ export interface RiskQueueItem {
     acknowledgedAt: string | null;
     resolutionNote: string | null;
     resolvedAt: string | null;
+    followUpDueAt: string | null;
+    outcome: string | null;
+    hoursOpen: number;
+    isOverdue: boolean;
+    followUpOverdue: boolean;
     patient: {
         id: string;
         name: string | null;
@@ -91,8 +98,8 @@ export const useAcknowledgeRisk = () => {
 export const useResolveRisk = () => {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, note }: { id: string; note?: string }) => {
-            const res = await api.post(`/wellness/risk-alerts/${id}/resolve`, { note });
+        mutationFn: async ({ id, note, outcome, followUpDueAt }: { id: string; note?: string; outcome?: string; followUpDueAt?: string }) => {
+            const res = await api.post(`/wellness/risk-alerts/${id}/resolve`, { note, outcome, followUpDueAt });
             return res.data?.data;
         },
         onSuccess: () => qc.invalidateQueries({ queryKey: riskQueueKeys.all }),

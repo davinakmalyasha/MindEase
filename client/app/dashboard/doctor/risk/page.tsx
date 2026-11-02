@@ -39,6 +39,8 @@ export default function RiskQueuePage() {
     const [includeResolved, setIncludeResolved] = useState(false);
     const [resolving, setResolving] = useState<string | null>(null);
     const [note, setNote] = useState("");
+    const [outcome, setOutcome] = useState("");
+    const [followUp, setFollowUp] = useState("");
 
     const { data, isLoading, isError, error, refetch } = useRiskQueue(includeResolved);
     const acknowledge = useAcknowledgeRisk();
@@ -57,8 +59,15 @@ export default function RiskQueuePage() {
 
     const onResolve = async (id: string) => {
         try {
-            await resolve.mutateAsync({ id, note: note.trim() || undefined });
+            await resolve.mutateAsync({
+                id,
+                note: note.trim() || undefined,
+                outcome: outcome || undefined,
+                followUpDueAt: followUp || undefined,
+            });
             setNote("");
+            setOutcome("");
+            setFollowUp("");
             setResolving(null);
             toast(t("resolvedToast"), "success");
         } catch (err) {
@@ -105,10 +114,15 @@ export default function RiskQueuePage() {
                     />
                 </div>
             )}
+            {counts && ((counts as any).overdue > 0 || (counts as any).followUpDue > 0) && (
+                <p role="status" className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-2 text-xs font-bold text-amber-800">
+                    {t("statOverdue")}: {(counts as any).overdue} · {t("statFollowUpDue")}: {(counts as any).followUpDue} · {t("slaHint")}
+                </p>
+            )}
 
             {isLoading ? (
                 <div
-                    className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-400"
+                    className="flex items-center justify-center gap-3 rounded-3xl border border-gray-100 bg-white p-10 text-gray-500"
                     role="status"
                     aria-live="polite"
                 >
@@ -143,7 +157,7 @@ export default function RiskQueuePage() {
                 <div className="rounded-3xl border border-gray-100 bg-white p-10 text-center">
                     <CircleCheck className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
                     <p className="font-bold text-gray-700">{t("empty")}</p>
-                    <p className="mt-1 text-sm text-gray-400">{t("emptyHint")}</p>
+                    <p className="mt-1 text-sm text-gray-500">{t("emptyHint")}</p>
                 </div>
             ) : (
                 <ul className="space-y-3">
@@ -171,16 +185,26 @@ export default function RiskQueuePage() {
                                             >
                                                 {urgent ? t("urgent") : t("elevated")}
                                             </span>
-                                            <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                                            <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
                                                 {(() => {
                                                     const key = SOURCE_KEY[item.sourceType];
                                                     return key ? t(key) : item.sourceType;
                                                 })()}
                                             </span>
                                             {acknowledged && (
-                                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-400">
+                                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-500">
                                                     <Clock className="h-3 w-3" />
                                                     {t("acknowledged")}
+                                                </span>
+                                            )}
+                                            {item.isOverdue && !item.resolvedAt && (
+                                                <span className="rounded-full bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                                                    {t("overdueBadge", { hours: Math.round(item.hoursOpen) })}
+                                                </span>
+                                            )}
+                                            {item.followUpOverdue && (
+                                                <span className="rounded-full bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                                                    {t("followUpBadge")}
                                                 </span>
                                             )}
                                         </div>
@@ -189,7 +213,7 @@ export default function RiskQueuePage() {
                                         </p>
                                         <p className="mt-1 text-sm text-gray-600">{item.reason}</p>
                                     </div>
-                                    <time className="shrink-0 text-xs text-gray-400">
+                                    <time className="shrink-0 text-xs text-gray-500">
                                         {/* `useFormatter` rather than a bare
                                             `toLocaleString()`, which silently used
                                             the browser's locale - so someone who
@@ -252,6 +276,8 @@ export default function RiskQueuePage() {
                                             onClick={() => {
                                                 setResolving(resolving === item.id ? null : item.id);
                                                 setNote("");
+                                                setOutcome("");
+                                                setFollowUp("");
                                             }}
                                             className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"
                                         >
@@ -280,22 +306,54 @@ export default function RiskQueuePage() {
                                 </div>
 
                                 {resolving === item.id && (
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        <input
-                                            value={note}
-                                            onChange={(e) => setNote(e.target.value)}
-                                            placeholder={t("notePlaceholder")}
-                                            maxLength={1000}
-                                            className="min-w-0 flex-1 rounded-2xl border border-gray-200 px-3 py-2 text-sm"
-                                        />
-                                        <button
-                                            type="button"
-                                            disabled={resolve.isPending}
-                                            onClick={() => onResolve(item.id)}
-                                            className="rounded-2xl bg-gray-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-                                        >
-                                            {t("confirmResolve")}
-                                        </button>
+                                    <div className="mt-3 space-y-2">
+                                        <div className="flex flex-wrap gap-2">
+                                            <input
+                                                value={note}
+                                                onChange={(e) => setNote(e.target.value)}
+                                                placeholder={t("notePlaceholder")}
+                                                maxLength={1000}
+                                                aria-label={t("notePlaceholder")}
+                                                className="min-w-0 flex-1 rounded-2xl border border-gray-200 px-3 py-2 text-sm"
+                                            />
+                                            <button
+                                                type="button"
+                                                disabled={resolve.isPending}
+                                                onClick={() => onResolve(item.id)}
+                                                className="rounded-2xl bg-gray-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                                            >
+                                                {t("confirmResolve")}
+                                            </button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            <label className="text-xs font-bold text-gray-500">
+                                                {t("outcomeLabel")}
+                                                <select
+                                                    value={outcome}
+                                                    onChange={(e) => setOutcome(e.target.value)}
+                                                    aria-label={t("outcomeLabel")}
+                                                    className="ml-2 rounded-xl border border-gray-200 px-2 py-1.5 text-xs"
+                                                >
+                                                    <option value="">{t("outcomePlaceholder")}</option>
+                                                    <option value="contacted">{t("outcome_contacted")}</option>
+                                                    <option value="scheduled">{t("outcome_scheduled")}</option>
+                                                    <option value="referred">{t("outcome_referred")}</option>
+                                                    <option value="hotline-given">{t("outcome_hotline-given")}</option>
+                                                    <option value="no-answer">{t("outcome_no-answer")}</option>
+                                                    <option value="other">{t("outcome_other")}</option>
+                                                </select>
+                                            </label>
+                                            <label className="text-xs font-bold text-gray-500">
+                                                {t("followUpLabel")}
+                                                <input
+                                                    type="date"
+                                                    value={followUp}
+                                                    onChange={(e) => setFollowUp(e.target.value)}
+                                                    aria-label={t("followUpLabel")}
+                                                    className="ml-2 rounded-xl border border-gray-200 px-2 py-1.5 text-xs"
+                                                />
+                                            </label>
+                                        </div>
                                     </div>
                                 )}
                             </li>
@@ -306,7 +364,7 @@ export default function RiskQueuePage() {
 
             {/* Spelled out, because the absence of a row is the one thing a
                 clinician must be able to read correctly. */}
-            <p className="mt-6 text-xs leading-relaxed text-gray-400">{t("footerNote")}</p>
+            <p className="mt-6 text-xs leading-relaxed text-gray-500">{t("footerNote")}</p>
         </DashboardLayout>
     );
 }
