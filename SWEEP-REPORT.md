@@ -15,6 +15,7 @@ The repo was close to done but its docs and a few guards lied: counts had drifte
 | Review summary accepted malformed ids as empty success | `handleReviewList` had `apptUUID7OK` 400, `handleReviewSummary` did not | added same 400 guard | integration `TestIntegration*Review*` green |
 | Notification mark-read lied on foreign ids | `UPDATE ... WHERE id=? AND userId=?` then unconditional 200 | `RowsAffected==0 → 404` | integration green |
 | Appointments history rendered failure as empty | `useMyAppointments` defaulted `[]` with no `isError` branch | explicit `role=alert` + Retry, `retry:1` | client suite 52 passed |
+| Unstable OFFSET pagination (time-only ORDER BY) | `apptQueryRows` and `reviewList` ordered by time alone; equal timestamps duplicate/skip rows across pages | `id DESC` tiebreak on both; no contract change | full Go suite green 59.2s + `check-numbers` 14 agree |
 | Register timing oracle | duplicate path skipped hashing | burn same `hashPassword` work on duplicate; 20/15m per-IP limiter retained | unit green |
 | Portfolio numbers drifted | README 47,056/19,480/24,675/0.5.2/37/53 vs tree 47,779/19,637/25,241/0.6.1/36/55 | reconciled scale, layout, release pointer, client version; `check-numbers` excludes `Header.Get`/`Header().Get`, counts 5 core + 1 internal, pins both playwright figures; `goVersion` from `server-go/go.mod` | `node scripts/check-numbers.js` → 14 agree |
 
