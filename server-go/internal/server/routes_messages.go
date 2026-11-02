@@ -607,15 +607,27 @@ func (s *Server) handleMsgThread(w http.ResponseWriter, r *http.Request) {
 		take = 1
 	}
 
-	sqlText := "SELECT " + msgRowColumns + " FROM `Message` " +
-		"WHERE ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))"
-	args := []any{user.ID, otherUserID, otherUserID, user.ID}
-	if before != "" {
-		sqlText += " AND id < ?"
-		args = append(args, before)
+	// Two-sided keyset as UNION ALL, not OR: a single OR over two composite
+	// indexes degrades to a reverse PRIMARY scan with a filter (see EXPLAIN
+	// in the sweep notes), while each leg below is a bounded ref lookup on
+	// its own (senderId, receiverId, id) index. The outer sort covers at
+	// most 2*take rows. `before` is an id cursor; ids are UUIDv7, unique
+	// and time-ordered, so id is a stable tiebreak with no duplicates.
+	leg := "SELECT " + msgRowColumns + " FROM `Message` " +
+		"WHERE senderId = ? AND receiverId = ?"
+	legArgs := func(from, to string) []any {
+		if before != "" {
+			return []any{from, to, before, take}
+		}
+		return []any{from, to, take}
 	}
-	sqlText += " ORDER BY id DESC LIMIT ?"
-	args = append(args, take)
+	legSQL := leg
+	if before != "" {
+		legSQL += " AND id < ?"
+	}
+	legSQL += " ORDER BY id DESC LIMIT ?"
+	sqlText := "(" + legSQL + ") UNION ALL (" + legSQL + ") ORDER BY id DESC LIMIT ?"
+	args := append(append(legArgs(user.ID, otherUserID), legArgs(otherUserID, user.ID)...), take)
 
 	rows, err := s.DB.QueryContext(r.Context(), sqlText, args...)
 	if err != nil {

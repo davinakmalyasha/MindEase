@@ -1903,7 +1903,68 @@ func TestIntegrationAdminStatsShape(t *testing.T) {
 	}
 }
 
-func TestIntegrationResponseShapes(t *testing.T) {	s := newIntegrationServer(t)
+func TestIntegrationMessageThreadUnionAndCursor(t *testing.T) {
+	s := newIntegrationServer(t)
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	doctorEmail := uniqueEmail(t)
+	doctorUserID, doctorID := seedDoctor(t, doctorEmail, "Dr Thread")
+	seedCompletedAppointment(t, patientID, doctorID)
+
+	p := newTestClient(t, s.Mount())
+	p.login(patientEmail, "Patient@123")
+	d := newTestClient(t, s.Mount())
+	d.login(doctorEmail, "Doctor@123")
+
+	send := func(c *testClient, to, content string) {
+		t.Helper()
+		rec, _, text := c.request(http.MethodPost, "/api/messages/"+to, map[string]any{"content": content})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("send %q: %d %s", content, rec.Code, text)
+		}
+	}
+	send(p, doctorUserID, "thread one")
+	send(d, patientID, "thread two")
+	send(p, doctorUserID, "thread three")
+
+	getThread := func(c *testClient, to, query string) []map[string]any {
+		t.Helper()
+		rec, _, text := c.request(http.MethodGet, "/api/messages/"+to+"/messages"+query, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("thread%s: %d %s", query, rec.Code, text)
+		}
+		var list []map[string]any
+		var parsed map[string]any
+		_ = json.Unmarshal([]byte(text), &parsed)
+		raw, _ := json.Marshal(parsed["data"])
+		if err := json.Unmarshal(raw, &list); err != nil {
+			t.Fatalf("thread data is not a list: %s", text)
+		}
+		return list
+	}
+
+	plist := getThread(p, doctorUserID, "?limit=10")
+	if len(plist) != 3 {
+		t.Fatalf("patient thread rows = %d; want 3", len(plist))
+	}
+	for i, want := range []string{"thread one", "thread two", "thread three"} {
+		if plist[i]["content"] != want {
+			t.Fatalf("row %d = %v; want %q ascending", i, plist[i]["content"], want)
+		}
+	}
+	newest, _ := plist[2]["id"].(string)
+	older := getThread(p, doctorUserID, "?limit=10&before="+newest)
+	if len(older) != 2 || older[0]["content"] != "thread one" || older[1]["content"] != "thread two" {
+		t.Fatalf("before-cursor page has %d rows; want the 2 older ones", len(older))
+	}
+	dlist := getThread(d, patientID, "")
+	if len(dlist) != 3 {
+		t.Fatalf("doctor thread rows = %d; want 3", len(dlist))
+	}
+}
+
+func TestIntegrationResponseShapes(t *testing.T) {
+	s := newIntegrationServer(t)
 	email := uniqueEmail(t)
 	userID := seedUser(t, email, "Patient@123", "patient")
 	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Shape")
