@@ -46,6 +46,7 @@ const EXPLICIT_TEXT_FILENAMES = new Set([
 const SKIP_DIRECTORIES = new Set([
     "node_modules", ".next", "dist", "build", ".git", "coverage",
     "test-results", "playwright-report", "uploads", "backups", ".vercel",
+    ".playwright-mcp",
 ]);
 
 // U+FFFD: a character that could not be decoded.
@@ -54,7 +55,9 @@ const REPLACEMENT = /\uFFFD/;
 // of a glyph that was lost and only its question mark survived.
 const LOST_GLYPH = /[\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026\u2020]\?/;
 // Reversible mojibake: a cp1252-mangled lead byte followed by its trail byte.
-const CP1252 = /[\u00C2\u00E2\u00E3][\u0080-\u00BF\u20AC\u201A\u0192\u201E\u2026\u2020\u2018\u2019\u201C\u201D\u2013\u2014\u2022]/;
+// The lead class includes U+00C3 so the classic double-encoded e-acute
+// (café read as caf + U+00C3 U+00A9) is caught.
+const CP1252 = /[\u00C2\u00C3\u00E2\u00E3][\u0080-\u00BF\u20AC\u201A\u0192\u201E\u2026\u2020\u2018\u2019\u201C\u201D\u2013\u2014\u2022]/;
 
 const findings = [];
 
@@ -140,6 +143,7 @@ const walk = (dir) => {
     }
 };
 
+function main() {
 walk(ROOT);
 
 if (findings.length === 0) {
@@ -158,3 +162,8 @@ console.error(
         "recover it from git history before editing."
 );
 process.exit(1);
+}
+
+if (require.main === module) main();
+
+module.exports = { REPLACEMENT, LOST_GLYPH, CP1252 };

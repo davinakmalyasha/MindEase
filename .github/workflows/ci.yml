@@ -64,7 +64,9 @@ jobs:
       - name: Documented counts must match the repository
         run: node scripts/check-numbers.js
       - name: Encoding guard (whole repo)
-        run: node scripts/check-encoding.js
+        run: |
+          node scripts/check-encoding.test.js
+          node scripts/check-encoding.js
       # The workflow checker exists to catch a job that cannot work, and it
       # runs only in CI if CI runs it. It did not, for four weeks: the script
       # was written, described in two documents, and never referenced by any
@@ -204,7 +206,9 @@ jobs:
       - run: npm ci
       - name: Encoding guard (whole repo)
         working-directory: .
-        run: node scripts/check-encoding.js
+        run: |
+          node scripts/check-encoding.test.js
+          node scripts/check-encoding.js
       - name: Dependency reference check
         run: |
           node scripts/check-dependencies.test.js

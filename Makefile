@@ -153,6 +153,7 @@ vet: ## go vet both Go modules
 
 .PHONY: check-encoding
 check-encoding: ## Repo-wide mojibake guard. Required in CI.
+	node scripts/check-encoding.test.js
 	node scripts/check-encoding.js
 
 .PHONY: check-numbers
