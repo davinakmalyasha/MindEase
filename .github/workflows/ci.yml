@@ -62,7 +62,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Documented counts must match the repository
-        run: node scripts/check-numbers.js
+        run: |
+          node scripts/check-numbers.test.js
+          node scripts/check-numbers.js
       - name: Encoding guard (whole repo)
         run: |
           node scripts/check-encoding.test.js

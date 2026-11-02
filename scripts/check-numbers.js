@@ -220,24 +220,32 @@ function main() {
     summarise();
 }
 
+// Pure core of checkOne, exported for the self-test: given a document's
+// text, an anchor and the measured values, report a failure string, an
+// error string, or null when the claim agrees with the tree.
+function judgeClaim(docRel, src, anchor, expected) {
+    const m = src.match(anchor);
+    if (!m) {
+        return { error: `${docRel}: the anchor /${anchor.source}/ no longer matches. The document was restructured; update this file.` };
+    }
+    for (let i = 0; i < expected.length; i++) {
+        if (Number(m[i + 1]) !== expected[i]) {
+            return { failure: `${docRel}: figure ${i + 1} says ${m[i + 1]}, repository has ${expected[i]}  (/${anchor.source}/)` };
+        }
+    }
+    return {};
+}
+
 function checkOne(docRel, anchor, measure, second, third) {
     if (!exists(docRel)) {
         errors.push(`${docRel} does not exist`);
         return;
     }
     const src = read(docRel);
-    const m = src.match(anchor);
-    if (!m) {
-        errors.push(`${docRel}: the anchor /${anchor.source}/ no longer matches. The document was restructured; update this file.`);
-        return;
-    }
-    const actuals = [measure, second, third].filter(Boolean);
-    actuals.forEach((fn, i) => {
-        const expected = fn();
-        if (Number(m[i + 1]) !== expected) {
-            failures.push(`${docRel}: figure ${i + 1} says ${m[i + 1]}, repository has ${expected}  (/${anchor.source}/)`);
-        }
-    });
+    const fns = [measure, second, third].filter(Boolean);
+    const r = judgeClaim(docRel, src, anchor, fns.map((fn) => fn()));
+    if (r.error) errors.push(r.error);
+    else if (r.failure) failures.push(r.failure);
 }
 
 function summarise() {
@@ -281,12 +289,16 @@ function summarise() {
     console.log(`check-numbers: ${checked} documented counts agree with the repository.`);
 }
 
-console.log("check-numbers - documented counts against the repository\n");
+if (require.main === module) {
+    console.log("check-numbers - documented counts against the repository\n");
 
-try {
-    main();
-} catch (err) {
-    console.error("check-numbers itself failed. This is a bug in scripts/check-numbers.js,\nnot a drift in the documentation:\n");
-    console.error(`  ${err && err.stack ? err.stack : err}\n`);
-    process.exit(2);
+    try {
+        main();
+    } catch (err) {
+        console.error("check-numbers itself failed. This is a bug in scripts/check-numbers.js,\nnot a drift in the documentation:\n");
+        console.error(`  ${err && err.stack ? err.stack : err}\n`);
+        process.exit(2);
+    }
 }
+
+module.exports = { judgeClaim };

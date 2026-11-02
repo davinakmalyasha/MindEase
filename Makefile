@@ -158,6 +158,7 @@ check-encoding: ## Repo-wide mojibake guard. Required in CI.
 
 .PHONY: check-numbers
 check-numbers: ## Fail if a documented count disagrees with the repository
+	node scripts/check-numbers.test.js
 	node scripts/check-numbers.js
 
 .PHONY: check-workflows
