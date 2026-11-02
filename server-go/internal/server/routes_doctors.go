@@ -538,10 +538,9 @@ func (s *Server) doctorsCacheDel(ctx context.Context, keys ...string) {
 	_ = s.Redis.Del(ctx, keys...).Err()
 }
 
-// doctorsInvalidateDoctorCache clears the doctor's detail entry and both real
-// directory page-size keys. The Node hook deletes a `:v2:0` key that is never
-// written, leaving page 1 of the directory stale for up to 60s; clearing the
-// keys that exist keeps the same short-TTL freshness guarantee without the gap.
+// doctorsInvalidateDoctorCache clears the doctor's detail entry and the two
+// cached directory page sizes (20 and 50). Only those sizes are ever cached
+// (see doctorsGetAll), so deleting exactly them leaves no stale key behind.
 func (s *Server) doctorsInvalidateDoctorCache(ctx context.Context, doctorID string) {
 	if doctorID == "" {
 		s.doctorsCacheDel(ctx, doctorsDirectoryCacheKeyFor(20), doctorsDirectoryCacheKeyFor(50), doctorsSpecialtiesCacheKey)
@@ -855,7 +854,11 @@ func (s *Server) doctorsGetAll(w http.ResponseWriter, r *http.Request) {
 		hasMinExperience || availableOnly || (sortKey != "" && sortKey != "rating")
 
 	ctx := r.Context()
-	if page == 1 && !isUncached {
+	// Only the two real page sizes are cached. Any limit 1..50 can be
+	// requested, but a :v2:<limit> key for an uncached size would never be
+	// invalidated and would serve stale rows for its whole TTL.
+	useDirectoryCache := page == 1 && !isUncached && (limit == 20 || limit == 50)
+	if useDirectoryCache {
 		key := doctorsDirectoryCacheKeyFor(limit)
 		if raw, ok := s.doctorsCacheGetRaw(ctx, key); ok {
 			s.doctorsRawData(w, http.StatusOK, raw)
