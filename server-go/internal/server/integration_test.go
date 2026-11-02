@@ -1873,8 +1873,37 @@ func TestIntegrationAdminExportKinds(t *testing.T) {
 	}
 }
 
-func TestIntegrationResponseShapes(t *testing.T) {
+func TestIntegrationAdminStatsShape(t *testing.T) {
 	s := newIntegrationServer(t)
+	adminEmail := uniqueEmail(t)
+	seedUser(t, adminEmail, "Admin@123", "admin")
+	patientID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr Stats")
+	seedCompletedAppointment(t, patientID, doctorID)
+
+	c := newTestClient(t, s.Mount())
+	c.login(adminEmail, "Admin@123")
+
+	rec, body, text := c.request(http.MethodGet, "/api/admin/stats", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stats: %d %s", rec.Code, text)
+	}
+	stats := dataObject(t, body)
+	itAssertKeys(t, stats, "total_patients", "total_doctors", "successful_bookings",
+		"total_estimated_revenue", "pending_appointments", "total_appointments",
+		"new_users_today", "monthly_revenue")
+	if got := int(stats["total_patients"].(float64)); got < 1 {
+		t.Fatalf("total_patients = %d, want >= 1", got)
+	}
+	if got := int(stats["total_doctors"].(float64)); got < 1 {
+		t.Fatalf("total_doctors = %d, want >= 1", got)
+	}
+	if got := int(stats["successful_bookings"].(float64)); got < 1 {
+		t.Fatalf("successful_bookings = %d, want >= 1", got)
+	}
+}
+
+func TestIntegrationResponseShapes(t *testing.T) {	s := newIntegrationServer(t)
 	email := uniqueEmail(t)
 	userID := seedUser(t, email, "Patient@123", "patient")
 	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr. Integration Shape")

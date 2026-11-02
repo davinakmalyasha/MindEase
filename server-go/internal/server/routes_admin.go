@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -380,46 +381,66 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	twelveMonthsAgo := time.Date(today.Year(), today.Month()-11, 1, 0, 0, 0, 0, time.Local)
 
-	totalPatients, err := s.adminCount(ctx, "SELECT COUNT(*) FROM `User` WHERE role = 'patient'")
-	if err != nil {
-		s.adminFail(w, r, err)
-		return
+	// The seven scalars are independent single-row queries. Sequentially they
+	// cost seven round-trips on every dashboard load; concurrently they cost
+	// one. database/sql connections are goroutine-safe and the pool (20 by
+	// default) absorbs the burst. The two month GROUP BYs below stay
+	// sequential: they are the heavy scans and parallelizing them as well
+	// would double peak row-buffering for no visible gain on this page.
+	type scalarOut struct {
+		idx int
+		n   int
+		f   float64
+		err error
 	}
-	totalDoctors, err := s.adminCount(ctx, "SELECT COUNT(*) FROM `User` WHERE role = 'doctor'")
-	if err != nil {
-		s.adminFail(w, r, err)
-		return
+	scalarQueries := []struct {
+		sql     string
+		args    []any
+		isFloat bool
+	}{
+		{"SELECT COUNT(*) FROM `User` WHERE role = 'patient'", nil, false},
+		{"SELECT COUNT(*) FROM `User` WHERE role = 'doctor'", nil, false},
+		{"SELECT COUNT(*) FROM `Appointment` WHERE status = 'completed'", nil, false},
+		{"SELECT COUNT(*) FROM `Appointment` WHERE status = 'pending'", nil, false},
+		{"SELECT COUNT(*) FROM `Appointment`", nil, false},
+		{"SELECT COUNT(*) FROM `User` WHERE createdAt >= ?", []any{today}, false},
+		{"SELECT COALESCE(SUM(d.price), 0) AS revenue FROM `Appointment` a " +
+			"JOIN `Doctor` d ON d.id = a.doctorId WHERE a.status = 'completed'", nil, true},
 	}
-	successfulBookings, err := s.adminCount(ctx, "SELECT COUNT(*) FROM `Appointment` WHERE status = 'completed'")
-	if err != nil {
-		s.adminFail(w, r, err)
-		return
+	outs := make([]scalarOut, len(scalarQueries))
+	var wg sync.WaitGroup
+	for i, q := range scalarQueries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if q.isFloat {
+				var f float64
+				err := s.DB.QueryRowContext(ctx, q.sql, q.args...).Scan(&f)
+				outs[i] = scalarOut{idx: i, f: f, err: err}
+				return
+			}
+			var n int
+			err := s.DB.QueryRowContext(ctx, q.sql, q.args...).Scan(&n)
+			outs[i] = scalarOut{idx: i, n: n, err: err}
+		}()
 	}
-	pendingAppointments, err := s.adminCount(ctx, "SELECT COUNT(*) FROM `Appointment` WHERE status = 'pending'")
-	if err != nil {
-		s.adminFail(w, r, err)
-		return
+	wg.Wait()
+	for _, o := range outs {
+		if o.err != nil {
+			s.adminFail(w, r, o.err)
+			return
+		}
 	}
-	totalAppointments, err := s.adminCount(ctx, "SELECT COUNT(*) FROM `Appointment`")
-	if err != nil {
-		s.adminFail(w, r, err)
-		return
-	}
-	newUsersToday, err := s.adminCount(ctx, "SELECT COUNT(*) FROM `User` WHERE createdAt >= ?", today)
-	if err != nil {
-		s.adminFail(w, r, err)
-		return
-	}
+	totalPatients := outs[0].n
+	totalDoctors := outs[1].n
+	successfulBookings := outs[2].n
+	pendingAppointments := outs[3].n
+	totalAppointments := outs[4].n
+	newUsersToday := outs[5].n
 
 	// The KPI is total estimated revenue, all time, separate from the 12-month
 	// trend on purpose.
-	var lifetimeRevenue float64
-	if err := s.DB.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(d.price), 0) AS revenue FROM `Appointment` a "+
-			"JOIN `Doctor` d ON d.id = a.doctorId WHERE a.status = 'completed'").Scan(&lifetimeRevenue); err != nil {
-		s.adminFail(w, r, err)
-		return
-	}
+	lifetimeRevenue := outs[6].f
 
 	type adminMonthRevenue struct {
 		month    string
