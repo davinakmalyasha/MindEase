@@ -301,7 +301,7 @@ The `server-go` job joins the existing CI:
   migration;
 - `check-numbers` counts the new tree; its globs, the README counts and
   `CODEOWNERS` update in the same change that adds the first Go file;
-- Makefile targets: `go-dev`, `go-test`, `go-lint`, `sqlc`, `migrate`;
+- npm scripts in the root `package.json` (`npm run dev`, `npm test`, `npm run lint`) delegate to `scripts/task.js`;
 - benchmarks (`-bench`) for the hub and the limiter run in CI but do not gate
   yet; a bounded `-fuzz` run for the crisis-text matcher lands with phase 4.
 

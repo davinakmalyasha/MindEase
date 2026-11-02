@@ -87,7 +87,7 @@ the claims are the mechanism, and they are exercised separately.
 
 ## Reproduce
 
-With Docker, start and seed the stack first (`make up` sets the payment-simulator
+With Docker, start and seed the stack first (`npm run up` sets the payment-simulator
 opt-in the API requires in production mode), then:
 
 ```bash

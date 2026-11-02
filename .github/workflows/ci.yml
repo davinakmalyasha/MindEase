@@ -72,7 +72,7 @@ jobs:
       # The workflow checker exists to catch a job that cannot work, and it
       # runs only in CI if CI runs it. It did not, for four weeks: the script
       # was written, described in two documents, and never referenced by any
-      # workflow or Makefile target. A gate that is documented and not wired is
+      # workflow or task target. A gate that is documented and not wired is
       # indistinguishable from no gate, and it is the most comfortable kind of
       # bug to ship, because writing the gate feels like doing the work.
       - name: Workflow self-test, then workflow gate
@@ -406,7 +406,7 @@ jobs:
           # because a deployment that quietly settles every order from an
           # unsigned POST is the exact failure that check exists to prevent.
           #
-          # So the ephemeral CI stack declares the opt-in, exactly as `make up`
+          # So the ephemeral CI stack declares the opt-in, exactly as `npm run up`
           # does. This job was silently relying on the validator not existing:
           # the API exited, compose reported `mindease-api is unhealthy`, and
           # without the log step below there was no way to tell why.
@@ -450,7 +450,7 @@ jobs:
       #
       # The seed runs in the API image, which contains the `seed` binary: no
       # host Node checkout is involved, and the connection string is the one the
-      # API itself uses, so the demo data is identical to `make up`.
+      # API itself uses, so the demo data is identical to `npm run db:setup`.
       #
       # Note the seed creates zero reviews. It used to invent a 4.2-4.9 rating
       # for every clinician with zero reviews, which made "Top Rated" rank

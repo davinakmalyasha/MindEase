@@ -1,0 +1,42 @@
+{
+  "name": "mindease",
+  "version": "0.6.1",
+  "private": true,
+  "description": "MindEase - a mental-health telehealth platform. Go API, Go realtime hub, Next.js client, MySQL.",
+  "license": "MIT",
+  "author": "Davin Akmal Yasha",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davinakmalyasha/MindEase.git"
+  },
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "help": "node scripts/task.js help",
+    "doctor": "node scripts/task.js doctor",
+    "setup": "node scripts/task.js setup",
+    "env": "node scripts/task.js env",
+    "db:migrate": "node scripts/task.js db:migrate",
+    "db:seed": "node scripts/task.js db:seed",
+    "db:setup": "node scripts/task.js db:setup",
+    "dev": "node scripts/task.js dev",
+    "dev:api": "node scripts/task.js dev:api",
+    "dev:realtime": "node scripts/task.js dev:realtime",
+    "dev:web": "node scripts/task.js dev:web",
+    "lint": "node scripts/task.js lint",
+    "typecheck": "node scripts/task.js typecheck",
+    "build": "node scripts/task.js build",
+    "test": "node scripts/task.js test",
+    "test:client": "node scripts/task.js test:client",
+    "test:go": "node scripts/task.js test:go",
+    "coverage": "node scripts/task.js coverage",
+    "check": "node scripts/task.js check",
+    "numbers": "node scripts/task.js numbers",
+    "e2e": "node scripts/task.js e2e",
+    "verify": "node scripts/task.js verify",
+    "up": "node scripts/task.js up",
+    "down": "node scripts/task.js down",
+    "logs": "node scripts/task.js logs"
+  }
+}

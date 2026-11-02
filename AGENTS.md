@@ -22,4 +22,4 @@
 - Realtime: `cd server-realtime && go test ./...`.
 - Web: `cd client && npm run lint && npm run build`.
 - Schema: `cd server-go && DATABASE_URL=... go run ./cmd/migrate` (baselines an old Prisma database automatically).
-- Perf (manual, seeded stack, Docker): `make perf-smoke` / `make perf-load`; results in `docs/performance.md` are comparative, not capacity guarantees.
+- Perf (manual, seeded compose stack, k6): see `docs/performance.md` for the k6 commands; results are comparative, not capacity guarantees.

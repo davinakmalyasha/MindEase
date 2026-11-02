@@ -27,7 +27,7 @@ WebSocket service.
 > [`v0.6.1`](https://github.com/davinakmalyasha/MindEase/releases/tag/v0.6.1);
 > `main` carries the sweep after `v0.6.1`. If you read one file, make it
 > [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md); if you run one command, make it
-> `make up`.
+> `npm run setup`, then `npm run dev`.
 
 - [The screens](#the-screens) · [The part I would talk about](#the-part-i-would-talk-about-in-an-interview) · [Three gates](#three-gates-that-are-not-a-test-suite) · [What it does](#what-it-does) · [Scale](#scale) · [Quick start](#quick-start) · [Testing](#testing) · [Documentation](#documentation) · [Architecture](#architecture) · [Environment](#environment-reference) · [Deployment](#deployment-not-configured) · [API docs](#api-documentation) · [Security](#security-features) · [Known limitations](#known-limitations) · [CI/CD](#cicd)
 
@@ -111,13 +111,13 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **48,159** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,863 migration SQL, 25,610 Go |
+| **48,211** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,863 migration SQL, 25,662 Go |
 | **133** | API routes · **28** tables · **21** migrations |
 | **139** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by
-`make numbers` (fails on drift). Line counts are measured at release time
+`npm run numbers` (fails on drift). Line counts are measured at release time
 via the same command and will move with code.
 
 **Also worth reading:** [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) — the two
@@ -134,44 +134,65 @@ Capping the pool at five connections raised wait events 60× and p99 by 39% at
 boundary. A second API process accepted sessions minted by the first (153/153
 checks). Method and caveats: [docs/performance.md](docs/performance.md);
 the scaling model and provider map: [docs/scaling.md](docs/scaling.md).
-Reproduce with `make up` followed by `make perf-smoke` / `make perf-load`.
+Reproduce with the compose stack (`npm run up`) and the k6 scripts in `perf/k6/`;
+see [docs/performance.md](docs/performance.md) for the exact commands.
 
 ## Quick start
 
-**What you need first.** `make` is the entry point for everything below and it is
-not the only prerequisite, which used to be unstated:
+**What you need first.** `npm` is the entry point for every task. It ships with
+Node, so nothing extra has to be installed to run the demo — which is the point:
+the previous quick-start used `make`, and a reviewer without it got
+`make: command not found` before reaching anything.
 
 | | |
 |---|---|
-| **git**, **GNU make** | every target runs through `make` |
-| **A POSIX shell** | every recipe runs under `/bin/bash`, so on Windows that means Git Bash or WSL |
-| **Node 24 (LTS)** | see `.nvmrc`; the web image and CI pin 24 |
+| **git**, **Node 24 (LTS)** | `npm run <task>` drives every step; see `.nvmrc` |
 | **Go 1.27.3** | the API (`server-go/`) and the realtime hub both build with it |
-| **Docker + Compose ≥ 2.17** | for `make up` and `make e2e`. `>= 2.17` is what `--wait` needs |
-| **MySQL 8** and **a free port** | only if you are not using compose. Five ports are published: 3000, 5000, 8080, 3306, 6379 |
-| **~2 GB of RAM** | three images plus a database |
-| **An OpenSSL-style RNG** | `openssl rand -base64 48`, three times, for the signing secrets |
+| **MySQL 8** | the database. Local install is enough; no container required |
+| **Redis 7** | realtime events and caching; the API reports it as degraded, the hub requires it |
+| **Docker + Compose ≥ 2.17** | *optional*, only for `npm run up` (container path). `>= 2.17` is what `--wait` needs |
+| **~2 GB of RAM** | three services plus a database |
 
-If any of that is missing, `make doctor` says which — and `make setup` runs it for
+If something is missing, `npm run doctor` names it. `npm run setup` runs it for
 you at the end.
 
 ```bash
 git clone https://github.com/davinakmalyasha/MindEase
 cd MindEase
-make setup     # install both Node services and create the env files
-make up        # build and boot the stack, then seed it
+npm run setup     # install dependencies, generate the env files and secrets
+npm run db:setup  # migrate MySQL, then seed the demo accounts
+npm run dev       # API :5000, realtime :8080, web :3000
 ```
 
-`make up` seeds the database, so the demo accounts below actually exist — which
-they did not for most of this repository's life, because neither compose nor CI
-had a seed step.
+`npm run db:setup` seeds the database, so the demo accounts below actually exist —
+which they did not for most of this repository's life, because neither compose nor
+CI had a seed step. Re-running it is safe and also refreshes the bookable slot
+window, which matters when the checkout is older than a week.
 
-Then open **http://localhost:3000**. `make help` lists everything else.
+Then open **http://localhost:3000**. `npm run help` lists every task; each one
+prints the command it runs, so nothing is hidden behind a runner.
 
-> `make up` runs the payment simulator, which settles any order from an unsigned
-> POST. That is a local-development convenience and it is set by `make up`
-> specifically, not by a default in `docker-compose.yml`, so copying the compose
-> file into a real environment cannot ship it.
+> On a machine that does have Docker, `npm run up` boots the whole stack from
+> `docker-compose.yml` instead. It sets the payment-simulator opt-in explicitly,
+> so copying the compose file into a real environment cannot ship it.
+
+### The task runner
+
+`scripts/task.js` is ~380 lines of Node with no dependencies. It replaced a
+`Makefile` for one reason: `make` is a Unix build tool, and requiring it meant a
+Windows reviewer could not start the demo. `Package.json` maps each `npm run`
+name to one function there, and the same commands can be typed by hand.
+
+| | |
+|---|---|
+| `setup` / `doctor` | install everything and create the env files / report what is missing |
+| `db:setup` | migrate and seed (idempotent; refreshes slots) |
+| `dev` / `dev:api` / `dev:realtime` / `dev:web` | run the services; `WEB_PORT` moves the web port |
+| `check` | every static gate, no database or browser |
+| `test` / `test:go` / `test:client` / `coverage` | the suites |
+| `e2e` | the Playwright journeys against the running stack |
+| `verify` | the pre-push gate: checks, build, tests |
+| `up` / `down` / `logs` | the optional Docker path |
 
 ### Project layout
 
@@ -198,7 +219,8 @@ MindEase/
 │  └─ roadmap.md        including what will never be built, and why
 ├─ scripts/             the repository's own gates; see below
 ├─ .github/workflows/   ci, cd, security — 17 jobs
-└─ Makefile             `make help`
+├─ package.json         `npm run help` — the task surface
+└─ scripts/task.js      what each `npm run <task>` actually runs
 ```
 
 ### The repository checks its own prose
@@ -225,10 +247,11 @@ catch. A gate with no test proving it can still fail is a comment.
 
 Plus two maintenance tools: `pin-actions.js` rewrites every `uses:` to a commit
 SHA, and `setup-env.js` generates the local signing secrets and checks that the
-API and the web app agree on one (run it with `make env`).
+API and the web app agree on one (run it with `npm run env`).
 
-Every count in this file is produced by `make numbers`, which prints the measured
-values and exits non-zero if any of them disagrees with what is written here.
+Every counted figure in this file is produced by `npm run numbers`, which prints
+the measured values and exits non-zero if any of them disagrees with what is
+written here.
 
 <details>
 <summary>Running the three services without Docker</summary>
@@ -237,15 +260,15 @@ Needs MySQL 8 and Redis 7 already running, plus the root `.env` and
 `client/.env.local` — see [docs/operations.md](docs/operations.md).
 
 ```bash
-make db        # or bring up MySQL and Redis yourself
-make dev-db    # migrate and seed
-make dev       # API, realtime and web together
+npm run doctor    # MySQL, Redis, Go and Node versions
+npm run db:setup  # migrate + seed
+npm run dev       # API, realtime and web together
 ```
 
 </details>
 
 <details>
-<summary>Demo accounts (created by <code>make up</code>)</summary>
+<summary>Demo accounts (created by <code>npm run db:setup</code>)</summary>
 
 | Role | Email | Password |
 |---|---|---|
@@ -263,12 +286,11 @@ lifecycle is genuinely tested rather than seeded.
 ## Testing
 
 ```bash
-make check       # every static gate, no database needed
-make test-api    # Go API unit tests (config guards, tokens, hashing)
-make test-go     # API + realtime Go tests
-make test-all    # client unit tests and both Go modules
-make coverage-go # Go statement coverage (API integration needs TEST_DATABASE_URL)
-make e2e         # the 12 Playwright journeys, stack already running and seeded
+npm run check     # every static gate, no database needed
+npm test          # client unit tests, then both Go modules
+npm run test:go   # Go only (API integration runs when TEST_DATABASE_URL is set)
+npm run coverage  # Go statement coverage for both modules
+npm run e2e       # the 12 Playwright journeys against the running stack
 ```
 
 The behavioural suite is the browser one: 12 Playwright tests drive the real

@@ -195,7 +195,7 @@ the compiler counts statements: the same 125-test suite at `918b615` reports
 32.9% under `go1.27.3` (CI) and 37.5% under `go1.27.0` (this laptop), so a
 local delta is meaningful but a cross-version comparison is not.
 
-Produce the Go numbers locally with `make coverage-go` (API integration needs
+Produce the Go numbers locally with `npm run coverage` (API integration needs
 `TEST_DATABASE_URL`); CI uploads `coverage-go-api` and
 `coverage-go-realtime` for 14 days. The client report is `npm run coverage` and
 the artifact is `coverage-client`.
@@ -212,7 +212,7 @@ atomic slot claim against a real database.
 It requires seeded data:
 
 ```bash
-# with the stack up (make up), or MySQL/Redis running locally
+# with the stack up (`npm run up`), or MySQL/Redis running locally (`npm run dev`)
 cd server-go
 DATABASE_URL=mysql://... go run ./cmd/migrate
 DATABASE_URL=mysql://... go run ./cmd/seed
