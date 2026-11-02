@@ -220,19 +220,10 @@ func (s *Server) notifValidateIDParam(next http.Handler) http.Handler {
 func (s *Server) handleNotifList(w http.ResponseWriter, r *http.Request) {
 	user := CurrentUser(r)
 	query := r.URL.Query()
-	page := msgJsIntOr(query.Get("page"), 1)
-	limit := msgJsIntOr(query.Get("limit"), 20)
-	if limit > 30 {
-		limit = 30
-	}
+	page := clampPage(msgJsIntOr(query.Get("page"), 1), 1)
+	limit := clampLimit(msgJsIntOr(query.Get("limit"), 20), 1, 30)
 	take := limit
-	if take < 1 {
-		take = 1
-	}
 	currentPage := page
-	if currentPage < 1 {
-		currentPage = 1
-	}
 	skip := (currentPage - 1) * take
 
 	rows, err := s.DB.QueryContext(r.Context(),

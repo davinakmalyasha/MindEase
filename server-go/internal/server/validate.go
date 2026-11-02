@@ -10,6 +10,33 @@ import (
 // Field validators mirroring the Zod messages the client displays, so a
 // validation failure reads the same after the port.
 
+// Pagination contract, shared by every list endpoint.
+//
+// Every paginated handler must coerce — never reject, never pass through —
+// so a negative or absurd query value renders a valid page instead of a 500
+// (MySQL rejects LIMIT -1) or an empty success (LIMIT 0). Ceilings differ
+// by family because payloads do: notifications are polled every 15–30s, so
+// 30; chat threads 100; everything else 50. Page floors at 1 everywhere.
+//
+// New list endpoints: use clampPage/clampLimit with the family ceiling.
+// Do not add another inline `if limit > N` block.
+func clampPage(page, fallback int) int {
+	if page < 1 {
+		return fallback
+	}
+	return page
+}
+
+func clampLimit(limit, fallback, max int) int {
+	if limit < 1 {
+		return fallback
+	}
+	if limit > max {
+		return max
+	}
+	return limit
+}
+
 var emailPattern = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
 
 func emailError(email string) string {

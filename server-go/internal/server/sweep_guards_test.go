@@ -29,6 +29,21 @@ func TestSweepDoctorsTotalPages(t *testing.T) {
 	}
 }
 
+func TestSweepClampContract(t *testing.T) {
+	// Shared pagination contract: coerce, never 500, never LIMIT 0.
+	if clampPage(-3, 1) != 1 || clampPage(2, 1) != 2 {
+		t.Fatal("page must floor at fallback")
+	}
+	// Notifications family: negative keeps old take=1 behavior, over max clamps.
+	if clampLimit(-5, 1, 30) != 1 || clampLimit(99, 1, 30) != 30 || clampLimit(20, 1, 30) != 20 {
+		t.Fatal("notification ceiling 30 with take=1 floor")
+	}
+	// Directory family: negative restores default page size.
+	if clampLimit(-5, 20, 50) != 20 || clampLimit(99, 20, 50) != 50 {
+		t.Fatal("directory ceiling 50 with default-size floor")
+	}
+}
+
 func TestSweepPushEndpointAllowed(t *testing.T) {
 	bad := []string{
 		"http://example.com/x",
@@ -56,7 +71,8 @@ func TestSweepPushEndpointAllowed(t *testing.T) {
 	}
 }
 
-func TestSweepAdminCSVEscape(t *testing.T) {	if got := adminCSVEscape("=1+1"); got[0] != '\'' {
+func TestSweepAdminCSVEscape(t *testing.T) {
+	if got := adminCSVEscape("=1+1"); got[0] != '\'' {
 		t.Fatalf("formula not prefixed: %q", got)
 	}
 	if got := adminCSVEscape("  +2+2"); got[0] != '\'' {

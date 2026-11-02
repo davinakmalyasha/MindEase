@@ -801,15 +801,8 @@ func (s *Server) doctorsGetAll(w http.ResponseWriter, r *http.Request) {
 	if v, ok := doctorsParseInt(q.Get("limit")); ok && v != 0 {
 		limit = v
 	}
-	if page < 1 {
-		page = 1
-	}
-	if limit > 50 {
-		limit = 50
-	}
-	if limit < 1 {
-		limit = 20
-	}
+	page = clampPage(page, 1)
+	limit = clampLimit(limit, 20, 50)
 
 	specialty := q.Get("specialty")
 	search := q.Get("q")
