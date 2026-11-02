@@ -1,6 +1,6 @@
 # Data model
 
-28 tables, no enums, and almost every interesting decision in the schema is
+31 tables, no enums, and almost every interesting decision in the schema is
 recorded as a comment next to the column it justifies. This document is the map
 of those decisions: what each group of tables is for, and why the ones that look
 odd are shaped the way they are.
@@ -423,6 +423,38 @@ to tell afterwards which entitlements were granted without money.
 
 **`Referral.referredId` is unique** — one referrer per referred account, so a
 code cannot be claimed twice. `status` is `pending | credited`.
+
+## Between-session care
+
+`ThoughtRecord`, `SessionFeedback`, `Consent`.
+
+**`ThoughtRecord` is columns, not JSON.** Situation, thought, evidence and
+balanced view are read as units by a clinician reviewing progress; JSON would
+force parsing prose to answer "what was the evidence". `moodBefore`/`moodAfter`
+are 1-5 like `MoodEntry`, so change is comparable. Never generated.
+
+**`SessionFeedback` is the alliance, not a rating.** Four 0-10 items
+(listening, goals, approach, overall) per completed appointment, unique on
+`appointmentId`. It never touches `Doctor.rating`; a low alliance is a signal
+to talk, not a public score.
+
+**`Consent` is per-purpose opt-in.** One row per (user, purpose); granting and
+revoking are updates, and `aiReadConsent` on `User` mirrors `ai-read` for fast
+checks. Briefings keep their provenance label regardless; consent decides
+whether a model may be called at all.
+
+**Homework is a due date, not a table.** `CareStep.dueDate` turns a step into
+practice with a deadline; the check-in job reminds once in the 24h before it.
+`CareGoal.barrier` keeps why a goal is hard next to the goal, so dropping it
+records the reason instead of deleting the attempt. `CarePlan` relapse fields
+(`relapseSummary`, `earlyWarnings`, `supportContacts`) are written while steady
+and read when not — closure leaves a plan, not just a status.
+
+**Safety has a follow-up.** `RiskAlert.followUpDueAt` + `outcome` turn resolve
+into a promise: what was done, and when the patient is owed a check-in. Urgent
+resolves default to +24h. The post-resolve job sends one in-app nudge and
+clears the claim, so it fires once. SLA is computed, not stored: urgent seen
+in 4h/resolved in 24h, elevated 24h/72h; overdue never escalates by itself.
 
 ## Indexes are part of the design
 

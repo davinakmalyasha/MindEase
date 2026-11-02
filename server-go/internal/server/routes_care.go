@@ -535,15 +535,21 @@ func careNullableSection(v any, max int, maxMsg string) (*string, string) {
 /* --- Schemas ------------------------------------------------------------- */
 
 type carePlanPatch struct {
-	titleSet    bool
-	title       string
-	summarySet  bool
-	summary     string
-	statusSet   bool
-	status      string
-	reviewAtSet bool
-	reviewAt    *time.Time
-	version     int
+	titleSet           bool
+	title              string
+	summarySet         bool
+	summary            string
+	statusSet          bool
+	status             string
+	reviewAtSet        bool
+	reviewAt           *time.Time
+	relapseSummarySet  bool
+	relapseSummary     *string
+	earlyWarningsSet   bool
+	earlyWarnings      *string
+	supportContactsSet bool
+	supportContacts    *string
+	version            int
 }
 
 func (s *Server) careValidateUpdatePlanBody(w http.ResponseWriter, body map[string]any, keys []string) (carePlanPatch, bool) {
@@ -605,13 +611,46 @@ func (s *Server) careValidateUpdatePlanBody(w http.ResponseWriter, body map[stri
 			p.reviewAtSet, p.reviewAt = true, at
 		}
 	}
+	for _, f := range []struct {
+		key    string
+		set    *bool
+		target **string
+	}{
+		{"relapseSummary", &p.relapseSummarySet, &p.relapseSummary},
+		{"earlyWarnings", &p.earlyWarningsSet, &p.earlyWarnings},
+		{"supportContacts", &p.supportContactsSet, &p.supportContacts},
+	} {
+		if v, present := body[f.key]; present {
+			if v == nil {
+				*f.set = true
+				*f.target = nil
+			} else {
+				str, ok := v.(string)
+				if !ok {
+					s.validationFail(w, "body."+f.key, "Invalid input: expected string, received "+careJSONType(v))
+					return p, false
+				}
+				if careJSLen(str) > 4000 {
+					s.validationFail(w, "body."+f.key, careSection4000Msg)
+					return p, false
+				}
+				*f.set = true
+				if strings.TrimSpace(str) == "" {
+					*f.target = nil
+				} else {
+					cleaned := s.careSanitizeText(str)
+					*f.target = &cleaned
+				}
+			}
+		}
+	}
 	version, msg := careRequiredVersion(body)
 	if msg != "" {
 		s.validationFail(w, "body.version", msg)
 		return p, false
 	}
 	p.version = version
-	if msg := careUnknownKeys(keys, "title", "summary", "status", "reviewAt", "version"); msg != "" {
+	if msg := careUnknownKeys(keys, "title", "summary", "status", "reviewAt", "relapseSummary", "earlyWarnings", "supportContacts", "version"); msg != "" {
 		s.validationFail(w, "body", msg)
 		return p, false
 	}
@@ -622,6 +661,7 @@ type careGoalInput struct {
 	title      string
 	detail     *string
 	targetDate *time.Time
+	barrier    *string
 }
 
 func (s *Server) careValidateCreateGoalBody(w http.ResponseWriter, body map[string]any, keys []string) (careGoalInput, bool) {
@@ -679,7 +719,24 @@ func (s *Server) careValidateCreateGoalBody(w http.ResponseWriter, body map[stri
 			out.targetDate = at
 		}
 	}
-	if msg := careUnknownKeys(keys, "title", "detail", "targetDate"); msg != "" {
+	if v, present := body["barrier"]; present {
+		if v != nil {
+			str, ok := v.(string)
+			if !ok {
+				s.validationFail(w, "body.barrier", "Invalid input: expected string, received "+careJSONType(v))
+				return out, false
+			}
+			if careJSLen(str) > 2000 {
+				s.validationFail(w, "body.barrier", careSection2000Msg)
+				return out, false
+			}
+			if strings.TrimSpace(str) != "" {
+				cleaned := s.careSanitizeText(str)
+				out.barrier = &cleaned
+			}
+		}
+	}
+	if msg := careUnknownKeys(keys, "title", "detail", "targetDate", "barrier"); msg != "" {
 		s.validationFail(w, "body", msg)
 		return out, false
 	}
@@ -695,6 +752,8 @@ type careGoalPatch struct {
 	status        string
 	targetDateSet bool
 	targetDate    *time.Time
+	barrierSet    bool
+	barrier       *string
 }
 
 func (s *Server) careValidateUpdateGoalBody(w http.ResponseWriter, body map[string]any, keys []string) (careGoalPatch, bool) {
@@ -761,14 +820,36 @@ func (s *Server) careValidateUpdateGoalBody(w http.ResponseWriter, body map[stri
 			p.targetDateSet, p.targetDate = true, at
 		}
 	}
-	if msg := careUnknownKeys(keys, "title", "detail", "status", "targetDate"); msg != "" {
+	if v, present := body["barrier"]; present {
+		if v == nil {
+			p.barrierSet, p.barrier = true, nil
+		} else {
+			str, ok := v.(string)
+			if !ok {
+				s.validationFail(w, "body.barrier", "Invalid input: expected string, received "+careJSONType(v))
+				return p, false
+			}
+			if careJSLen(str) > 2000 {
+				s.validationFail(w, "body.barrier", careSection2000Msg)
+				return p, false
+			}
+			p.barrierSet = true
+			if strings.TrimSpace(str) == "" {
+				p.barrier = nil
+			} else {
+				cleaned := s.careSanitizeText(str)
+				p.barrier = &cleaned
+			}
+		}
+	}
+	if msg := careUnknownKeys(keys, "title", "detail", "status", "targetDate", "barrier"); msg != "" {
 		s.validationFail(w, "body", msg)
 		return p, false
 	}
 	return p, true
 }
 
-func (s *Server) careValidateCreateStepBody(w http.ResponseWriter, body map[string]any, keys []string) (string, bool) {
+func (s *Server) careValidateCreateStepBody(w http.ResponseWriter, body map[string]any, keys []string) (string, *time.Time, bool) {
 	raw, present := body["title"]
 	switch t := raw.(type) {
 	case nil:
@@ -777,43 +858,65 @@ func (s *Server) careValidateCreateStepBody(w http.ResponseWriter, body map[stri
 			msg = "Invalid input: expected string, received null"
 		}
 		s.validationFail(w, "body.title", msg)
-		return "", false
+		return "", nil, false
 	case string:
 		if careJSLen(t) < 1 {
 			s.validationFail(w, "body.title", "Give the step a title")
-			return "", false
+			return "", nil, false
 		}
 		if careJSLen(t) > 200 {
 			s.validationFail(w, "body.title", careTitle200Msg)
-			return "", false
+			return "", nil, false
 		}
-		if msg := careUnknownKeys(keys, "title"); msg != "" {
+		var due *time.Time
+		if v, present := body["dueDate"]; present && v != nil {
+			at, msg := careDateValue(v)
+			if msg != "" {
+				s.validationFail(w, "body.dueDate", msg)
+				return "", nil, false
+			}
+			due = at
+		}
+		if msg := careUnknownKeys(keys, "title", "dueDate"); msg != "" {
 			s.validationFail(w, "body", msg)
-			return "", false
+			return "", nil, false
 		}
-		return t, true
+		return t, due, true
 	default:
 		s.validationFail(w, "body.title", "Invalid input: expected string, received "+careJSONType(raw))
-		return "", false
+		return "", nil, false
 	}
 }
 
-func (s *Server) careValidateSetStepDoneBody(w http.ResponseWriter, body map[string]any, keys []string) (bool, bool) {
+func (s *Server) careValidateSetStepDoneBody(w http.ResponseWriter, body map[string]any, keys []string) (bool, *time.Time, bool, bool) {
 	v, present := body["done"]
 	if !present {
 		s.validationFail(w, "body.done", "Invalid input: expected boolean, received undefined")
-		return false, false
+		return false, nil, false, false
 	}
 	done, ok := v.(bool)
 	if !ok {
 		s.validationFail(w, "body.done", "Invalid input: expected boolean, received "+careJSONType(v))
-		return false, false
+		return false, nil, false, false
 	}
-	if msg := careUnknownKeys(keys, "done"); msg != "" {
+	var due *time.Time
+	dueSet := false
+	if dv, present := body["dueDate"]; present {
+		dueSet = true
+		if dv != nil {
+			at, msg := careDateValue(dv)
+			if msg != "" {
+				s.validationFail(w, "body.dueDate", msg)
+				return false, nil, false, false
+			}
+			due = at
+		}
+	}
+	if msg := careUnknownKeys(keys, "done", "dueDate"); msg != "" {
 		s.validationFail(w, "body", msg)
-		return false, false
+		return false, nil, false, false
 	}
-	return done, true
+	return done, due, dueSet, true
 }
 
 type careSafetyPatch struct {
@@ -895,25 +998,28 @@ func (s *Server) careValidateSaveSafetyBody(w http.ResponseWriter, body map[stri
 type careScanner interface{ Scan(dest ...any) error }
 
 type carePlanRow struct {
-	ID           string
-	UserID       string
-	DoctorUserID *string
-	Title        string
-	Status       string
-	Summary      *string
-	ReviewAt     *time.Time
-	ClosedAt     *time.Time
-	Version      int
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID              string
+	UserID          string
+	DoctorUserID    *string
+	Title           string
+	Status          string
+	Summary         *string
+	ReviewAt        *time.Time
+	ClosedAt        *time.Time
+	RelapseSummary  *string
+	EarlyWarnings   *string
+	SupportContacts *string
+	Version         int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
-const carePlanColumns = "id, userId, doctorUserId, title, status, summary, reviewAt, closedAt, version, createdAt, updatedAt"
+const carePlanColumns = "id, userId, doctorUserId, title, status, summary, reviewAt, closedAt, relapseSummary, earlyWarnings, supportContacts, version, createdAt, updatedAt"
 
 func scanCarePlan(sc careScanner) (*carePlanRow, error) {
 	var p carePlanRow
 	err := sc.Scan(&p.ID, &p.UserID, &p.DoctorUserID, &p.Title, &p.Status, &p.Summary,
-		&p.ReviewAt, &p.ClosedAt, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+		&p.ReviewAt, &p.ClosedAt, &p.RelapseSummary, &p.EarlyWarnings, &p.SupportContacts, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -922,17 +1028,20 @@ func scanCarePlan(sc careScanner) (*carePlanRow, error) {
 
 func (p *carePlanRow) json() map[string]any {
 	return map[string]any{
-		"id":           p.ID,
-		"userId":       p.UserID,
-		"doctorUserId": p.DoctorUserID,
-		"title":        p.Title,
-		"status":       p.Status,
-		"summary":      p.Summary,
-		"reviewAt":     jsTime(p.ReviewAt),
-		"closedAt":     jsTime(p.ClosedAt),
-		"version":      p.Version,
-		"createdAt":    jsTimeValue(p.CreatedAt),
-		"updatedAt":    jsTimeValue(p.UpdatedAt),
+		"id":              p.ID,
+		"userId":          p.UserID,
+		"doctorUserId":    p.DoctorUserID,
+		"title":           p.Title,
+		"status":          p.Status,
+		"summary":         p.Summary,
+		"reviewAt":        jsTime(p.ReviewAt),
+		"closedAt":        jsTime(p.ClosedAt),
+		"relapseSummary":  p.RelapseSummary,
+		"earlyWarnings":   p.EarlyWarnings,
+		"supportContacts": p.SupportContacts,
+		"version":         p.Version,
+		"createdAt":       jsTimeValue(p.CreatedAt),
+		"updatedAt":       jsTimeValue(p.UpdatedAt),
 	}
 }
 
@@ -943,6 +1052,7 @@ type careGoalRow struct {
 	Detail     *string
 	Status     string
 	TargetDate *time.Time
+	Barrier    *string
 	Order      int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -950,7 +1060,7 @@ type careGoalRow struct {
 
 func scanCareGoal(sc careScanner) (*careGoalRow, error) {
 	var g careGoalRow
-	err := sc.Scan(&g.ID, &g.CarePlanID, &g.Title, &g.Detail, &g.Status, &g.TargetDate,
+	err := sc.Scan(&g.ID, &g.CarePlanID, &g.Title, &g.Detail, &g.Status, &g.TargetDate, &g.Barrier,
 		&g.Order, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -966,6 +1076,7 @@ func (g *careGoalRow) json() map[string]any {
 		"detail":     g.Detail,
 		"status":     g.Status,
 		"targetDate": jsTime(g.TargetDate),
+		"barrier":    g.Barrier,
 		"order":      g.Order,
 		"createdAt":  jsTimeValue(g.CreatedAt),
 		"updatedAt":  jsTimeValue(g.UpdatedAt),
@@ -978,13 +1089,14 @@ type careStepRow struct {
 	Title      string
 	Done       bool
 	DoneAt     *time.Time
+	DueDate    *time.Time
 	Order      int
 	CreatedAt  time.Time
 }
 
 func scanCareStep(sc careScanner) (*careStepRow, error) {
 	var st careStepRow
-	err := sc.Scan(&st.ID, &st.CareGoalID, &st.Title, &st.Done, &st.DoneAt, &st.Order, &st.CreatedAt)
+	err := sc.Scan(&st.ID, &st.CareGoalID, &st.Title, &st.Done, &st.DoneAt, &st.DueDate, &st.Order, &st.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -998,6 +1110,7 @@ func (st *careStepRow) json() map[string]any {
 		"title":      st.Title,
 		"done":       st.Done,
 		"doneAt":     jsTime(st.DoneAt),
+		"dueDate":    jsTime(st.DueDate),
 		"order":      st.Order,
 		"createdAt":  jsTimeValue(st.CreatedAt),
 	}
@@ -1072,7 +1185,7 @@ func (s *Server) careSafetyByID(ctx context.Context, id string) (*careSafetyRow,
 
 func (s *Server) careStepByID(ctx context.Context, id string) (*careStepRow, error) {
 	row, err := scanCareStep(s.DB.QueryRowContext(ctx,
-		"SELECT id, careGoalId, title, done, doneAt, `order`, createdAt FROM `CareStep` WHERE id = ?", id))
+		"SELECT id, careGoalId, title, done, doneAt, dueDate, `order`, createdAt FROM `CareStep` WHERE id = ?", id))
 	if err == sql.ErrNoRows {
 		return nil, NotFound("Step not found")
 	}
@@ -1088,10 +1201,10 @@ func (s *Server) careGoalWithOwner(ctx context.Context, goalID string) (*careGoa
 	var g careGoalRow
 	var ownerID string
 	err := s.DB.QueryRowContext(ctx,
-		"SELECT g.id, g.carePlanId, g.title, g.detail, g.status, g.targetDate, g.`order`, "+
+		"SELECT g.id, g.carePlanId, g.title, g.detail, g.status, g.targetDate, g.barrier, g.`order`, "+
 			"g.createdAt, g.updatedAt, p.userId "+
 			"FROM `CareGoal` g JOIN `CarePlan` p ON p.id = g.carePlanId WHERE g.id = ?", goalID).
-		Scan(&g.ID, &g.CarePlanID, &g.Title, &g.Detail, &g.Status, &g.TargetDate,
+		Scan(&g.ID, &g.CarePlanID, &g.Title, &g.Detail, &g.Status, &g.TargetDate, &g.Barrier,
 			&g.Order, &g.CreatedAt, &g.UpdatedAt, &ownerID)
 	if err == sql.ErrNoRows {
 		return nil, "", NotFound("Goal not found")
@@ -1106,7 +1219,7 @@ func (s *Server) careGoalWithOwner(ctx context.Context, goalID string) (*careGoa
 // ordered.
 func (s *Server) carePlanGoals(ctx context.Context, planID string) ([]map[string]any, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		"SELECT id, carePlanId, title, detail, status, targetDate, `order`, createdAt, updatedAt "+
+		"SELECT id, carePlanId, title, detail, status, targetDate, barrier, `order`, createdAt, updatedAt "+
 			"FROM `CareGoal` WHERE carePlanId = ? ORDER BY `order` ASC, id ASC", planID)
 	if err != nil {
 		return nil, err
@@ -1138,7 +1251,7 @@ func (s *Server) carePlanGoals(ctx context.Context, planID string) ([]map[string
 
 func (s *Server) careGoalSteps(ctx context.Context, goalID string) ([]map[string]any, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		"SELECT id, careGoalId, title, done, doneAt, `order`, createdAt "+
+		"SELECT id, careGoalId, title, done, doneAt, dueDate, `order`, createdAt "+
 			"FROM `CareStep` WHERE careGoalId = ? ORDER BY `order` ASC, id ASC", goalID)
 	if err != nil {
 		return nil, err
@@ -1317,6 +1430,18 @@ func (s *Server) careUpdatePlan(ctx context.Context, actorID, planID string, pat
 		sets = append(sets, "reviewAt = ?")
 		args = append(args, careTimeOrNil(patch.reviewAt))
 	}
+	if patch.relapseSummarySet {
+		sets = append(sets, "relapseSummary = ?")
+		args = append(args, nullableString(patch.relapseSummary))
+	}
+	if patch.earlyWarningsSet {
+		sets = append(sets, "earlyWarnings = ?")
+		args = append(args, nullableString(patch.earlyWarnings))
+	}
+	if patch.supportContactsSet {
+		sets = append(sets, "supportContacts = ?")
+		args = append(args, nullableString(patch.supportContacts))
+	}
 	sets = append(sets, "version = version + 1", "updatedAt = ?")
 	args = append(args, now, planID, patch.version)
 
@@ -1374,9 +1499,9 @@ func (s *Server) careAddGoal(ctx context.Context, actor *UserCtx, planID string,
 	title := careSliceJS(input.title, 200)
 	goalID := newID()
 	_, err = s.DB.ExecContext(ctx,
-		"INSERT INTO `CareGoal` (id, carePlanId, title, detail, status, targetDate, `order`, createdAt, updatedAt) "+
-			"VALUES (?,?,?,?,?,?,?,?,?)",
-		goalID, planID, title, nullableString(input.detail), "open", careTimeOrNil(input.targetDate), order, now, now)
+		"INSERT INTO `CareGoal` (id, carePlanId, title, detail, status, targetDate, barrier, `order`, createdAt, updatedAt) "+
+			"VALUES (?,?,?,?,?,?,?,?,?,?)",
+		goalID, planID, title, nullableString(input.detail), "open", careTimeOrNil(input.targetDate), nullableString(input.barrier), order, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1393,7 +1518,7 @@ func (s *Server) careAddGoal(ctx context.Context, actor *UserCtx, planID string,
 
 	goal := &careGoalRow{
 		ID: goalID, CarePlanID: planID, Title: title, Detail: input.detail,
-		Status: "open", TargetDate: input.targetDate, Order: order, CreatedAt: now, UpdatedAt: now,
+		Status: "open", TargetDate: input.targetDate, Barrier: input.barrier, Order: order, CreatedAt: now, UpdatedAt: now,
 	}
 	target := "CareGoal"
 	s.audit(ctx, "careplan.goal_added", &actor.ID, &target, &goalID, map[string]any{
@@ -1435,6 +1560,10 @@ func (s *Server) careUpdateGoal(ctx context.Context, actor *UserCtx, goalID stri
 		sets = append(sets, "targetDate = ?")
 		args = append(args, careTimeOrNil(patch.targetDate))
 	}
+	if patch.barrierSet {
+		sets = append(sets, "barrier = ?")
+		args = append(args, nullableString(patch.barrier))
+	}
 	sets = append(sets, "updatedAt = ?")
 	args = append(args, now, goalID)
 
@@ -1454,6 +1583,9 @@ func (s *Server) careUpdateGoal(ctx context.Context, actor *UserCtx, goalID stri
 	}
 	if patch.targetDateSet {
 		goal.TargetDate = patch.targetDate
+	}
+	if patch.barrierSet {
+		goal.Barrier = patch.barrier
 	}
 	goal.UpdatedAt = now
 	return goal.json(), nil
@@ -1476,7 +1608,7 @@ func (s *Server) careDeleteGoal(ctx context.Context, actor *UserCtx, goalID stri
 }
 
 // careAddStep is `addStep`.
-func (s *Server) careAddStep(ctx context.Context, actor *UserCtx, goalID, title string) (map[string]any, error) {
+func (s *Server) careAddStep(ctx context.Context, actor *UserCtx, goalID, title string, dueDate *time.Time) (map[string]any, error) {
 	var ownerID string
 	err := s.DB.QueryRowContext(ctx,
 		"SELECT p.userId FROM `CareGoal` g JOIN `CarePlan` p ON p.id = g.carePlanId WHERE g.id = ?", goalID).
@@ -1504,11 +1636,11 @@ func (s *Server) careAddStep(ctx context.Context, actor *UserCtx, goalID, title 
 	now := time.Now().UTC()
 	step := &careStepRow{
 		ID: newID(), CareGoalID: goalID, Title: careSliceJS(title, 200),
-		Done: false, Order: order, CreatedAt: now,
+		Done: false, DueDate: dueDate, Order: order, CreatedAt: now,
 	}
 	_, err = s.DB.ExecContext(ctx,
-		"INSERT INTO `CareStep` (id, careGoalId, title, done, `order`, createdAt) VALUES (?,?,?,?,?,?)",
-		step.ID, step.CareGoalID, step.Title, false, order, now)
+		"INSERT INTO `CareStep` (id, careGoalId, title, done, dueDate, `order`, createdAt) VALUES (?,?,?,?,?,?,?)",
+		step.ID, step.CareGoalID, step.Title, false, careTimeOrNil(dueDate), order, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1518,7 +1650,7 @@ func (s *Server) careAddStep(ctx context.Context, actor *UserCtx, goalID, title 
 // careSetStepDone is `setStepDone`: doneAt is maintained alongside done, not
 // derived, because "when did they actually do this" is the clinically
 // interesting question.
-func (s *Server) careSetStepDone(ctx context.Context, actor *UserCtx, stepID string, done bool) (map[string]any, error) {
+func (s *Server) careSetStepDone(ctx context.Context, actor *UserCtx, stepID string, done bool, dueDate *time.Time, dueSet bool) (map[string]any, error) {
 	var ownerID string
 	err := s.DB.QueryRowContext(ctx,
 		"SELECT p.userId FROM `CareStep` s "+
@@ -1540,7 +1672,13 @@ func (s *Server) careSetStepDone(ctx context.Context, actor *UserCtx, stepID str
 		now := time.Now().UTC()
 		doneAt = &now
 	}
-	if _, err := s.DB.ExecContext(ctx,
+	if dueSet {
+		if _, err := s.DB.ExecContext(ctx,
+			"UPDATE `CareStep` SET done = ?, doneAt = ?, dueDate = ? WHERE id = ?",
+			done, careTimeOrNil(doneAt), careTimeOrNil(dueDate), stepID); err != nil {
+			return nil, err
+		}
+	} else if _, err := s.DB.ExecContext(ctx,
 		"UPDATE `CareStep` SET done = ?, doneAt = ? WHERE id = ?",
 		done, careTimeOrNil(doneAt), stepID); err != nil {
 		return nil, err
@@ -1839,7 +1977,7 @@ func (s *Server) handleCareStepAdd(w http.ResponseWriter, r *http.Request) {
 		s.validationFail(w, "body", problem)
 		return
 	}
-	title, ok := s.careValidateCreateStepBody(w, body, keys)
+	title, dueDate, ok := s.careValidateCreateStepBody(w, body, keys)
 	if !ok {
 		return
 	}
@@ -1847,7 +1985,7 @@ func (s *Server) handleCareStepAdd(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	step, err := s.careAddStep(r.Context(), user, goalID, title)
+	step, err := s.careAddStep(r.Context(), user, goalID, title, dueDate)
 	if err != nil {
 		s.careFail(w, r, err, "Failed to add the step.")
 		return
@@ -1862,7 +2000,7 @@ func (s *Server) handleCareStepSetDone(w http.ResponseWriter, r *http.Request) {
 		s.validationFail(w, "body", problem)
 		return
 	}
-	done, ok := s.careValidateSetStepDoneBody(w, body, keys)
+	done, dueDate, dueSet, ok := s.careValidateSetStepDoneBody(w, body, keys)
 	if !ok {
 		return
 	}
@@ -1870,7 +2008,7 @@ func (s *Server) handleCareStepSetDone(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	step, err := s.careSetStepDone(r.Context(), user, stepID, done)
+	step, err := s.careSetStepDone(r.Context(), user, stepID, done, dueDate, dueSet)
 	if err != nil {
 		s.careFail(w, r, err, "Failed to update the step.")
 		return

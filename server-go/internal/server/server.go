@@ -86,6 +86,7 @@ func (s *Server) Mount() http.Handler {
 	s.registerRealtime(api)
 	s.registerPayments(api)
 	s.registerCare(api)
+	s.registerBetween(api)
 
 	s.openAPIDoc = s.buildOpenAPIDocument(api)
 	r.Mount("/api", api)
@@ -147,7 +148,7 @@ var expectedTables = []string{
 	"RiskAlert", "RefreshToken", "MoodEntry", "JournalEntry", "Assessment",
 	"CarePlan", "CareGoal", "CareStep", "SafetyPlan", "AuditLog", "JobLock",
 	"FollowUp", "WaitlistEntry", "Package", "PackagePurchase", "PaymentOrder",
-	"PushSubscription", "Referral",
+	"PushSubscription", "Referral", "ThoughtRecord", "SessionFeedback", "Consent",
 }
 
 func (s *Server) healthDBHandler(w http.ResponseWriter, r *http.Request) {

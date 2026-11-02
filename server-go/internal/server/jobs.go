@@ -541,9 +541,13 @@ func (s *Server) jobsSendReminder(ctx context.Context, appointmentID string, now
  * ------------------------------------------------------------------ */
 
 type jobsCheckinSummary struct {
-	moodNudges      int
-	declineNudges   int
-	sessionCheckins int
+	moodNudges        int
+	declineNudges     int
+	sessionCheckins   int
+	postResolve     int
+	safetyNudges      int
+	assessmentNudges int
+	homeworkDue      int
 }
 
 func (s *Server) jobsRunCheckins(ctx context.Context) error {
@@ -557,7 +561,11 @@ func (s *Server) jobsRunCheckins(ctx context.Context) error {
 	s.Log.Info("Care check-ins complete",
 		"moodNudges", summary.moodNudges,
 		"declineNudges", summary.declineNudges,
-		"sessionCheckins", summary.sessionCheckins)
+		"sessionCheckins", summary.sessionCheckins,
+		"postResolve", summary.postResolve,
+		"safetyNudges", summary.safetyNudges,
+		"assessmentNudges", summary.assessmentNudges,
+		"homeworkDue", summary.homeworkDue)
 	return nil
 }
 
@@ -573,6 +581,18 @@ func (s *Server) jobsCareCheckins(ctx context.Context) (jobsCheckinSummary, erro
 		return summary, err
 	}
 	if err := s.jobsSessionCheckins(ctx, now, wib, &summary); err != nil {
+		return summary, err
+	}
+	if err := s.jobsPostResolveCheckins(ctx, now, &summary); err != nil {
+		return summary, err
+	}
+	if err := s.jobsSafetyReviewNudges(ctx, now, &summary); err != nil {
+		return summary, err
+	}
+	if err := s.jobsAssessmentStaleNudges(ctx, now, &summary); err != nil {
+		return summary, err
+	}
+	if err := s.jobsHomeworkDueReminders(ctx, now, &summary); err != nil {
 		return summary, err
 	}
 
@@ -962,6 +982,230 @@ func (s *Server) jobsMoodDeclineAlert(ctx context.Context, userID string, lastAv
 			s.Log.Warn("failed to stamp notifiedDoctorUserId", "err", err)
 		}
 	}
+}
+
+// jobsPostResolveCheckins: resolved alerts that owe a check-in. The resolve
+// sets followUpDueAt (default +24h for urgent); when it arrives the patient
+// gets one in-app nudge and the claim is cleared (NULL) so it fires once.
+// A failure hands the claim back by leaving the timestamp in place.
+func (s *Server) jobsPostResolveCheckins(ctx context.Context, now time.Time, summary *jobsCheckinSummary) error {
+	type due struct {
+		id     string
+		userID string
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT id, userId FROM `RiskAlert` WHERE resolvedAt IS NOT NULL AND followUpDueAt IS NOT NULL AND followUpDueAt <= ? ORDER BY followUpDueAt ASC LIMIT ?",
+		now, jobsCandidateCap)
+	if err != nil {
+		return err
+	}
+	var items []due
+	for rows.Next() {
+		var d due
+		if err := rows.Scan(&d.id, &d.userID); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, d)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, d := range items {
+		claim, err := s.DB.ExecContext(ctx,
+			"UPDATE `RiskAlert` SET followUpDueAt = NULL WHERE id = ? AND followUpDueAt IS NOT NULL AND followUpDueAt <= ?",
+			d.id, now)
+		if err != nil {
+			return err
+		}
+		affected, err := claim.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			continue
+		}
+		if _, err := s.notifCreate(ctx, d.userID, "Checking in",
+			"Your care team asked us to check in after your recent alert. How are you doing today? Your safety plan and coping tools are here if you need them.",
+			"system", false); err != nil {
+			s.Log.Error("post-resolve check-in failed", "err", err, "alertId", d.id)
+			continue
+		}
+		summary.postResolve++
+	}
+	return nil
+}
+
+// jobsSafetyReviewNudges: safety plans not jointly reviewed in 90 days. One
+// nudge per 30 days per user; the sentinel is the claim. Reviewing clears
+// the debt via lastReviewedAt, not via this job.
+func (s *Server) jobsSafetyReviewNudges(ctx context.Context, now time.Time, summary *jobsCheckinSummary) error {
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT u.id FROM `User` u JOIN `SafetyPlan` sp ON sp.userId = u.id "+
+			"WHERE u.role = 'patient' AND u.isBanned = false "+
+			"AND (sp.lastReviewedAt IS NULL OR sp.lastReviewedAt < ?) "+
+			"AND (u.lastSafetyReviewNudgeAt IS NULL OR u.lastSafetyReviewNudgeAt < ?) "+
+			"ORDER BY u.id ASC LIMIT ?",
+		now.Add(-90*jobsDay), now.Add(-30*jobsDay), jobsCandidateCap)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, id := range ids {
+		claim, err := s.DB.ExecContext(ctx,
+			"UPDATE `User` SET lastSafetyReviewNudgeAt = ?, updatedAt = ? WHERE id = ? AND (lastSafetyReviewNudgeAt IS NULL OR lastSafetyReviewNudgeAt < ?)",
+			now, now, id, now.Add(-30*jobsDay))
+		if err != nil {
+			return err
+		}
+		affected, err := claim.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			continue
+		}
+		if _, err := s.notifCreate(ctx, id, "Review your safety plan",
+			"It has been a while since you reviewed your safety plan with your psychologist. A quick look together keeps it useful for the moments you need it.",
+			"system", false); err != nil {
+			s.jobsReleaseClaim(ctx,
+				"UPDATE `User` SET lastSafetyReviewNudgeAt = NULL, updatedAt = ? WHERE id = ?",
+				jobsNowMS(), id)
+			s.Log.Error("safety review nudge failed; claim released", "err", err, "userId", id)
+			continue
+		}
+		summary.safetyNudges++
+	}
+	return nil
+}
+
+// jobsAssessmentStaleNudges: no screening in 28 days. Screening is voluntary;
+// the nudge is a reminder that the trajectory is stale, not a requirement.
+// One per 28 days, claimed by lastAssessmentNudgeAt.
+func (s *Server) jobsAssessmentStaleNudges(ctx context.Context, now time.Time, summary *jobsCheckinSummary) error {
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT id, lastAssessmentNudgeAt FROM `User` WHERE role = 'patient' AND isBanned = false "+
+			"AND (lastAssessmentNudgeAt IS NULL OR lastAssessmentNudgeAt < ?) ORDER BY id ASC LIMIT ?",
+		now.Add(-28*jobsDay), jobsCandidateCap)
+	if err != nil {
+		return err
+	}
+	type cand struct {
+		id   string
+		last sql.NullTime
+	}
+	var cands []cand
+	for rows.Next() {
+		var c cand
+		if err := rows.Scan(&c.id, &c.last); err != nil {
+			rows.Close()
+			return err
+		}
+		cands = append(cands, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, c := range cands {
+		var lastCreated sql.NullTime
+		err := s.DB.QueryRowContext(ctx,
+			"SELECT createdAt FROM `Assessment` WHERE userId = ? ORDER BY createdAt DESC LIMIT 1", c.id).Scan(&lastCreated)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == nil && lastCreated.Valid && now.Sub(lastCreated.Time) < 28*jobsDay {
+			continue
+		}
+		if err == sql.ErrNoRows {
+			// Never screened: do not nudge; the assessments page invites them.
+			continue
+		}
+		claim, err := s.DB.ExecContext(ctx,
+			"UPDATE `User` SET lastAssessmentNudgeAt = ?, updatedAt = ? WHERE id = ? AND lastAssessmentNudgeAt <=> ?",
+			now, now, c.id, c.last)
+		if err != nil {
+			return err
+		}
+		affected, err := claim.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			continue
+		}
+		if _, err := s.notifCreate(ctx, c.id, "Your screening trajectory is stale",
+			"It has been 4 weeks since your last screening. A fresh PHQ-9 or GAD-7 keeps your trajectory meaningful for you and your psychologist.",
+			"system", false); err != nil {
+			s.jobsReleaseClaim(ctx,
+				"UPDATE `User` SET lastAssessmentNudgeAt = ?, updatedAt = ? WHERE id = ? AND lastAssessmentNudgeAt = ?",
+				c.last, jobsNowMS(), c.id, now)
+			s.Log.Error("assessment nudge failed; claim released", "err", err, "userId", c.id)
+			continue
+		}
+		summary.assessmentNudges++
+	}
+	return nil
+}
+
+// jobsHomeworkDueReminders: care steps with a dueDate in the next 24h that are
+// not done. One notification per step per run window; done steps never notify.
+func (s *Server) jobsHomeworkDueReminders(ctx context.Context, now time.Time, summary *jobsCheckinSummary) error {
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT s.id, s.title, p.userId FROM `CareStep` s "+
+			"JOIN `CareGoal` g ON g.id = s.careGoalId "+
+			"JOIN `CarePlan` p ON p.id = g.carePlanId "+
+			"WHERE s.done = false AND s.dueDate IS NOT NULL AND s.dueDate >= ? AND s.dueDate <= ? "+
+			"ORDER BY s.dueDate ASC LIMIT ?",
+		now, now.Add(24*time.Hour), jobsCandidateCap)
+	if err != nil {
+		return err
+	}
+	type hw struct {
+		id     string
+		title  string
+		userID string
+	}
+	var items []hw
+	for rows.Next() {
+		var h hw
+		if err := rows.Scan(&h.id, &h.title, &h.userID); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, h)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, h := range items {
+		if _, err := s.notifCreate(ctx, h.userID, "Practice due soon",
+			"Your next step is due soon: "+h.title+". Small steps count — open your care plan to mark it done.",
+			"system", false); err != nil {
+			s.Log.Error("homework reminder failed", "err", err, "stepId", h.id)
+			continue
+		}
+		summary.homeworkDue++
+	}
+	return nil
 }
 
 /* ------------------------------------------------------------------ *

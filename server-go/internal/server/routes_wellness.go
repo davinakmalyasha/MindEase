@@ -55,6 +55,11 @@ func (s *Server) registerWellness(api chi.Router) {
 	api.With(s.authenticate).Post("/wellness/assessments", s.handleWellnessSubmitAssessment)
 	api.With(s.authenticate).Get("/wellness/assessments", s.handleWellnessGetAssessments)
 	api.With(s.authenticate).Get("/wellness/assessments/trajectory", s.handleWellnessAssessmentTrajectory)
+	api.With(s.authenticate).Get("/wellness/assessments/status", s.handleWellnessAssessmentStatus)
+	api.With(s.authenticate).Get("/wellness/thought-records", s.handleThoughtList)
+	api.With(s.authenticate).Post("/wellness/thought-records", s.handleThoughtCreate)
+	api.With(s.authenticate).Put("/wellness/thought-records/{id}", s.handleThoughtUpdate)
+	api.With(s.authenticate).Delete("/wellness/thought-records/{id}", s.handleThoughtDelete)
 
 	api.With(s.authenticate, s.RequireRole("doctor", "admin")).Get("/wellness/risk-alerts", s.handleWellnessListRiskAlerts)
 	api.With(s.authenticate, s.RequireRole("doctor", "admin")).Post("/wellness/risk-alerts/{id}/acknowledge", s.handleWellnessAcknowledgeRiskAlert)
@@ -294,7 +299,7 @@ func wellnessEnumField(body map[string]any, name string, allowed []string, messa
 	return s, ""
 }
 
-var wellnessAssessmentTypes = []string{"phq9", "gad7"}
+var wellnessAssessmentTypes = []string{"phq9", "gad7", "phq2", "gad2"}
 
 func wellnessAnswersField(body map[string]any) ([]int, string, string) {
 	v, exists := body["answers"]
@@ -1085,7 +1090,7 @@ func wellnessJournalSummaryFallback(count int) string {
  * Assessments and the PHQ-9 item-9 rule
  * ------------------------------------------------------------------ */
 
-var wellnessAssessmentQuestionCounts = map[string]int{"phq9": 9, "gad7": 7}
+var wellnessAssessmentQuestionCounts = map[string]int{"phq9": 9, "gad7": 7, "phq2": 2, "gad2": 2}
 
 type wellnessBand struct {
 	UpTo     int    `json:"upTo"`
@@ -1120,9 +1125,52 @@ var wellnessInstruments = map[string]wellnessInstrument{
 			{UpTo: 21, Severity: "severe"},
 		},
 	},
+	"phq2": {
+		Label: "PHQ-2",
+		Max:   6,
+		Bands: []wellnessBand{
+			{UpTo: 2, Severity: "minimal"},
+			{UpTo: 4, Severity: "mild"},
+			{UpTo: 6, Severity: "moderate"},
+		},
+	},
+	"gad2": {
+		Label: "GAD-2",
+		Max:   6,
+		Bands: []wellnessBand{
+			{UpTo: 2, Severity: "minimal"},
+			{UpTo: 4, Severity: "mild"},
+			{UpTo: 6, Severity: "moderate"},
+		},
+	},
+}
+
+// wellnessMCID is the minimal clinically important difference per instrument:
+// a change at or above this between first and latest is flagged as meaningful.
+// PHQ-9 >=5 and GAD-7 >=4 are the literature standards; the 2-item screeners
+// use >=2 on their 0-6 scale. This is a change flag, not a diagnosis.
+func wellnessMCID(assessmentType string) int {
+	switch assessmentType {
+	case "phq9":
+		return 5
+	case "gad7":
+		return 4
+	default:
+		return 2
+	}
 }
 
 func wellnessSeverityFor(assessmentType string, score int) string {
+	if assessmentType == "phq2" || assessmentType == "gad2" {
+		switch {
+		case score <= 2:
+			return "minimal"
+		case score <= 4:
+			return "mild"
+		default:
+			return "moderate"
+		}
+	}
 	if assessmentType == "phq9" {
 		switch {
 		case score <= 4:
@@ -1221,7 +1269,7 @@ func (s *Server) handleWellnessSubmitAssessment(w http.ResponseWriter, r *http.R
 		s.validationFail(w, "body", decodeErr)
 		return
 	}
-	assessmentType, msg := wellnessEnumField(body, "type", wellnessAssessmentTypes, "Assessment type must be phq9 or gad7")
+	assessmentType, msg := wellnessEnumField(body, "type", wellnessAssessmentTypes, "Assessment type must be phq9, gad7, phq2 or gad2")
 	if msg != "" {
 		s.validationFail(w, "body.type", msg)
 		return
@@ -1307,7 +1355,7 @@ func (s *Server) handleWellnessGetAssessments(w http.ResponseWriter, r *http.Req
 	typeFilter := ""
 	if raw, present, multi := wellnessQueryRaw(query, "type"); present {
 		if multi || !containsString(wellnessAssessmentTypes, raw) {
-			s.validationFail(w, "query.type", `Invalid option: expected one of "phq9"|"gad7"`)
+			s.validationFail(w, "query.type", `Invalid option: expected one of "phq9"|"gad7"|"phq2"|"gad2"`)
 			return
 		}
 		typeFilter = raw
@@ -1373,11 +1421,15 @@ type wellnessTrajectoryPoint struct {
 }
 
 type wellnessTrajectorySummary struct {
-	Sittings    int    `json:"sittings"`
-	First       *int   `json:"first"`
-	Latest      *int   `json:"latest"`
-	TotalChange *int   `json:"totalChange"`
-	Direction   string `json:"direction"`
+	Sittings                    int    `json:"sittings"`
+	First                       *int   `json:"first"`
+	Latest                      *int   `json:"latest"`
+	TotalChange                 *int   `json:"totalChange"`
+	Direction                   string `json:"direction"`
+	MCID                        int    `json:"mcid"`
+	ClinicallySignificantChange bool   `json:"clinicallySignificantChange"`
+	DaysSinceLast               *int   `json:"daysSinceLast"`
+	IsStale                     bool   `json:"isStale"`
 }
 
 func (s *Server) handleWellnessAssessmentTrajectory(w http.ResponseWriter, r *http.Request) {
@@ -1386,7 +1438,7 @@ func (s *Server) handleWellnessAssessmentTrajectory(w http.ResponseWriter, r *ht
 
 	assessmentType := ""
 	if raw, present, multi := wellnessQueryRaw(query, "type"); !present || multi || !containsString(wellnessAssessmentTypes, raw) {
-		s.validationFail(w, "query.type", `Invalid option: expected one of "phq9"|"gad7"`)
+		s.validationFail(w, "query.type", `Invalid option: expected one of "phq9"|"gad7"|"phq2"|"gad2"`)
 		return
 	} else {
 		assessmentType = raw
@@ -1466,19 +1518,413 @@ func (s *Server) handleWellnessAssessmentTrajectory(w http.ResponseWriter, r *ht
 		change := latestValue - firstValue
 		totalChange = &change
 	}
+	mcid := wellnessMCID(assessmentType)
+	sigChange := false
+	if totalChange != nil {
+		delta := *totalChange
+		if delta < 0 {
+			delta = -delta
+		}
+		sigChange = delta >= mcid && len(points) >= 2
+	}
+	var daysSince *int
+	isStale := false
+	if len(newest) > 0 {
+		d := int(time.Since(newest[0].createdAt).Hours() / 24)
+		daysSince = &d
+		isStale = d > 28
+	} else {
+		isStale = false
+	}
 
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
 		"type":       assessmentType,
 		"instrument": wellnessInstruments[assessmentType],
 		"points":     points,
 		"summary": wellnessTrajectorySummary{
-			Sittings:    len(points),
-			First:       first,
-			Latest:      latest,
-			TotalChange: totalChange,
-			Direction:   wellnessDescribeDirection(totalChange, len(points)),
+			Sittings:                    len(points),
+			First:                       first,
+			Latest:                      latest,
+			TotalChange:                 totalChange,
+			Direction:                   wellnessDescribeDirection(totalChange, len(points)),
+			MCID:                        mcid,
+			ClinicallySignificantChange: sigChange,
+			DaysSinceLast:               daysSince,
+			IsStale:                     isStale,
 		},
 	}})
+}
+
+func (s *Server) handleWellnessAssessmentStatus(w http.ResponseWriter, r *http.Request) {
+	user := CurrentUser(r)
+	out := map[string]any{}
+	for _, t := range wellnessAssessmentTypes {
+		var id string
+		var score int
+		var severity string
+		var createdAt time.Time
+		err := s.DB.QueryRowContext(r.Context(),
+			"SELECT id, score, severity, createdAt FROM `Assessment` WHERE userId = ? AND type = ? ORDER BY createdAt DESC LIMIT 1",
+			user.ID, t).Scan(&id, &score, &severity, &createdAt)
+		if err == sql.ErrNoRows {
+			out[t] = map[string]any{"last": nil, "daysSinceLast": nil, "isStale": false}
+			continue
+		}
+		if err != nil {
+			s.Log.Error("assessment status query failed", "err", err)
+			s.Fail(w, http.StatusInternalServerError, "Failed to fetch assessment status.")
+			return
+		}
+		days := int(time.Since(createdAt).Hours() / 24)
+		out[t] = map[string]any{
+			"last":            map[string]any{"id": id, "score": score, "severity": severity, "createdAt": jsTimeValue(createdAt)},
+			"daysSinceLast":   days,
+			"isStale":         days > 28,
+			"mcid":            wellnessMCID(t),
+			"instrument":      wellnessInstruments[t],
+		}
+	}
+	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": out})
+}
+
+/* ------------------------------------------------------------------ *
+ * Thought records (CBT): situation / thought / evidence / balanced.
+ * Columns, not JSON, because each field is read as a unit. Never generated.
+ * ------------------------------------------------------------------ */
+
+type thoughtRecord struct {
+	ID            string
+	UserID        string
+	Situation     string
+	Thought       string
+	EvidenceFor   *string
+	EvidenceAgainst *string
+	Balanced      *string
+	MoodBefore    *int
+	MoodAfter     *int
+	CareGoalID    *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (t thoughtRecord) json() map[string]any {
+	return map[string]any{
+		"id":              t.ID,
+		"userId":          t.UserID,
+		"situation":       t.Situation,
+		"thought":         t.Thought,
+		"evidenceFor":     t.EvidenceFor,
+		"evidenceAgainst": t.EvidenceAgainst,
+		"balanced":        t.Balanced,
+		"moodBefore":      t.MoodBefore,
+		"moodAfter":       t.MoodAfter,
+		"careGoalId":      t.CareGoalID,
+		"createdAt":       jsTimeValue(t.CreatedAt),
+		"updatedAt":       jsTimeValue(t.UpdatedAt),
+	}
+}
+
+func scanThoughtRecord(scan func(dest ...any) error) (thoughtRecord, error) {
+	var t thoughtRecord
+	var eFor, eAgainst, balanced sql.NullString
+	var moodBefore, moodAfter sql.NullInt64
+	var goalID sql.NullString
+	err := scan(&t.ID, &t.UserID, &t.Situation, &t.Thought, &eFor, &eAgainst, &balanced, &moodBefore, &moodAfter, &goalID, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return t, err
+	}
+	if eFor.Valid {
+		t.EvidenceFor = &eFor.String
+	}
+	if eAgainst.Valid {
+		t.EvidenceAgainst = &eAgainst.String
+	}
+	if balanced.Valid {
+		t.Balanced = &balanced.String
+	}
+	if moodBefore.Valid {
+		v := int(moodBefore.Int64)
+		t.MoodBefore = &v
+	}
+	if moodAfter.Valid {
+		v := int(moodAfter.Int64)
+		t.MoodAfter = &v
+	}
+	if goalID.Valid {
+		t.CareGoalID = &goalID.String
+	}
+	return t, nil
+}
+
+func wellnessThoughtMood(v any) (*int, string) {
+	if v == nil {
+		return nil, ""
+	}
+	f := wellnessCoercedNumber(v)
+	if math.IsNaN(f) || math.IsInf(f, 0) || math.Trunc(f) != f {
+		return nil, "Invalid input: expected int, received number"
+	}
+	if f < 1 || f > 5 {
+		return nil, "Mood must be between 1 and 5"
+	}
+	n := int(f)
+	return &n, ""
+}
+
+func (s *Server) handleThoughtList(w http.ResponseWriter, r *http.Request) {
+	user := CurrentUser(r)
+	limit := 20
+	if raw, present, multi := wellnessQueryRaw(r.URL.Query(), "limit"); present {
+		if multi {
+			s.validationFail(w, "query.limit", "Invalid input: expected number, received NaN")
+			return
+		}
+		v, msg := wellnessQueryInt(raw, 1, 100, "Too small: expected number to be >=1", "Too big: expected number to be <=100")
+		if msg != "" {
+			s.validationFail(w, "query.limit", msg)
+			return
+		}
+		limit = v
+	}
+	rows, err := s.DB.QueryContext(r.Context(),
+		"SELECT id, userId, situation, thought, evidenceFor, evidenceAgainst, balanced, moodBefore, moodAfter, careGoalId, createdAt, updatedAt FROM `ThoughtRecord` WHERE userId = ? ORDER BY createdAt DESC LIMIT ?",
+		user.ID, limit)
+	if err != nil {
+		s.Log.Error("thought list failed", "err", err)
+		s.Fail(w, http.StatusInternalServerError, "Failed to fetch thought records.")
+		return
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0)
+	for rows.Next() {
+		t, err := scanThoughtRecord(rows.Scan)
+		if err != nil {
+			s.Log.Error("thought scan failed", "err", err)
+			s.Fail(w, http.StatusInternalServerError, "Failed to fetch thought records.")
+			return
+		}
+		out = append(out, t.json())
+	}
+	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": out})
+}
+
+func (s *Server) handleThoughtCreate(w http.ResponseWriter, r *http.Request) {
+	user := CurrentUser(r)
+	body, keys, decodeErr := wellnessObjectBody(r)
+	if decodeErr != "" {
+		s.validationFail(w, "body", decodeErr)
+		return
+	}
+	sitRaw, ok := body["situation"].(string)
+	if !ok || wellnessJSLen(strings.TrimSpace(sitRaw)) < 3 {
+		s.validationFail(w, "body.situation", "Describe the situation (at least 3 characters)")
+		return
+	}
+	thoughtRaw, ok := body["thought"].(string)
+	if !ok || wellnessJSLen(strings.TrimSpace(thoughtRaw)) < 3 {
+		s.validationFail(w, "body.thought", "Write the thought (at least 3 characters)")
+		return
+	}
+	if len(sitRaw) > 4000 || len(thoughtRaw) > 4000 {
+		s.validationFail(w, "body.situation", "Section too long")
+		return
+	}
+	eFor, _ := body["evidenceFor"].(string)
+	eAgainst, _ := body["evidenceAgainst"].(string)
+	balanced, _ := body["balanced"].(string)
+	mBefore, msg := wellnessThoughtMood(body["moodBefore"])
+	if msg != "" {
+		s.validationFail(w, "body.moodBefore", msg)
+		return
+	}
+	mAfter, msg := wellnessThoughtMood(body["moodAfter"])
+	if msg != "" {
+		s.validationFail(w, "body.moodAfter", msg)
+		return
+	}
+	var goalID *string
+	if v, present := body["careGoalId"]; present && v != nil {
+		str, ok := v.(string)
+		if !ok || !wellnessUUID7Pattern.MatchString(strings.ToLower(str)) {
+			s.validationFail(w, "body.careGoalId", "Invalid id")
+			return
+		}
+		goalID = &str
+	}
+	if msg := wellnessUnknownKeys(keys, "situation", "thought", "evidenceFor", "evidenceAgainst", "balanced", "moodBefore", "moodAfter", "careGoalId"); msg != "" {
+		s.validationFail(w, "body", msg)
+		return
+	}
+	now := time.Now().UTC()
+	id := newID()
+	clean := func(v string) string { return s.wellnessSanitize(v) }
+	nullStr := func(v string) any {
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		c := clean(v)
+		return c
+	}
+	mb, ma := sql.NullInt64{}, sql.NullInt64{}
+	if mBefore != nil {
+		mb.Valid = true
+		mb.Int64 = int64(*mBefore)
+	}
+	if mAfter != nil {
+		ma.Valid = true
+		ma.Int64 = int64(*mAfter)
+	}
+	var goalArg any
+	if goalID != nil {
+		goalArg = *goalID
+	}
+	if _, err := s.DB.ExecContext(r.Context(),
+		"INSERT INTO `ThoughtRecord` (id, userId, situation, thought, evidenceFor, evidenceAgainst, balanced, moodBefore, moodAfter, careGoalId, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+		id, user.ID, clean(sitRaw), clean(thoughtRaw), nullStr(eFor), nullStr(eAgainst), nullStr(balanced), mb, ma, goalArg, now, now); err != nil {
+		s.Log.Error("thought insert failed", "err", err)
+		s.Fail(w, http.StatusBadRequest, "Failed to save thought record.")
+		return
+	}
+	row, err := scanThoughtRecord(func(dest ...any) error {
+		return s.DB.QueryRowContext(r.Context(),
+			"SELECT id, userId, situation, thought, evidenceFor, evidenceAgainst, balanced, moodBefore, moodAfter, careGoalId, createdAt, updatedAt FROM `ThoughtRecord` WHERE id = ?", id).Scan(dest...)
+	})
+	if err != nil {
+		s.Log.Error("thought read-back failed", "err", err)
+		s.Fail(w, http.StatusBadRequest, "Failed to save thought record.")
+		return
+	}
+	s.JSON(w, http.StatusCreated, map[string]any{"status": "success", "data": row.json()})
+}
+
+func (s *Server) handleThoughtUpdate(w http.ResponseWriter, r *http.Request) {
+	user := CurrentUser(r)
+	id, ok := s.wellnessIDParam(w, r)
+	if !ok {
+		return
+	}
+	body, keys, decodeErr := wellnessObjectBody(r)
+	if decodeErr != "" {
+		s.validationFail(w, "body", decodeErr)
+		return
+	}
+	var owner string
+	if err := s.DB.QueryRowContext(r.Context(), "SELECT userId FROM `ThoughtRecord` WHERE id = ?", id).Scan(&owner); err == sql.ErrNoRows || (err == nil && owner != user.ID) {
+		s.Fail(w, http.StatusNotFound, "Thought record not found")
+		return
+	} else if err != nil {
+		s.Fail(w, http.StatusBadRequest, "Failed to update thought record.")
+		return
+	}
+	sets := []string{}
+	args := []any{}
+	getStr := func(name string, max int) (*string, bool) {
+		v, present := body[name]
+		if !present {
+			return nil, false
+		}
+		if v == nil {
+			return nil, true
+		}
+		str, ok := v.(string)
+		if !ok {
+			return nil, true
+		}
+		if wellnessJSLen(str) > max {
+			return nil, true
+		}
+		c := s.wellnessSanitize(str)
+		if strings.TrimSpace(c) == "" {
+			return nil, true
+		}
+		return &c, true
+	}
+	for _, f := range []struct {
+		name string
+		max  int
+		col  string
+	}{{"situation", 4000, "situation"}, {"thought", 4000, "thought"}, {"evidenceFor", 4000, "evidenceFor"}, {"evidenceAgainst", 4000, "evidenceAgainst"}, {"balanced", 4000, "balanced"}} {
+		if val, present := getStr(f.name, f.max); present {
+			if val == nil {
+				sets = append(sets, f.col+" = NULL")
+			} else {
+				sets = append(sets, f.col+" = ?")
+				args = append(args, *val)
+			}
+		}
+	}
+	if v, present := body["moodBefore"]; present {
+		m, msg := wellnessThoughtMood(v)
+		if msg != "" {
+			s.validationFail(w, "body.moodBefore", msg)
+			return
+		}
+		if m == nil {
+			sets = append(sets, "moodBefore = NULL")
+		} else {
+			sets = append(sets, "moodBefore = ?")
+			args = append(args, *m)
+		}
+	}
+	if v, present := body["moodAfter"]; present {
+		m, msg := wellnessThoughtMood(v)
+		if msg != "" {
+			s.validationFail(w, "body.moodAfter", msg)
+			return
+		}
+		if m == nil {
+			sets = append(sets, "moodAfter = NULL")
+		} else {
+			sets = append(sets, "moodAfter = ?")
+			args = append(args, *m)
+		}
+	}
+	if msg := wellnessUnknownKeys(keys, "situation", "thought", "evidenceFor", "evidenceAgainst", "balanced", "moodBefore", "moodAfter"); msg != "" {
+		s.validationFail(w, "body", msg)
+		return
+	}
+	if len(sets) == 0 {
+		s.validationFail(w, "body", "No fields to update")
+		return
+	}
+	sets = append(sets, "updatedAt = ?")
+	args = append(args, time.Now().UTC())
+	queryArgs := append(args, id, user.ID)
+	if _, err := s.DB.ExecContext(r.Context(), "UPDATE `ThoughtRecord` SET "+strings.Join(sets, ", ")+" WHERE id = ? AND userId = ?", queryArgs...); err != nil {
+		s.Log.Error("thought update failed", "err", err)
+		s.Fail(w, http.StatusBadRequest, "Failed to update thought record.")
+		return
+	}
+	row, err := scanThoughtRecord(func(dest ...any) error {
+		return s.DB.QueryRowContext(r.Context(),
+			"SELECT id, userId, situation, thought, evidenceFor, evidenceAgainst, balanced, moodBefore, moodAfter, careGoalId, createdAt, updatedAt FROM `ThoughtRecord` WHERE id = ?", id).Scan(dest...)
+	})
+	if err != nil {
+		s.Fail(w, http.StatusBadRequest, "Failed to update thought record.")
+		return
+	}
+	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": row.json()})
+}
+
+func (s *Server) handleThoughtDelete(w http.ResponseWriter, r *http.Request) {
+	user := CurrentUser(r)
+	id, ok := s.wellnessIDParam(w, r)
+	if !ok {
+		return
+	}
+	var owner string
+	if err := s.DB.QueryRowContext(r.Context(), "SELECT userId FROM `ThoughtRecord` WHERE id = ?", id).Scan(&owner); err == sql.ErrNoRows || (err == nil && owner != user.ID) {
+		s.Fail(w, http.StatusNotFound, "Thought record not found")
+		return
+	} else if err != nil {
+		s.Fail(w, http.StatusBadRequest, "Failed to delete thought record.")
+		return
+	}
+	if _, err := s.DB.ExecContext(r.Context(), "DELETE FROM `ThoughtRecord` WHERE id = ?", id); err != nil {
+		s.Fail(w, http.StatusBadRequest, "Failed to delete thought record.")
+		return
+	}
+	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{"success": true}})
 }
 
 /* ------------------------------------------------------------------ *
@@ -1525,10 +1971,28 @@ type wellnessRiskQueueItem struct {
 	ResolutionNote   *string
 	ResolvedAt       *time.Time
 	ResolvedByID     *string
+	FollowUpDueAt    *time.Time
+	Outcome          *string
+	HoursOpen        float64
+	IsOverdue        bool
+	FollowUpOverdue  bool
 	PatientID        string
 	PatientName      *string
 	PatientEmail     string
 	LastAssessment   map[string]any
+}
+
+var wellnessRiskOutcomes = []string{"contacted", "scheduled", "referred", "hotline-given", "no-answer", "other"}
+
+// wellnessRiskSLA returns the acknowledge/resolve deadlines for a level.
+// Urgent must be seen within 4h and resolved within 24h; elevated within 24h
+// and 72h. These are display promises, not auto-escalation: breaching them
+// marks the row overdue, it never pages anyone by itself.
+func wellnessRiskDeadlines(level string) (ackBy, resolveBy time.Duration) {
+	if (level == "urgent") {
+		return 4 * time.Hour, 24 * time.Hour
+	}
+	return 24 * time.Hour, 72 * time.Hour
 }
 
 func (i wellnessRiskQueueItem) json() map[string]any {
@@ -1546,6 +2010,11 @@ func (i wellnessRiskQueueItem) json() map[string]any {
 		"resolutionNote":   i.ResolutionNote,
 		"resolvedAt":       jsTime(i.ResolvedAt),
 		"resolvedById":     i.ResolvedByID,
+		"followUpDueAt":    jsTime(i.FollowUpDueAt),
+		"outcome":          i.Outcome,
+		"hoursOpen":        math.Round(i.HoursOpen*10) / 10,
+		"isOverdue":        i.IsOverdue,
+		"followUpOverdue":  i.FollowUpOverdue,
 		"patient": map[string]any{
 			"id":             i.PatientID,
 			"name":           i.PatientName,
@@ -1561,6 +2030,7 @@ func (s *Server) handleWellnessListRiskAlerts(w http.ResponseWriter, r *http.Req
 
 	query := "SELECT ra.id, ra.level, ra.reason, ra.sourceType, ra.sourceId, ra.createdAt, " +
 		"ra.acknowledgedAt, ra.acknowledgedById, ra.resolutionNote, ra.resolvedAt, ra.resolvedById, " +
+		"ra.followUpDueAt, ra.outcome, " +
 		"u.id, u.name, u.email, a.type, a.score, a.severity, a.createdAt " +
 		"FROM `RiskAlert` ra JOIN `User` u ON u.id = ra.userId " +
 		"LEFT JOIN `Assessment` a ON a.id = (SELECT a2.id FROM `Assessment` a2 WHERE a2.userId = ra.userId ORDER BY a2.createdAt DESC LIMIT 1)"
@@ -1599,6 +2069,7 @@ func (s *Server) handleWellnessListRiskAlerts(w http.ResponseWriter, r *http.Req
 		if err := rows.Scan(
 			&item.ID, &item.Level, &item.Reason, &item.SourceType, &item.SourceID, &item.CreatedAt,
 			&item.AcknowledgedAt, &item.AcknowledgedByID, &item.ResolutionNote, &item.ResolvedAt, &item.ResolvedByID,
+			&item.FollowUpDueAt, &item.Outcome,
 			&item.PatientID, &item.PatientName, &item.PatientEmail,
 			&assessType, &assessScore, &assessSeverity, &assessCreatedAt,
 		); err != nil {
@@ -1608,6 +2079,23 @@ func (s *Server) handleWellnessListRiskAlerts(w http.ResponseWriter, r *http.Req
 		}
 		item.Priority = wellnessPriorityFor(item.Level, item.AcknowledgedAt)
 		item.Urgency = wellnessUrgencyLabels[item.Priority]
+		now := time.Now().UTC()
+		end := now
+		if item.ResolvedAt != nil {
+			end = *item.ResolvedAt
+		}
+		item.HoursOpen = end.Sub(item.CreatedAt).Hours()
+		ackBy, resolveBy := wellnessRiskDeadlines(item.Level)
+		if item.ResolvedAt == nil {
+			if item.AcknowledgedAt == nil {
+				item.IsOverdue = now.Sub(item.CreatedAt) > ackBy
+			} else {
+				item.IsOverdue = now.Sub(item.CreatedAt) > resolveBy
+			}
+		}
+		if item.FollowUpDueAt != nil && item.ResolvedAt != nil {
+			item.FollowUpOverdue = now.After(*item.FollowUpDueAt)
+		}
 		if assessType != nil && assessScore != nil && assessSeverity != nil && assessCreatedAt != nil {
 			item.LastAssessment = map[string]any{
 				"type":      *assessType,
@@ -1635,13 +2123,21 @@ func (s *Server) handleWellnessListRiskAlerts(w http.ResponseWriter, r *http.Req
 		"unresolved":           0,
 		"unacknowledged":       0,
 		"urgentUnacknowledged": 0,
+		"overdue":              0,
+		"followUpDue":          0,
 	}
-	open, unack, urgentUnack := 0, 0, 0
+	open, unack, urgentUnack, overdue, followDue := 0, 0, 0, 0, 0
 	for _, item := range items {
+		if item.FollowUpOverdue {
+			followDue++
+		}
 		if item.ResolvedAt != nil {
 			continue
 		}
 		open++
+		if item.IsOverdue {
+			overdue++
+		}
 		if item.AcknowledgedAt == nil {
 			unack++
 			if item.Level == "urgent" {
@@ -1652,6 +2148,8 @@ func (s *Server) handleWellnessListRiskAlerts(w http.ResponseWriter, r *http.Req
 	counts["unresolved"] = open
 	counts["unacknowledged"] = unack
 	counts["urgentUnacknowledged"] = urgentUnack
+	counts["overdue"] = overdue
+	counts["followUpDue"] = followDue
 
 	// Reading the queue is reading every disclosure on it: one access-log row
 	// per item, carrying who read whose record.
@@ -1785,7 +2283,42 @@ func (s *Server) handleWellnessResolveRiskAlert(w http.ResponseWriter, r *http.R
 		s.validationFail(w, "body.note", msg)
 		return
 	}
-	if msg := wellnessUnknownKeys(keys, "note"); msg != "" {
+	outcome, msg := wellnessOptionalStringField(body, "outcome", 32, "Invalid outcome")
+	if msg != "" {
+		s.validationFail(w, "body.outcome", msg)
+		return
+	}
+	var outcomeValue *string
+	if outcome != nil && *outcome != "" {
+		if !containsString(wellnessRiskOutcomes, *outcome) {
+			s.validationFail(w, "body.outcome", "Invalid option: expected one of contacted|scheduled|referred|hotline-given|no-answer|other")
+			return
+		}
+		outcomeValue = outcome
+	}
+	var followUpDueAt *time.Time
+	if v, present := body["followUpDueAt"]; present && v != nil {
+		str, ok := v.(string)
+		if !ok {
+			s.validationFail(w, "body.followUpDueAt", "Expected an ISO date")
+			return
+		}
+		// Accept YYYY-MM-DD or full ISO; store as UTC midnight when date-only.
+		if len(str) >= 10 {
+			if t, err := time.Parse("2006-01-02", str[:10]); err == nil {
+				followUpDueAt = &t
+			} else if t, err := time.Parse(time.RFC3339, str); err == nil {
+				followUpDueAt = &t
+			} else {
+				s.validationFail(w, "body.followUpDueAt", "Not a real calendar date")
+				return
+			}
+		} else {
+			s.validationFail(w, "body.followUpDueAt", "Expected an ISO date")
+			return
+		}
+	}
+	if msg := wellnessUnknownKeys(keys, "note", "outcome", "followUpDueAt"); msg != "" {
 		s.validationFail(w, "body", msg)
 		return
 	}
@@ -1831,16 +2364,31 @@ func (s *Server) handleWellnessResolveRiskAlert(w http.ResponseWriter, r *http.R
 	}
 
 	now := time.Now().UTC()
-	var res sql.Result
-	if trimmedNote != nil && *trimmedNote != "" {
-		res, err = s.DB.ExecContext(ctx,
-			"UPDATE `RiskAlert` SET resolvedAt = ?, resolvedById = ?, resolutionNote = ? WHERE id = ? AND resolvedAt IS NULL",
-			now, actor.ID, *trimmedNote, alertID)
-	} else {
-		res, err = s.DB.ExecContext(ctx,
-			"UPDATE `RiskAlert` SET resolvedAt = ?, resolvedById = ? WHERE id = ? AND resolvedAt IS NULL",
-			now, actor.ID, alertID)
+	var levelAtResolve string
+	_ = s.DB.QueryRowContext(ctx, "SELECT level FROM `RiskAlert` WHERE id = ?", alertID).Scan(&levelAtResolve)
+	if followUpDueAt == nil && levelAtResolve == "urgent" {
+		t := now.Add(24 * time.Hour)
+		followUpDueAt = &t
 	}
+	noteArg := sql.NullString{}
+	if trimmedNote != nil && *trimmedNote != "" {
+		noteArg.Valid = true
+		noteArg.String = *trimmedNote
+	}
+	outcomeArg := sql.NullString{}
+	if outcomeValue != nil {
+		outcomeArg.Valid = true
+		outcomeArg.String = *outcomeValue
+	}
+	followArg := sql.NullTime{}
+	if followUpDueAt != nil {
+		followArg.Valid = true
+		followArg.Time = *followUpDueAt
+	}
+	var res sql.Result
+	res, err = s.DB.ExecContext(ctx,
+		"UPDATE `RiskAlert` SET resolvedAt = ?, resolvedById = ?, resolutionNote = COALESCE(NULLIF(?, ''), resolutionNote), outcome = COALESCE(NULLIF(?, ''), outcome), followUpDueAt = COALESCE(?, followUpDueAt) WHERE id = ? AND resolvedAt IS NULL",
+		now, actor.ID, noteArg, outcomeArg, followArg, alertID)
 	if err != nil {
 		s.Log.Error("risk resolve failed", "err", err)
 		s.Fail(w, http.StatusInternalServerError, "Failed to resolve the alert.")
@@ -1863,10 +2411,12 @@ func (s *Server) handleWellnessResolveRiskAlert(w http.ResponseWriter, r *http.R
 		storedResolved *time.Time
 		storedBy       *string
 		storedNote     *string
+		storedOutcome  *string
+		storedFollowUp *time.Time
 	)
 	if err := s.DB.QueryRowContext(ctx,
-		"SELECT resolvedAt, resolvedById, resolutionNote FROM `RiskAlert` WHERE id = ?", alertID).
-		Scan(&storedResolved, &storedBy, &storedNote); err != nil {
+		"SELECT resolvedAt, resolvedById, resolutionNote, outcome, followUpDueAt FROM `RiskAlert` WHERE id = ?", alertID).
+		Scan(&storedResolved, &storedBy, &storedNote, &storedOutcome, &storedFollowUp); err != nil {
 		s.Log.Error("risk resolve read-back failed", "err", err)
 		s.Fail(w, http.StatusInternalServerError, "Failed to resolve the alert.")
 		return
@@ -1879,13 +2429,22 @@ func (s *Server) handleWellnessResolveRiskAlert(w http.ResponseWriter, r *http.R
 	s.audit(ctx, "risk.resolved", &actor.ID, ptr("RiskAlert"), &alertID, map[string]any{
 		"userId":                 patientID,
 		"note":                   auditNote,
+		"outcome":                storedOutcome,
+		"followUpDueAt":          storedFollowUp,
 		"impliedAcknowledgement": ackedAt == nil,
 	})
+	if storedFollowUp != nil {
+		_, _ = s.notifCreate(ctx, patientID, "Checking in after your recent alert",
+			"Your care team asked us to check in. How are you doing today? Your safety plan and coping tools are here if you need them.",
+			"system", false)
+	}
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
 		"id":             alertID,
 		"resolvedAt":     jsTime(storedResolved),
 		"resolvedById":   storedBy,
 		"resolutionNote": storedNote,
+		"outcome":        storedOutcome,
+		"followUpDueAt":  jsTime(storedFollowUp),
 	}})
 }
 

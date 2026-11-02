@@ -89,7 +89,7 @@ build. [CONTRIBUTING.md](CONTRIBUTING.md) has the commands.
 
 | Gate | What it caught |
 |---|---|
-| **Schema drift is a build failure.** The database is built from all 21 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
+| **Schema drift is a build failure.** The database is built from all 22 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
 | **The realtime contract is pinned on both sides.** `server-realtime/hub/*_test.go` pins the JWT claims, the origin allowlist and the event envelope; the browser suite drives the REST side that publishes those events. One contract, checked where it is implemented. | Drift between the Go event table, the TypeScript event union and the client fan-out. The old cross-language test died with the Node tree; the Go hub tests and the twelve journeys hold the same boundary now. |
 | **Documented numbers are checked against the tree.** `scripts/check-numbers.js` re-derives every count quoted in the documentation and fails the build on a disagreement. | Fifteen counts that drifted after a previous pass corrected them all: a stale test count in two CI comments, a per-file table summing to 415 under a heading that said 427, a badge reading a version no manifest pinned. |
 
@@ -112,8 +112,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **48,211** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,863 migration SQL, 25,662 Go |
-| **133** | API routes · **28** tables · **21** migrations |
-| **139** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
+| **143** | API routes · **31** tables · **22** migrations |
+| **144** | Go tests in 21 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by
@@ -322,7 +322,7 @@ statements/branches/functions/lines, and Playwright has no instrumentation. See
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the services fit together, and the reasoning behind the layering |
 | [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | What was wrong in this repository, how it was found, and what I still do not believe |
 | [docs/security.md](docs/security.md) | Threat model, what is deliberately not protected, and the controls that carry the weight |
-| [docs/data-model.md](docs/data-model.md) | 28 tables, an ER diagram, and the decisions that are not obvious from the schema |
+| [docs/data-model.md](docs/data-model.md) | 31 tables, an ER diagram, and the decisions that are not obvious from the schema |
 | [docs/testing.md](docs/testing.md) | The gates, the three suites, and how to add a test |
 | [docs/performance.md](docs/performance.md) | k6 load results, the pool experiment, and how to reproduce them |
 | [docs/scaling.md](docs/scaling.md) | Pools, replicas, sharding, multiple processes, and the provider map |

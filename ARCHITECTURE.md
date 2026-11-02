@@ -189,7 +189,7 @@ the client says so on screen before the session starts.
 
 ## Data model notes
 
-28 tables, no enums. Every status is a `String` with the legal values in a
+31 tables, no enums. Every status is a `String` with the legal values in a
 comment, which is why ordering cannot be done in SQL for `RiskAlert.level` and
 why the sort happens on a bounded page in the service.
 
