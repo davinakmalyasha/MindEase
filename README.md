@@ -148,7 +148,7 @@ the previous quick-start used `make`, and a reviewer without it got
 |---|---|
 | **git**, **Node 24 (LTS)** | `npm run <task>` drives every step; see `.nvmrc` |
 | **Go 1.27.3** | the API (`server-go/`) and the realtime hub both build with it |
-| **MySQL 8** | the database. Local install is enough; no container required |
+| **MySQL 8.4 LTS** | the database. Local install is enough; no container required. 8.4 is the LTS line (Premier Support to 2029, extended to 2031); the 26.x releases are Innovation, supported for one quarter each, so they are deliberately not used here |
 | **Redis 7** | realtime events and caching; the API reports it as degraded, the hub requires it |
 | **Docker + Compose ≥ 2.17** | *optional*, only for `npm run up` (container path). `>= 2.17` is what `--wait` needs |
 | **~2 GB of RAM** | three services plus a database |
