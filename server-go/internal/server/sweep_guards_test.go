@@ -56,8 +56,7 @@ func TestSweepPushEndpointAllowed(t *testing.T) {
 	}
 }
 
-func TestSweepAdminCSVEscape(t *testing.T) {
-	if got := adminCSVEscape("=1+1"); got[0] != '\'' {
+func TestSweepAdminCSVEscape(t *testing.T) {	if got := adminCSVEscape("=1+1"); got[0] != '\'' {
 		t.Fatalf("formula not prefixed: %q", got)
 	}
 	if got := adminCSVEscape("  +2+2"); got[0] != '\'' {
@@ -65,5 +64,22 @@ func TestSweepAdminCSVEscape(t *testing.T) {
 	}
 	if got := adminCSVEscape("a\rb"); got[0] != '"' {
 		t.Fatalf("bare CR must quote: %q", got)
+	}
+}
+
+func TestSweepOfficeMagic(t *testing.T) {
+	zip := []byte{'P', 'K', 0x03, 0x04, 0x14, 0x00}
+	if !msgSniffedTypeAllowed(".docx", "application/zip", zip) {
+		t.Fatal("valid docx ZIP header must pass")
+	}
+	if msgSniffedTypeAllowed(".docx", "application/zip", []byte("<html><body>")) {
+		t.Fatal("HTML smuggled as docx must fail")
+	}
+	ole := []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0x00}
+	if !msgSniffedTypeAllowed(".doc", "application/octet-stream", ole) {
+		t.Fatal("valid doc OLE header must pass")
+	}
+	if msgSniffedTypeAllowed(".doc", "application/msword", []byte("GIF89a...")) {
+		t.Fatal("GIF bytes as doc must fail")
 	}
 }

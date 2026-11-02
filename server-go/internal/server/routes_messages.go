@@ -1121,8 +1121,9 @@ func msgUploadFilterAllows(extension, mimeType string) bool {
 
 // msgSniffedTypeAllowed verifies the server-sniffed content agrees with the
 // extension, so a client-supplied Content-Type header alone cannot smuggle
-// HTML/SVG inside an image extension.
-func msgSniffedTypeAllowed(extension, sniffed string) bool {
+// HTML/SVG inside an image extension. Office formats are verified by magic
+// bytes (data) rather than the sniffed string.
+func msgSniffedTypeAllowed(extension, sniffed string, data []byte) bool {
 	switch extension {
 	case ".jpg", ".jpeg":
 		return sniffed == "image/jpeg"
@@ -1137,13 +1138,34 @@ func msgSniffedTypeAllowed(extension, sniffed string) bool {
 	case ".txt":
 		return sniffed == "text/plain; charset=utf-8" || sniffed == "text/plain"
 	case ".doc", ".docx":
-		// Office binaries sniff as application/octet-stream or zip;
-		// accept the declared allowlist here and rely on safe serving
-		// headers (attachment + nosniff + sandbox) at download time.
-		return strings.HasPrefix(sniffed, "application/")
+		// Office binaries sniff as application/octet-stream or zip; verify
+		// magic bytes directly (OLE header for .doc, ZIP header for .docx)
+		// instead of trusting the sniffed string. Safe serving headers
+		// (attachment + nosniff + sandbox) remain the second layer.
+		return msgOfficeMagicOK(extension, data)
 	default:
 		return false
 	}
+}
+
+// msgOfficeMagicOK checks OLE (.doc) and ZIP (.docx) magic bytes.
+func msgOfficeMagicOK(extension string, data []byte) bool {
+	if len(data) < 4 {
+		return false
+	}
+	if extension == ".docx" {
+		return data[0] == 'P' && data[1] == 'K' && data[2] == 0x03 && data[3] == 0x04
+	}
+	ole := []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
+	if len(data) < len(ole) {
+		return false
+	}
+	for i := range ole {
+		if data[i] != ole[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // msgReadUpload consumes the multipart body with multer's limits:
@@ -1248,7 +1270,7 @@ func (s *Server) msgReadUpload(r *http.Request) (*msgUpload, string) {
 		if len(data) > 5*1024*1024 {
 			return nil, "File too large"
 		}
-		if !msgSniffedTypeAllowed(extension, http.DetectContentType(data)) {
+		if !msgSniffedTypeAllowed(extension, http.DetectContentType(data), data) {
 			return nil, "File type not allowed (images, PDF, DOC, TXT up to 5MB)."
 		}
 		upload.data = data

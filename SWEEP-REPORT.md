@@ -60,7 +60,7 @@ Note: Go commands require `env -u GOROOT` here because the shell exports `GOROOT
 - Pagination ceiling divergence (admin 50 vs notif 30 vs messages 100) | low | per-endpoint UX, all clamped and safe | unify to shared helper ~1h + test updates.
 - Directory cache invalidation only clears limit 20/50 keys | low | 60s TTL bounds staleness; no user data at risk | key-scoped purge or version prefix ~2h.
 - `GET /messages` 500-row conversation scan, N+1 on `appointments/my`, broadcast full-table scan | medium | bounded by auth + pagination; hot-path indexes exist per 20260930 migration | keyset pagination + batched joins ~1-2d with perf harness (no docker here to prove).
-- `.doc/.docx` sniff accepts any `application/*` | low | served as `attachment` + `no-store` on both local and S3 now; residual is format confusion, not XSS | magic-byte table for OLE/OOXML ~3h.
+- `.doc/.docx` sniff now verified by magic bytes (OLE header for `.doc`, ZIP header for `.docx`) with `TestSweepOfficeMagic` pinning; served as `attachment` + `no-store` regardless.
 - `check-encoding`/`check-numbers` self-tests | low | gates are simple and green; other 7 gates have self-tests | add fixture-based self-test ~2h.
 - E2E on fresh seeded stack | medium | needs docker; 12 tests in 11 journeys pinned by `check-numbers`, Journey 10 covers lifecycle | `make up && make e2e` on CI runner ~30min.
 
