@@ -1963,6 +1963,66 @@ func TestIntegrationMessageThreadUnionAndCursor(t *testing.T) {
 	}
 }
 
+func TestIntegrationReviewListBeforeCursor(t *testing.T) {
+	s := newIntegrationServer(t)
+	_, doctorID := seedDoctor(t, uniqueEmail(t), "Dr Cursor")
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	c := newTestClient(t, s.Mount())
+	c.login(patientEmail, "Patient@123")
+
+	for i, comment := range []string{"cursor alpha", "cursor beta", "cursor gamma"} {
+		apptID := seedCompletedAppointment(t, patientID, doctorID)
+		rec, _, text := c.request(http.MethodPost, "/api/reviews", map[string]any{
+			"doctorId": doctorID, "appointmentId": apptID, "rating": 5 - i, "comment": comment,
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create review %d: %d %s", i, rec.Code, text)
+		}
+	}
+
+	getPage := func(query string) []map[string]any {
+		t.Helper()
+		rec, body, text := c.request(http.MethodGet, "/api/reviews/doctor/"+doctorID+query, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("reviews%s: %d %s", query, rec.Code, text)
+		}
+		rows, _ := body["data"].([]any)
+		out := make([]map[string]any, 0, len(rows))
+		for _, r := range rows {
+			m, ok := r.(map[string]any)
+			if !ok {
+				t.Fatalf("review row is not an object: %#v", r)
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+
+	// Invalid cursor is a 400, not an empty page.
+	if rec, _, _ := c.request(http.MethodGet, "/api/reviews/doctor/"+doctorID+"?before=not-an-id", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad cursor: %d; want 400", rec.Code)
+	}
+
+	first := getPage("?limit=2")
+	if len(first) != 2 {
+		t.Fatalf("first page rows = %d; want 2", len(first))
+	}
+	lastID, _ := first[1]["id"].(string)
+	second := getPage("?limit=2&before=" + lastID)
+	if len(second) != 1 {
+		t.Fatalf("second page rows = %d; want 1", len(second))
+	}
+	if second[0]["id"] == first[0]["id"] || second[0]["id"] == lastID {
+		t.Fatalf("cursor page overlaps the first page")
+	}
+	// Unknown-but-valid cursor id is an empty page, not an error.
+	empty := getPage("?limit=2&before=" + newID())
+	if len(empty) != 0 {
+		t.Fatalf("unknown cursor rows = %d; want 0", len(empty))
+	}
+}
+
 func TestIntegrationResponseShapes(t *testing.T) {
 	s := newIntegrationServer(t)
 	email := uniqueEmail(t)

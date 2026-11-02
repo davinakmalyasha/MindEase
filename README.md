@@ -111,9 +111,9 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **48,114** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,852 migration SQL, 25,576 Go |
-| **162** | API routes · **28** tables · **20** migrations |
-| **137** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
+| **48,139** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,852 migration SQL, 25,601 Go |
+| **133** | API routes · **28** tables · **20** migrations |
+| **138** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by
@@ -179,7 +179,7 @@ Then open **http://localhost:3000**. `make help` lists everything else.
 MindEase/
 ├─ server-go/           The API. Go 1.27, chi + database/sql over MySQL.
 │  ├─ cmd/              api, migrate (the only schema runner), seed
-│  ├─ internal/server/  routes, middleware, auth, jobs — 162 registrations
+│  ├─ internal/server/  routes, middleware, auth, jobs — 133 registrations
 │  ├─ internal/config/  env loading with the production guards
 │  ├─ internal/db/      pool and DSN parsing
 │  ├─ internal/migrate/ embedded runner, baselined against Prisma's table

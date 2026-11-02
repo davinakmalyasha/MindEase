@@ -54,18 +54,20 @@ M.migrationSqlLines = () =>
         .filter((f) => f.endsWith(".up.sql"))
         .reduce((n, f) => n + lineCount(`server-go/migrations/${f}`), 0);
 
-/** Route registrations in domain files plus core endpoints (excludes Header.Get/Header().Get). */
+// Only chi registrations count: api/r/authed, optionally through .With()
+// middleware. Query-param reads (query.Get, q.Get) and header reads look
+// identical to a loose ".Get(\"" match and inflated the old count to 162;
+// the true registration count is 133 (127 in routes_*.go + 5 core in
+// server.go + 1 internal trigger in jobs.go).
 M.routes = () => {
     const dir = "server-go/internal/server";
     const files = fs.readdirSync(path.join(ROOT, dir)).filter((f) => /^routes_.*\.go$/.test(f));
+    const reg = /(^|[\s{(])(api|r|authed)(\.With\(.*?\))?\.(Get|Post|Put|Patch|Delete)\("/gm;
     let n = 0;
     for (const f of files) {
         const src = read(`${dir}/${f}`);
-        const matches = src.match(/\.(Get|Post|Put|Patch|Delete)\("/g) || [];
-        const headerFalse = (src.match(/\.Header(?:\(\))?\.Get\("/g) || []).length;
-        n += matches.length - headerFalse;
+        n += (src.match(reg) || []).length;
     }
-    // Header.Get/Header().Get excluded (e.g. r.Header.Get("Content-Type")).
     // server.go mounts 5 core endpoints, jobs.go mounts 1 internal trigger.
     return n + 6;
 };

@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -293,8 +294,13 @@ func (s *Server) handleReviewList(w http.ResponseWriter, r *http.Request) {
 	}
 	limit := apptClampInt(r.URL.Query().Get("limit"), 20, 1, 50)
 	offset := apptClampInt(r.URL.Query().Get("offset"), 0, 0, 100000)
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
+	if before != "" && !apptUUID7OK(before) {
+		s.Fail(w, http.StatusBadRequest, "Invalid before cursor")
+		return
+	}
 
-	items, total, err := s.reviewList(r.Context(), doctorID, limit, offset)
+	items, total, err := s.reviewList(r.Context(), doctorID, limit, offset, before)
 	if err != nil {
 		s.apptControllerErr(w, r, err, http.StatusInternalServerError, "Failed to fetch reviews.")
 		return
@@ -312,11 +318,30 @@ func (s *Server) handleReviewList(w http.ResponseWriter, r *http.Request) {
 
 // reviewList returns the public projection: the reviewer's identity is never
 // selected, only a stable pseudonym derived from the user id.
-func (s *Server) reviewList(ctx context.Context, doctorID string, limit, offset int) ([]map[string]any, int, error) {
+//
+// `before` is an optional id cursor for keyset pagination: when present the
+// page starts after that review in (createdAt, id) order with no OFFSET scan.
+// OFFSET remains for existing clients; when `before` is given, offset is
+// ignored.
+func (s *Server) reviewList(ctx context.Context, doctorID string, limit, offset int, before string) ([]map[string]any, int, error) {
+	where := "WHERE doctorId = ? AND hidden = false"
+	args := []any{doctorID}
+	if before != "" {
+		var createdAt time.Time
+		if err := s.DB.QueryRowContext(ctx,
+			"SELECT createdAt FROM `Review` WHERE id = ? AND doctorId = ? AND hidden = false", before, doctorID).Scan(&createdAt); err != nil {
+			if err == sql.ErrNoRows {
+				return []map[string]any{}, 0, nil
+			}
+			return nil, 0, err
+		}
+		where += " AND ((createdAt < ?) OR (createdAt = ? AND id < ?))"
+		args = append(args, createdAt, createdAt, before)
+	}
 	rows, err := s.DB.QueryContext(ctx,
 		"SELECT id, rating, comment, reply, repliedAt, createdAt, userId FROM `Review` "+
-			"WHERE doctorId = ? AND hidden = false ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?",
-		doctorID, limit, offset)
+			where+" ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?",
+		append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
