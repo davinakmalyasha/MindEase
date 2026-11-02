@@ -271,7 +271,7 @@ All decided before phase 1 begins.
    what a port most needs to be auditable.
 4. **OpenAPI: huma v2.** Struct-tag validation is the closest structural
    analogue of Zod, and the spec it generates is what the diff gate compares.
-5. **MySQL stays.** The 20 migrations remain the schema's source of truth.
+5. **MySQL stays.** The 21 migrations remain the schema's source of truth.
    `golang-migrate` becomes the runner *after* cutover, with a one-time
    baseline (`migrate force <latest>`) so its bookkeeping table starts where
    Prisma's `_prisma_migrations` ended. Two runners and two bookkeeping tables

@@ -2023,6 +2023,73 @@ func TestIntegrationReviewListBeforeCursor(t *testing.T) {
 	}
 }
 
+func TestIntegrationMessageConversationsMerge(t *testing.T) {
+	s := newIntegrationServer(t)
+	patientEmail := uniqueEmail(t)
+	patientID := seedUser(t, patientEmail, "Patient@123", "patient")
+	doctorEmail := uniqueEmail(t)
+	doctorUserID, doctorID := seedDoctor(t, doctorEmail, "Dr Convo")
+	seedCompletedAppointment(t, patientID, doctorID)
+	p := newTestClient(t, s.Mount())
+	p.login(patientEmail, "Patient@123")
+	d := newTestClient(t, s.Mount())
+	d.login(doctorEmail, "Doctor@123")
+
+	send := func(c *testClient, to, content string) {
+		t.Helper()
+		rec, _, text := c.request(http.MethodPost, "/api/messages/"+to, map[string]any{"content": content})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("send %q: %d %s", content, rec.Code, text)
+		}
+	}
+	send(p, doctorUserID, "convo one")
+	send(d, patientID, "convo two")
+
+	getList := func(c *testClient) []map[string]any {
+		t.Helper()
+		rec, body, text := c.request(http.MethodGet, "/api/messages/conversations", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("conversations: %d %s", rec.Code, text)
+		}
+		rows, _ := body["data"].([]any)
+		out := make([]map[string]any, 0, len(rows))
+		for _, r := range rows {
+			m, ok := r.(map[string]any)
+			if !ok {
+				t.Fatalf("conversation is not an object: %#v", r)
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+
+	plist := getList(p)
+	if len(plist) != 1 {
+		t.Fatalf("patient conversations = %d; want 1", len(plist))
+	}
+	itAssertKeys(t, plist[0], "user", "lastMessage", "lastMessageAt", "lastMessageFromMe", "unreadCount")
+	if plist[0]["lastMessage"] != "convo two" {
+		t.Fatalf("latest message = %v; want the doctor's reply", plist[0]["lastMessage"])
+	}
+	// The doctor's reply is unread for the patient; the patient's own
+	// message is read for the doctor.
+	if got, _ := plist[0]["unreadCount"].(float64); got != 1 {
+		t.Fatalf("patient unreadCount = %v; want 1", plist[0]["unreadCount"])
+	}
+	dlist := getList(d)
+	if len(dlist) != 1 {
+		t.Fatalf("doctor conversations = %d; want 1", len(dlist))
+	}
+	if dlist[0]["lastMessage"] != "convo two" {
+		t.Fatalf("doctor latest = %v; want own sent message", dlist[0]["lastMessage"])
+	}
+	// The patient's earlier message is still unread for the doctor, who
+	// never opened the thread; the latest message is the doctor's own.
+	if got, _ := dlist[0]["unreadCount"].(float64); got != 1 {
+		t.Fatalf("doctor unreadCount = %v; want 1", dlist[0]["unreadCount"])
+	}
+}
+
 func TestIntegrationResponseShapes(t *testing.T) {
 	s := newIntegrationServer(t)
 	email := uniqueEmail(t)

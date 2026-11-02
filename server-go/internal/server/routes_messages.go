@@ -385,11 +385,20 @@ func (s *Server) msgCanChat(ctx context.Context, actorID, otherUserID string) (b
 
 func (s *Server) handleMsgConversations(w http.ResponseWriter, r *http.Request) {
 	user := CurrentUser(r)
+	// Two directional legs instead of one two-sided OR: the OR defeated
+	// both composite indexes and filesorted the whole mailbox on every
+	// 30s poll. Each leg is a bounded covering lookup on its own
+	// (senderId, createdAt) / (receiverId, createdAt) prefix; the outer
+	// ORDER BY restores global newest-first so the Go merge below still
+	// sees each counterpart's latest message first.
+	leg := "SELECT m.senderId, m.receiverId, m.content, m.attachmentUrl, m.deletedAt, m.isRead, m.createdAt, " +
+		"su.id, su.name, su.avatar, su.role, ru.id, ru.name, ru.avatar, ru.role " +
+		"FROM `Message` m JOIN `User` su ON su.id = m.senderId JOIN `User` ru ON ru.id = m.receiverId "
 	rows, err := s.DB.QueryContext(r.Context(),
-		"SELECT m.senderId, m.receiverId, m.content, m.attachmentUrl, m.deletedAt, m.isRead, m.createdAt, "+
-			"su.id, su.name, su.avatar, su.role, ru.id, ru.name, ru.avatar, ru.role "+
-			"FROM `Message` m JOIN `User` su ON su.id = m.senderId JOIN `User` ru ON ru.id = m.receiverId "+
-			"WHERE m.senderId = ? OR m.receiverId = ? ORDER BY m.createdAt DESC LIMIT 500",
+		"("+leg+"WHERE m.senderId = ? ORDER BY m.createdAt DESC LIMIT 500) "+
+			"UNION ALL "+
+			"("+leg+"WHERE m.receiverId = ? ORDER BY m.createdAt DESC LIMIT 500) "+
+			"ORDER BY createdAt DESC",
 		user.ID, user.ID)
 	if err != nil {
 		s.msgRespondError(w, r, err, http.StatusInternalServerError, "Failed to fetch conversations.")

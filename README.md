@@ -89,7 +89,7 @@ build. [CONTRIBUTING.md](CONTRIBUTING.md) has the commands.
 
 | Gate | What it caught |
 |---|---|
-| **Schema drift is a build failure.** The database is built from all 20 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
+| **Schema drift is a build failure.** The database is built from all 21 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
 | **The realtime contract is pinned on both sides.** `server-realtime/hub/*_test.go` pins the JWT claims, the origin allowlist and the event envelope; the browser suite drives the REST side that publishes those events. One contract, checked where it is implemented. | Drift between the Go event table, the TypeScript event union and the client fan-out. The old cross-language test died with the Node tree; the Go hub tests and the twelve journeys hold the same boundary now. |
 | **Documented numbers are checked against the tree.** `scripts/check-numbers.js` re-derives every count quoted in the documentation and fails the build on a disagreement. | Fifteen counts that drifted after a previous pass corrected them all: a stale test count in two CI comments, a per-file table summing to 415 under a heading that said 427, a badge reading a version no manifest pinned. |
 
@@ -111,9 +111,9 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **48,139** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,852 migration SQL, 25,601 Go |
-| **133** | API routes · **28** tables · **20** migrations |
-| **138** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
+| **48,159** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,863 migration SQL, 25,610 Go |
+| **133** | API routes · **28** tables · **21** migrations |
+| **139** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by
@@ -183,7 +183,7 @@ MindEase/
 │  ├─ internal/config/  env loading with the production guards
 │  ├─ internal/db/      pool and DSN parsing
 │  ├─ internal/migrate/ embedded runner, baselined against Prisma's table
-│  └─ migrations/       20 hand-written MySQL migrations, embedded at build time
+│  └─ migrations/       21 hand-written MySQL migrations, embedded at build time
 ├─ client/              Next.js 16 App Router, React 19, next-intl
 │  ├─ app/              36 pages; every authenticated one is a client component
 │  ├─ components/       55 components
