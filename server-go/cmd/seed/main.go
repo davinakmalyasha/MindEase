@@ -89,48 +89,37 @@ func main() {
 		if err != nil {
 			fatal(logger, "seed doctor user", err)
 		}
-		if !created {
-			continue
-		}
 
-		doctorID := newID()
-		availability := "Available"
-		if i%3 == 0 {
-			availability = "Busy"
-		}
-		now := time.Now().UTC()
-		// `rating` and `totalReviews` stay at their defaults deliberately: demo
-		// data must not invent a rating for a clinician who has no reviews.
-		if _, err := pool.ExecContext(ctx,
-			"INSERT INTO `Doctor` (id, userId, specialty, bio, experience, price, availability, verificationStatus, "+
-				"licenseNumber, licenseIssuer, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-			doctorID, userID, specialties[i], bios[i], 3+(i%12), 150000+i*75000,
-			availability, "approved", fmt.Sprintf("STR-DEMO-%d", 100000+i), "Demo Psychology Board", now, now,
-		); err != nil {
-			fatal(logger, "seed doctor profile", err)
-		}
-
-		// Open slots for the next seven days: three consecutive hours starting
-		// at 08:00 + (i mod 6), the window the booking journey selects from.
-		startHour := 8 + (i % 6)
-		today := time.Now().In(seedLocation)
-		for day := 1; day <= 7; day++ {
-			// Anchored at UTC midnight of the WIB calendar day rather than WIB
-			// midnight. The client groups and submits the *browser's* local day
-			// and the API compares it to the WIB day; WIB midnight is 17:00Z the
-			// day before, which a browser running UTC reads as a different date,
-			// so every booking from a UTC browser failed the slot-date check.
-			// 00:00Z is 07:00 WIB, so UTC and WIB readers agree on the day.
-			// (The old host-UTC seed produced this anchor by accident.)
-			date := time.Date(today.Year(), today.Month(), today.Day()+day, 0, 0, 0, 0, time.UTC)
-			for hour := startHour; hour < startHour+3; hour++ {
-				if _, err := pool.ExecContext(ctx,
-					"INSERT INTO `ConsultationSlot` (id, doctorId, date, startTime, endTime, isBooked) VALUES (?,?,?,?,?,?)",
-					newID(), doctorID, date, fmt.Sprintf("%02d:00", hour), fmt.Sprintf("%02d:00", hour+1), false,
-				); err != nil {
-					fatal(logger, "seed slot", err)
-				}
+		var doctorID string
+		if created {
+			doctorID = newID()
+			availability := "Available"
+			if i%3 == 0 {
+				availability = "Busy"
 			}
+			now := time.Now().UTC()
+			// `rating` and `totalReviews` stay at their defaults deliberately: demo
+			// data must not invent a rating for a clinician who has no reviews.
+			if _, err := pool.ExecContext(ctx,
+				"INSERT INTO `Doctor` (id, userId, specialty, bio, experience, price, availability, verificationStatus, "+
+					"licenseNumber, licenseIssuer, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+				doctorID, userID, specialties[i], bios[i], 3+(i%12), 150000+i*75000,
+				availability, "approved", fmt.Sprintf("STR-DEMO-%d", 100000+i), "Demo Psychology Board", now, now,
+			); err != nil {
+				fatal(logger, "seed doctor profile", err)
+			}
+		} else {
+			// The account already exists. Re-use its doctor profile rather than
+			// skipping the whole iteration, because the slot top-up below must
+			// still run - see the comment on seedDoctorSlots.
+			if err := pool.QueryRowContext(ctx,
+				"SELECT id FROM `Doctor` WHERE userId = ?", userID).Scan(&doctorID); err != nil {
+				fatal(logger, "seed doctor lookup", err)
+			}
+		}
+
+		if err := seedDoctorSlots(ctx, pool, doctorID, startHours[i]); err != nil {
+			fatal(logger, "seed slots", err)
 		}
 		logger.Info("doctor ready", "name", name, "specialty", specialties[i])
 	}
@@ -149,8 +138,55 @@ func main() {
 	fmt.Println("  dr1@mindease.app ... dr8@mindease.app / Doctor@123")
 }
 
-func seedMoods(ctx context.Context, pool *sql.DB, logger *slog.Logger, patientID string) error {
-	var count int
+// startHours is the per-doctor first slot hour: 08:00 + (i mod 6), the window
+// the booking journey selects from.
+var startHours = []int{8, 9, 10, 11, 12, 13, 8, 9}
+
+// seedDoctorSlots tops up the next seven days of open slots for one clinician.
+//
+// ## Why this is separate from profile creation, and idempotent
+//
+// The seed used to create slots only inside the `created` branch, so a second
+// `db:seed` on an existing database changed nothing. Seven days after the first
+// seed the window had passed and the demo could not book an appointment at all
+// - on exactly the machine a reviewer would try it on. Re-running the seed is
+// the documented repair for demo data, so it has to work.
+//
+// Each (doctor, date, startTime) is inserted only when absent, so re-running is
+// safe and does not duplicate slots or disturb bookings already made.
+func seedDoctorSlots(ctx context.Context, pool *sql.DB, doctorID string, startHour int) error {
+	today := time.Now().In(seedLocation)
+	for day := 1; day <= 7; day++ {
+		// Anchored at UTC midnight of the WIB calendar day rather than WIB
+		// midnight. The client groups and submits the *browser's* local day and
+		// the API compares it to the WIB day; WIB midnight is 17:00Z the day
+		// before, which a browser running UTC reads as a different date, so every
+		// booking from a UTC browser failed the slot-date check. 00:00Z is
+		// 07:00 WIB, so UTC and WIB readers agree on the day.
+		date := time.Date(today.Year(), today.Month(), today.Day()+day, 0, 0, 0, 0, time.UTC)
+		for hour := startHour; hour < startHour+3; hour++ {
+			start := fmt.Sprintf("%02d:00", hour)
+			var exists int
+			if err := pool.QueryRowContext(ctx,
+				"SELECT COUNT(*) FROM `ConsultationSlot` WHERE doctorId = ? AND date = ? AND startTime = ?",
+				doctorID, date, start).Scan(&exists); err != nil {
+				return err
+			}
+			if exists > 0 {
+				continue
+			}
+			if _, err := pool.ExecContext(ctx,
+				"INSERT INTO `ConsultationSlot` (id, doctorId, date, startTime, endTime, isBooked) VALUES (?,?,?,?,?,?)",
+				newID(), doctorID, date, start, fmt.Sprintf("%02d:00", hour+1), false,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func seedMoods(ctx context.Context, pool *sql.DB, logger *slog.Logger, patientID string) error {	var count int
 	if err := pool.QueryRowContext(ctx, "SELECT COUNT(*) FROM `MoodEntry` WHERE userId = ?", patientID).Scan(&count); err != nil {
 		return err
 	}
