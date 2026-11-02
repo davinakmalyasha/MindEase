@@ -117,7 +117,9 @@ async function login(page: Page, email: string, password: string) {
     await page.goto("/login");
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Sign In" }).click();
+    // Form-scoped: the navbar has its own "Sign in" button, so a page-level
+    // name lookup matches two elements and fails strict mode.
+    await page.locator("form").getByRole("button", { name: /sign in/i }).click();
 
     // Wait for the post-login navigation to settle before returning.
     //
@@ -281,6 +283,24 @@ test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", (
         await page.goto("/dashboard/doctor/schedule");
         await expect(page.getByText(/Weekly Pattern/)).toBeVisible({ timeout: 15_000 });
 
+        // The endpoint rejects overlapping patterns for the same weekday, so a
+        // fixed "Thursday 15:00" collides on the second run against a database
+        // that was not reseeded. Pick a weekday with no active pattern yet, and
+        // delete the pattern at the end, so the journey is rerun-safe.
+        //
+        // Absolute API origin on purpose: `page.request.get("/api/...")` resolves
+        // against the web baseURL (Next.js) and returns its HTML 404, which reads
+        // as "no patterns" or a failed assertion rather than as a wrong host.
+        const existing = await page.request.get(`${API}/doctors/patterns`);
+        expect(existing.ok(), `patterns fetch: ${existing.status()}`).toBeTruthy();
+        const body = await existing.json();
+        const rows = body.data?.rows ?? body.data ?? [];
+        const used = new Set<number>(rows.map((p: any) => Number(p.weekday)));
+        const labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        const freeIndex = labels.findIndex((_, i) => !used.has(i));
+        expect(freeIndex, "every weekday already has a pattern; reseed or delete one").toBeGreaterThanOrEqual(0);
+        const weekdayLabel = labels[freeIndex];
+
         // By label, not by position.
         //
         // `page.locator('input[type="time"]').nth(0)` and `.nth(1)` were the first
@@ -290,12 +310,17 @@ test.describe("Journey 5: Doctor accepts, completes and suggests a follow-up", (
         // could not arrive. The fields had no `id` or `htmlFor` at all, which is
         // also what made them position-only: unlabelled inputs announce nothing
         // useful to a screen reader.
-        await page.getByLabel("Day").selectOption({ label: "Thursday" });
+        await page.getByLabel("Day").selectOption({ label: weekdayLabel });
         await page.getByLabel("Start").fill("15:00");
         await page.getByLabel("End").fill("16:00");
         await page.getByRole("button", { name: /Create Pattern/ }).click();
         await expect(page.getByText(/Pattern created/)).toBeVisible({ timeout: 15_000 });
         await expect(page.getByText(/Active patterns/)).toBeVisible();
+
+        // Leave the database as it was: delete the row just created.
+        const createdRow = page.locator("div", { hasText: weekdayLabel }).filter({ has: page.locator('button[title="Delete pattern"]') }).last();
+        await createdRow.locator('button[title="Delete pattern"]').click();
+        await expect(page.getByText(/Pattern created/)).toHaveCount(0, { timeout: 10_000 });
     });
 });
 
@@ -364,24 +389,25 @@ test.describe("Journey 8: Admin moderation + exports (round 3)", () => {
 });
 
 test.describe("Journey 9: Chat smoke (round 3)", () => {
-    test.use({ storageState: ".auth/patient.json" });
-
-    test("messages page renders with search and attachments", async ({ page }) => {
+    // A freshly registered patient, not the seeded one: the seeded account
+    // accumulates appointments and messages from other journeys, which turns
+    // "no conversations yet" into a false failure. A new account has no
+    // confirmed appointment, so the empty state is the honest assertion.
+    test("messages page renders its empty state for a new patient", async ({ page }) => {
+        await registerUser(page, "patient");
         await page.goto("/messages");
         await expect(page.getByText(/Messages/).first()).toBeVisible({ timeout: 15_000 });
 
-        // The seed creates no messages, and the search box and composer are part
-        // of the conversation panel - so they cannot render here. This asserted
-        // both placeholders, which is unreachable against a seeded database: the
-        // seeded patient has no conversation, and a conversation requires a
-        // confirmed appointment (`canChat`), which the seed does not create
-        // either.
+        // The seed creates no messages, and this account has no appointment, so
+        // no conversation is possible: `canChat` requires a confirmed or
+        // completed appointment. The composer is exercised for real in Journey
+        // 10, which builds that appointment and sends a message through it.
         //
-        // So this asserts the empty state, which is what the seed actually
-        // produces. The composer is exercised for real in Journey 10, which
-        // builds the confirmed appointment the gate (`canChat`) requires and
-        // sends a message through the thread.
-        await expect(page.getByText(/No conversations yet/i)).toBeVisible();
+        // 15s, not the default 5s: this is the first visit to /messages, so the
+        // dev server compiles the route while the assertion waits. It was the
+        // route's cold compile - not a missing empty state - that failed this on
+        // the first real run.
+        await expect(page.getByText(/No conversations yet/i)).toBeVisible({ timeout: 15_000 });
     });
 });
 

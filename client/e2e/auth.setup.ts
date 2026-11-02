@@ -40,7 +40,11 @@ for (const role of ROLES) {
         await page.goto("/login");
         await page.getByLabel("Email").fill(role.email);
         await page.getByLabel("Password").fill(role.password);
-        await page.getByRole("button", { name: "Sign In" }).click();
+        // Scoped to the form: the navbar also renders a "Sign in" control, so an
+        // unscoped name lookup is a strict-mode violation (two matches). The
+        // suite only ever ran against a navbar that had no sign-in button, which
+        // is why this surfaced on the first real execution rather than in review.
+        await page.locator("form").getByRole("button", { name: /sign in/i }).click();
 
         // Waits for the post-login navigation, which the app performs with
         // `window.location.href`. Returning before it settles is what made the
