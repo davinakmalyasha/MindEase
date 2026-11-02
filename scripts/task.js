@@ -31,6 +31,7 @@ const REALTIME = path.join(ROOT, "server-realtime");
 
 const isWin = process.platform === "win32";
 const npmCmd = isWin ? "npm.cmd" : "npm";
+const npxCmd = isWin ? "npx.cmd" : "npx";
 
 // ---------------------------------------------------------------- helpers ----
 
@@ -286,7 +287,7 @@ const tasks = {
     typecheck: {
         description: "Typecheck the client",
         run() {
-            run("npx", ["tsc", "--noEmit"], { cwd: CLIENT });
+            run(npxCmd, ["tsc", "--noEmit"], { cwd: CLIENT });
         },
     },
 
@@ -338,12 +339,12 @@ const tasks = {
         description: "Every static gate (no database or browser needed)",
         run() {
             const gates = [
-                ["typecheck", "lint"],
-                ["check:encoding", "check:workflows", "check:a11y-ids", "check:csp"],
-                ["check:i18n", "check:a11y", "check:load-states", "check:stale-writes"],
-                ["check:ui-hygiene", "check:dependencies", "check:numbers"],
+                "typecheck", "lint",
+                "check:encoding", "check:workflows", "check:a11y-ids", "check:csp",
+                "check:i18n", "check:a11y", "check:load-states", "check:stale-writes",
+                "check:ui-hygiene", "check:dependencies", "check:numbers",
             ];
-            for (const group of gates) for (const g of group) tasks["check:" + g.replace("check:", "")].run();
+            for (const g of gates) tasks[g].run();
         },
     },
 
@@ -438,7 +439,7 @@ const tasks = {
     e2e: {
         description: "Playwright journeys against the running stack",
         run() {
-            run("npx", ["playwright", "test"], { cwd: CLIENT });
+            run(npxCmd, ["playwright", "test"], { cwd: CLIENT });
         },
     },
 
