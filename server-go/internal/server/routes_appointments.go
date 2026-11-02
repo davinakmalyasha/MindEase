@@ -629,25 +629,25 @@ func (s *Server) apptByID(ctx context.Context, id string) (*apptRow, error) {
 	return row, nil
 }
 
-// apptDoctorAllowlist is the same field allowlist doctor.service.ts uses for
-// the public profile: every Doctor scalar except the bank and license columns,
-// plus a restricted user.
+// apptDoctorAllowlist is the patient-facing doctor include: public profile
+// fields only. License numbers and bank columns are never exposed here;
+// the admin list uses apptDoctorFullRow instead.
 func (s *Server) apptDoctorAllowlist(ctx context.Context, doctorID string) (map[string]any, error) {
 	var (
 		id, specialty, bio, availability, verificationStatus string
 		experience, totalReviews, price                      int
 		rating                                               float64
-		licenseNumber, licenseIssuer                         *string
+		licenseIssuer                                        *string
 		awayUntil                                            *time.Time
 		userID                                               string
 		name, avatar, phone                                  *string
 	)
 	err := s.DB.QueryRowContext(ctx,
 		"SELECT d.id, d.specialty, d.bio, d.experience, d.rating, d.totalReviews, d.price, d.availability, "+
-			"d.verificationStatus, d.licenseNumber, d.licenseIssuer, d.awayUntil, u.id, u.name, u.avatar, u.phone_number "+
+			"d.verificationStatus, d.licenseIssuer, d.awayUntil, u.id, u.name, u.avatar, u.phone_number "+
 			"FROM `Doctor` d JOIN `User` u ON u.id = d.userId WHERE d.id = ?", doctorID).
 		Scan(&id, &specialty, &bio, &experience, &rating, &totalReviews, &price, &availability,
-			&verificationStatus, &licenseNumber, &licenseIssuer, &awayUntil, &userID, &name, &avatar, &phone)
+			&verificationStatus, &licenseIssuer, &awayUntil, &userID, &name, &avatar, &phone)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -664,7 +664,6 @@ func (s *Server) apptDoctorAllowlist(ctx context.Context, doctorID string) (map[
 		"price":              price,
 		"availability":       availability,
 		"verificationStatus": verificationStatus,
-		"licenseNumber":      licenseNumber,
 		"licenseIssuer":      licenseIssuer,
 		"awayUntil":          jsTime(awayUntil),
 		"user": map[string]any{

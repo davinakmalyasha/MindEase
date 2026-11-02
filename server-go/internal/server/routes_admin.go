@@ -228,6 +228,21 @@ func adminJsIntOr(value string, fallback int) int {
 	return fallback
 }
 
+// adminClampPage clamps pagination so negative page/limit cannot produce a
+// negative OFFSET/LIMIT 500. Callers pass their own defaults and ceilings.
+func adminClampPage(page, limit, fallbackLimit, maxLimit int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = fallbackLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	return page, limit
+}
+
 // adminSanitize ports utils/sanitize.ts: trim, strip every tag, cap at 4000
 // UTF-16 code units. s.Sanitizer is the port's UGC policy, so a second
 // strip-tags pass reproduces the Node `allowedTags: []` output exactly.
@@ -520,9 +535,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	page := adminJsIntOr(query.Get("page"), 1)
 	limit := adminJsIntOr(query.Get("limit"), 10)
-	if limit > 50 {
-		limit = 50
-	}
+	page, limit = adminClampPage(page, limit, 10, 50)
 	search := strings.TrimSpace(query.Get("search"))
 	role := query.Get("role")
 	skip := (page - 1) * limit
@@ -756,9 +769,7 @@ func (s *Server) handleAdminDoctorApplications(w http.ResponseWriter, r *http.Re
 	query := r.URL.Query()
 	page := adminJsIntOr(query.Get("page"), 1)
 	limit := adminJsIntOr(query.Get("limit"), 20)
-	if limit > 50 {
-		limit = 50
-	}
+	page, limit = adminClampPage(page, limit, 20, 50)
 	status := query.Get("status")
 	if status == "" {
 		status = "pending"
@@ -1011,9 +1022,7 @@ func (s *Server) handleAdminAuditLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	page := adminJsIntOr(query.Get("page"), 1)
 	limit := adminJsIntOr(query.Get("limit"), 20)
-	if limit > 50 {
-		limit = 50
-	}
+	page, limit = adminClampPage(page, limit, 20, 50)
 	skip := (page - 1) * limit
 
 	rows, err := s.DB.QueryContext(ctx,
@@ -1169,9 +1178,7 @@ func (s *Server) handleAdminReviewReports(w http.ResponseWriter, r *http.Request
 	query := r.URL.Query()
 	page := adminJsIntOr(query.Get("page"), 1)
 	limit := adminJsIntOr(query.Get("limit"), 20)
-	if limit > 50 {
-		limit = 50
-	}
+	page, limit = adminClampPage(page, limit, 20, 50)
 	status := query.Get("status")
 	if status == "" {
 		status = "open"
@@ -1403,17 +1410,19 @@ func adminJSNullable(p *string) string {
 }
 
 // adminCSVEscape is the controller's `escape`: quote when the value contains
-// a quote, a comma or a newline, doubling embedded quotes. Cells starting
-// with =,+,-,@,tab,CR are prefixed with a single quote so Excel/LibreOffice
-// do not evaluate patient-controlled text as a formula (OWASP CSV injection).
+// a quote, a comma or a newline, doubling embedded quotes. Cells whose first
+// non-space/tab character is =,+,-,@,tab,CR are prefixed with a single quote
+// so Excel/LibreOffice do not evaluate patient-controlled text as a formula
+// (OWASP CSV injection).
 func adminCSVEscape(v string) string {
-	if len(v) > 0 {
-		switch v[0] {
+	trimmed := strings.TrimLeft(v, " \t")
+	if len(trimmed) > 0 {
+		switch trimmed[0] {
 		case '=', '+', '-', '@', '\t', '\r':
 			v = "'" + v
 		}
 	}
-	if strings.ContainsAny(v, "\",\n") {
+	if strings.ContainsAny(v, "\",\n\r") {
 		return `"` + strings.ReplaceAll(v, `"`, `""`) + `"`
 	}
 	return v

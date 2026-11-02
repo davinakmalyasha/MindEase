@@ -72,6 +72,10 @@ func (s *Server) pushSend(ctx context.Context, userID, title, body, url string) 
 		Urgency:         webpush.UrgencyNormal,
 	}
 	for _, one := range subscriptions {
+		if !pushEndpointAllowed(one.endpoint) {
+			s.Log.Warn("push: skipping non-public endpoint", "userId", userID)
+			continue
+		}
 		response, err := webpush.SendNotification(payload, &webpush.Subscription{
 			Endpoint: one.endpoint,
 			Keys:     webpush.Keys{P256dh: one.p256dh, Auth: one.auth},

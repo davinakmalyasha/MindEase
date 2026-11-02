@@ -66,10 +66,12 @@ func (s *Server) saveUpload(ctx context.Context, name string, data []byte) (stri
 		contentType = "application/octet-stream"
 	}
 	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(name),
-		Body:        bytes.NewReader(data),
-		ContentType: aws.String(contentType),
+		Bucket:             aws.String(bucket),
+		Key:                aws.String(name),
+		Body:               bytes.NewReader(data),
+		ContentType:        aws.String(contentType),
+		ContentDisposition: aws.String("attachment"),
+		CacheControl:       aws.String("no-store"),
 	}); err != nil {
 		return "", err
 	}

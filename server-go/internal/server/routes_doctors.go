@@ -794,6 +794,9 @@ func (s *Server) doctorsGetAll(w http.ResponseWriter, r *http.Request) {
 	if v, ok := doctorsParseInt(q.Get("limit")); ok && v != 0 {
 		limit = v
 	}
+	if page < 1 {
+		page = 1
+	}
 	if limit > 50 {
 		limit = 50
 	}
@@ -1005,7 +1008,6 @@ func (s *Server) doctorsGetByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		licenseNumber sql.NullString
 		licenseIssuer sql.NullString
 		languages     sql.NullString
 		education     sql.NullString
@@ -1015,13 +1017,13 @@ func (s *Server) doctorsGetByID(w http.ResponseWriter, r *http.Request) {
 	)
 	err = s.DB.QueryRowContext(ctx,
 		"SELECT d.id, d.specialty, d.bio, d.experience, d.price, d.rating, d.totalReviews, "+
-			"d.licenseNumber, d.licenseIssuer, d.languages, d.education, d.verificationStatus, d.availability, "+
+			"d.licenseIssuer, d.languages, d.education, d.verificationStatus, d.availability, "+
 			"u.id, u.name, u.avatar, "+
 			"(SELECT COUNT(*) FROM `Review` r WHERE r.doctorId = d.id AND r.hidden = FALSE) "+
 			"FROM `Doctor` d JOIN `User` u ON u.id = d.userId "+
 			"WHERE d.id = ? AND d.verificationStatus = 'approved'", id).
 		Scan(&detail.ID, &detail.Specialty, &detail.Bio, &detail.Experience, &detail.Price, &detail.Rating,
-			&detail.TotalReviews, &licenseNumber, &licenseIssuer, &languages, &education,
+			&detail.TotalReviews, &licenseIssuer, &languages, &education,
 			&detail.VerificationStatus, &detail.Availability, &detail.User.ID, &name, &avatar, &reviewCount)
 	if err == sql.ErrNoRows {
 		s.Fail(w, http.StatusNotFound, "Doctor not found")
@@ -1031,7 +1033,7 @@ func (s *Server) doctorsGetByID(w http.ResponseWriter, r *http.Request) {
 		s.doctorsFail(w, r, err, http.StatusInternalServerError, "Something went wrong. Please try again.")
 		return
 	}
-	detail.LicenseNumber = doctorsNullStr(licenseNumber)
+	detail.LicenseNumber = nil
 	detail.LicenseIssuer = doctorsNullStr(licenseIssuer)
 	detail.Languages = doctorsNullStr(languages)
 	detail.Education = doctorsNullStr(education)

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,9 +17,11 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// pushEndpointAllowed rejects non-HTTPS endpoints, credentials in URL,
-// and hosts that resolve to private/loopback ranges by shape (exact IP
-// check happens at send time). Web-push endpoints are always public HTTPS.
+// pushEndpointAllowed rejects non-HTTPS endpoints, credentials in URL, and
+// private/loopback/link-local/multicast/reserved hosts. Web-push endpoints
+// are always public HTTPS. Literal IPs are checked with net.ParseIP plus
+// decimal/octal/hex single-integer forms; hostnames matching localhost or
+// private suffixes are rejected without DNS.
 func pushEndpointAllowed(endpoint string) bool {
 	u, err := url.Parse(endpoint)
 	if err != nil {
@@ -26,13 +30,85 @@ func pushEndpointAllowed(endpoint string) bool {
 	if u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" ||
-		strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") ||
-		strings.HasPrefix(host, "169.254.") {
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" || strings.Contains(host, " ") || strings.Contains(host, "@") {
+		return false
+	}
+	if host == "localhost" || host == "localhost.localdomain" {
+		return false
+	}
+	if strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") ||
+		strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".lan") {
+		return false
+	}
+	if ip := parsePushIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsMulticast() ||
+			ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return false
+		}
+		return true
+	}
+	// Hostname with port-like numeric trickery or missing dot is suspect
+	// (single-label hostnames never serve web-push).
+	if !strings.Contains(host, ".") && !strings.Contains(host, ":") {
 		return false
 	}
 	return true
+}
+
+// parsePushIP parses dotted decimal, single decimal integer (2130706433),
+// and 0x-hex / 0-octal forms that url.Hostname leaves as strings.
+func parsePushIP(host string) net.IP {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip
+	}
+	cleaned := strings.Trim(host, "[]")
+	if cleaned == "" {
+		return nil
+	}
+	if n, err := strconv.ParseUint(cleaned, 0, 32); err == nil {
+		return net.IPv4(byte(n>>24), byte(n>>16), byte(n>>8), byte(n))
+	}
+	parts := strings.Split(cleaned, ".")
+	if len(parts) < 2 || len(parts) > 4 {
+		return nil
+	}
+	nums := make([]uint64, len(parts))
+	for i, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" {
+			return nil
+		}
+		v, err := strconv.ParseUint(p, 0, 32)
+		if err != nil || v > 255 {
+			return nil
+		}
+		nums[i] = v
+	}
+	var b [4]byte
+	switch len(nums) {
+	case 2:
+		if nums[1] > 0xFFFFFF {
+			return nil
+		}
+		b[0] = byte(nums[0])
+		b[1] = byte(nums[1] >> 16)
+		b[2] = byte(nums[1] >> 8)
+		b[3] = byte(nums[1])
+	case 3:
+		if nums[2] > 0xFFFF {
+			return nil
+		}
+		b[0] = byte(nums[0])
+		b[1] = byte(nums[1])
+		b[2] = byte(nums[2] >> 8)
+		b[3] = byte(nums[2])
+	default:
+		for i := 0; i < 4; i++ {
+			b[i] = byte(nums[i])
+		}
+	}
+	return net.IPv4(b[0], b[1], b[2], b[3])
 }
 
 // registerPush ports routes/push.routes.ts and the registration half of
@@ -40,11 +116,18 @@ func pushEndpointAllowed(endpoint string) bool {
 // is deliberately not ported: the Go service stores and deletes subscriptions
 // and hands out the VAPID key, but never calls a push provider.
 func (s *Server) registerPush(api chi.Router) {
+	pushRate := s.limiter(rateLimitConfig{
+		name:           "push",
+		window:         10 * time.Minute,
+		max:            60,
+		skipSuccessful: false,
+		message:        "Too many push requests, please try again later",
+	})
 	api.Group(func(r chi.Router) {
 		r.Use(s.authenticate)
 		r.Get("/push/public-key", s.handlePushPublicKey)
-		r.Post("/push/subscribe", s.handlePushSubscribe)
-		r.Post("/push/unsubscribe", s.handlePushUnsubscribe)
+		r.With(pushRate).Post("/push/subscribe", s.handlePushSubscribe)
+		r.With(pushRate).Post("/push/unsubscribe", s.handlePushUnsubscribe)
 	})
 }
 
