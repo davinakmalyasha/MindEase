@@ -315,7 +315,7 @@ func (s *Server) handleReviewList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reviewList(ctx context.Context, doctorID string, limit, offset int) ([]map[string]any, int, error) {
 	rows, err := s.DB.QueryContext(ctx,
 		"SELECT id, rating, comment, reply, repliedAt, createdAt, userId FROM `Review` "+
-			"WHERE doctorId = ? AND hidden = false ORDER BY createdAt DESC LIMIT ? OFFSET ?",
+			"WHERE doctorId = ? AND hidden = false ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?",
 		doctorID, limit, offset)
 	if err != nil {
 		return nil, 0, err

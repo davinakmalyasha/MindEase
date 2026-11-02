@@ -1276,7 +1276,7 @@ func (s *Server) apptQueryRows(ctx context.Context, where string, args []any, sk
 	if where != "" {
 		query += where + " "
 	}
-	query += "ORDER BY appointmentDate DESC, startTime DESC LIMIT ? OFFSET ?"
+	query += "ORDER BY appointmentDate DESC, startTime DESC, id DESC LIMIT ? OFFSET ?"
 	args = append(args, take, skip)
 	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
