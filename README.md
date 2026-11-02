@@ -111,9 +111,9 @@ Numbers measured from the tree, not estimated.
 
 | | |
 |---|---|
-| **47,672** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,852 migration SQL, 25,134 Go |
+| **47,779** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,852 migration SQL, 25,241 Go |
 | **162** | API routes · **28** tables · **20** migrations |
-| **129** | Go tests in 19 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
+| **133** | Go tests in 20 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by
@@ -194,7 +194,7 @@ MindEase/
 ├─ server-realtime/     Go WebSocket hub. 32 tests with -race.
 ├─ perf/k6/             smoke, mixed-read load and two-process replica scripts
 ├─ docs/                architecture, data model, operations, testing, performance, scaling
-│  ├─ adr/              four records of decisions and what was rejected
+│  ├─ adr/              five records of decisions and what was rejected
 │  └─ roadmap.md        including what will never be built, and why
 ├─ scripts/             the repository's own gates; see below
 ├─ .github/workflows/   ci, cd, security — 17 jobs

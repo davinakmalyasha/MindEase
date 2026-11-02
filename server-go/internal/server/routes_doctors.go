@@ -333,8 +333,7 @@ func (s *Server) doctorsValidateSetAwayBody(w http.ResponseWriter, body map[stri
 
 // doctorsParseInt mirrors JavaScript's parseInt + `|| default`: leading
 // whitespace and a sign are consumed, parsing stops at the first non-digit.
-func doctorsParseInt(v string) (int, bool) {
-	i := 0
+func doctorsParseInt(v string) (int, bool) {	i := 0
 	for i < len(v) && (v[i] == ' ' || v[i] == '\t' || v[i] == '\n' || v[i] == '\r' || v[i] == '\f' || v[i] == '\v') {
 		i++
 	}
@@ -357,6 +356,15 @@ func doctorsParseInt(v string) (int, bool) {
 		return 0, false
 	}
 	return sign * n, true
+}
+
+// doctorsTotalPages guards the directory page math against take<=0 so a
+// direct call can never divide by zero; callers already clamp limit>=1.
+func doctorsTotalPages(total, take int) int {
+	if take <= 0 {
+		return 0
+	}
+	return (total + take - 1) / take
 }
 
 // doctorsParseNumber mirrors the controller's `num()`: empty and non-finite
@@ -928,7 +936,7 @@ func (s *Server) doctorsQueryDirectory(ctx context.Context, f doctorsDirectoryFi
 	}
 	defer rows.Close()
 
-	result := &doctorsDirectoryResult{Rows: []doctorsDirectoryRow{}, Total: total, Page: f.page, TotalPages: (total + take - 1) / take}
+	result := &doctorsDirectoryResult{Rows: []doctorsDirectoryRow{}, Total: total, Page: f.page, TotalPages: doctorsTotalPages(total, take)}
 	for rows.Next() {
 		var (
 			row         doctorsDirectoryRow

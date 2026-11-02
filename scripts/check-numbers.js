@@ -54,7 +54,7 @@ M.migrationSqlLines = () =>
         .filter((f) => f.endsWith(".up.sql"))
         .reduce((n, f) => n + lineCount(`server-go/migrations/${f}`), 0);
 
-/** Route registrations in domain files plus core endpoints (excludes Header.Get). */
+/** Route registrations in domain files plus core endpoints (excludes Header.Get/Header().Get). */
 M.routes = () => {
     const dir = "server-go/internal/server";
     const files = fs.readdirSync(path.join(ROOT, dir)).filter((f) => /^routes_.*\.go$/.test(f));
@@ -62,10 +62,10 @@ M.routes = () => {
     for (const f of files) {
         const src = read(`${dir}/${f}`);
         const matches = src.match(/\.(Get|Post|Put|Patch|Delete)\("/g) || [];
-        const headerFalse = (src.match(/\.Header\.Get\("/g) || []).length;
+        const headerFalse = (src.match(/\.Header(?:\(\))?\.Get\("/g) || []).length;
         n += matches.length - headerFalse;
     }
-    // Header.Get excluded false positives (e.g. r.Header.Get("Content-Type")).
+    // Header.Get/Header().Get excluded (e.g. r.Header.Get("Content-Type")).
     // server.go mounts 5 core endpoints, jobs.go mounts 1 internal trigger.
     return n + 6;
 };
@@ -148,7 +148,7 @@ function pkgVersion(rel, dep) {
 const bare = (v) => String(v).replace(/^[\^~>=<\s]*/, "").split(".").slice(0, 2).join(".");
 
 M.nextVersion = () => bare(pkgVersion("client/package.json", "next"));
-M.goVersion = () => (read("server-realtime/go.mod").match(/^go\s+(\S+)/m) || [, ""])[1];
+M.goVersion = () => (read("server-go/go.mod").match(/^go\s+(\S+)/m) || [, ""])[1];
 M.vitestClient = () => bare(pkgVersion("client/package.json", "vitest"));
 
 // --- claims ------------------------------------------------------------------
