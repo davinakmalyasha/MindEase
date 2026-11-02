@@ -30,7 +30,7 @@ The repo was close to done but its docs and a few guards lied: counts had drifte
 
 | Command | Exit | Summary |
 |---|---|---|
-| `node scripts/check-numbers.js` | 0 | 14 documented counts agree (162 routes, 28 tables, 20 migrations, 133 Go/20 files, 52 client/8, 12 tests in 11 journeys, total 47779) |
+| `node scripts/check-numbers.js` | 0 | 14 documented counts agree (133 routes, 28 tables, 20 migrations, 138 Go/20 files, 52 client/8, 12 tests in 11 journeys, total 48139) |
 | `node scripts/check-encoding.js` | 0 | no corrupted characters |
 | `node scripts/check-workflows.test.js && node scripts/check-workflows.js` | 0 | permissions/timeouts/pinned actions green |
 | `node scripts/check-a11y-ids.test.js && node scripts/check-a11y-ids.js` | 0 | no duplicate/orphaned ids, 96 tsx |
@@ -83,4 +83,4 @@ Note: Go commands require `env -u GOROOT` here because the shell exports `GOROOT
 
 Round 1 (independent auditor, full lanes): 8/8 claimed fixes held except push SSRF partial (172.16/12, 127/8, 0.0.0.0, IPv6, decimal/hex forms unblocked; send-time check missing). Fixed and re-pinned. New mediums found (license over-return, S3 headers, admin pagination, CSV ltrim/CR, push rate limit) — all fixed above.
 
-Round 2 (independent auditor, lanes D+E): claims verified — routes 162 excluding `Header.Get` TRUE; README 47771-as-total TRUE (file is 550 lines); admin clamp TRUE at 4 sites. No high findings; 3 low + 3 medium filed above (ADR four→five fixed, `Handle("/uploads/*")` clarified as non-API mount, `goVersion` source fixed to `server-go/go.mod`, `Header().Get` regex widened, `doctorsTotalPages` guard added with test, cache/pagination divergence deferred with reason).
+Round 2 (independent auditor, lanes D+E): claims verified — routes 162 excluding `Header.Get` TRUE as then-measured (later corrected to 133 true registrations; the first auditor's strict count was right and the 162-preserving fix was wrong — see commit `b2218eb`); README-as-total TRUE; admin clamp TRUE at 4 sites. No high findings; 3 low + 3 medium filed above (ADR four→five fixed, `Handle("/uploads/*")` clarified as non-API mount, `goVersion` source fixed to `server-go/go.mod`, `Header().Get` regex widened, `doctorsTotalPages` guard added with test, cache/pagination divergence deferred with reason).
