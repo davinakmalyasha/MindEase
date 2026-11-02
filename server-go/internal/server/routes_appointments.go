@@ -629,6 +629,61 @@ func (s *Server) apptByID(ctx context.Context, id string) (*apptRow, error) {
 	return row, nil
 }
 
+// apptDoctorAllowlists batches the patient-facing doctor include for a page
+// of appointments: one joined `WHERE d.id IN (...)` instead of one query
+// per row. A missing doctor maps to nil, exactly as the single-row version.
+func (s *Server) apptDoctorAllowlists(ctx context.Context, doctorIDs []string) (map[string]map[string]any, error) {
+	out := make(map[string]map[string]any, len(doctorIDs))
+	if len(doctorIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(doctorIDs)), ",")
+	args := make([]any, len(doctorIDs))
+	for i, id := range doctorIDs {
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT d.id, d.specialty, d.bio, d.experience, d.rating, d.totalReviews, d.price, d.availability, "+
+			"d.verificationStatus, d.licenseIssuer, d.awayUntil, u.id, u.name, u.avatar, u.phone_number "+
+			"FROM `Doctor` d JOIN `User` u ON u.id = d.userId WHERE d.id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			id, specialty, bio, availability, verificationStatus string
+			experience, totalReviews, price                      int
+			rating                                               float64
+			licenseIssuer                                        *string
+			awayUntil                                            *time.Time
+			userID                                               string
+			name, avatar, phone                                  *string
+		)
+		if err := rows.Scan(&id, &specialty, &bio, &experience, &rating, &totalReviews, &price, &availability,
+			&verificationStatus, &licenseIssuer, &awayUntil, &userID, &name, &avatar, &phone); err != nil {
+			return nil, err
+		}
+		out[id] = map[string]any{
+			"id":                 id,
+			"specialty":          specialty,
+			"bio":                bio,
+			"experience":         experience,
+			"rating":             rating,
+			"totalReviews":       totalReviews,
+			"price":              price,
+			"availability":       availability,
+			"verificationStatus": verificationStatus,
+			"licenseIssuer":      licenseIssuer,
+			"awayUntil":          jsTime(awayUntil),
+			"user": map[string]any{
+				"id": userID, "name": name, "avatar": avatar, "phone_number": phone,
+			},
+		}
+	}
+	return out, rows.Err()
+}
+
 // apptDoctorAllowlist is the patient-facing doctor include: public profile
 // fields only. License numbers and bank columns are never exposed here;
 // the admin list uses apptDoctorFullRow instead.
@@ -675,12 +730,53 @@ func (s *Server) apptDoctorAllowlist(ctx context.Context, doctorID string) (map[
 // apptUserBrief is the appointment list's patient include:
 // `{ select: { id, name, avatar, phone_number } }`.
 func (s *Server) apptUserBrief(ctx context.Context, userID string) (map[string]any, error) {
-	var name, avatar, phone *string
-	err := s.DB.QueryRowContext(ctx, "SELECT name, avatar, phone_number FROM `User` WHERE id = ?", userID).Scan(&name, &avatar, &phone)
+	briefs, err := s.apptUserBriefs(ctx, []string{userID})
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": userID, "name": name, "avatar": avatar, "phone_number": phone}, nil
+	b, ok := briefs[userID]
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	return b, nil
+}
+
+// apptUserBriefs batches the patient include for a page of appointments: one
+// `WHERE id IN (...)` instead of one query per row. A missing row is an error,
+// exactly as the single-row version — appointments always have a user.
+func (s *Server) apptUserBriefs(ctx context.Context, userIDs []string) (map[string]map[string]any, error) {
+	out := make(map[string]map[string]any, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(userIDs)), ",")
+	args := make([]any, len(userIDs))
+	for i, id := range userIDs {
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT id, name, avatar, phone_number FROM `User` WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var name, avatar, phone *string
+		if err := rows.Scan(&id, &name, &avatar, &phone); err != nil {
+			return nil, err
+		}
+		out[id] = map[string]any{"id": id, "name": name, "avatar": avatar, "phone_number": phone}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range userIDs {
+		if _, ok := out[id]; !ok {
+			return nil, sql.ErrNoRows
+		}
+	}
+	return out, nil
 }
 
 const followUpColumns = "id, appointmentId, doctorId, suggestedDate, startTime, endTime, consultationType, notes, status, createdAt"
@@ -723,6 +819,35 @@ func (f *followUpRow) JSON() map[string]any {
 	}
 }
 
+// apptFollowUpJSONs batches the `followUp: true` include for a page of
+// appointments: one `WHERE appointmentId IN (...)` instead of one query per
+// row. Appointments without a suggestion map to nil, as before.
+func (s *Server) apptFollowUpJSONs(ctx context.Context, appointmentIDs []string) (map[string]any, error) {
+	out := make(map[string]any, len(appointmentIDs))
+	if len(appointmentIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(appointmentIDs)), ",")
+	args := make([]any, len(appointmentIDs))
+	for i, id := range appointmentIDs {
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT "+followUpColumns+" FROM `FollowUp` WHERE appointmentId IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		f, err := scanFollowUpRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[f.AppointmentID] = f.JSON()
+	}
+	return out, rows.Err()
+}
+
 // apptFollowUpJSON is the `followUp: true` include on an appointment: null
 // when there is no suggestion.
 func (s *Server) apptFollowUpJSON(ctx context.Context, appointmentID string) (any, error) {
@@ -735,6 +860,121 @@ func (s *Server) apptFollowUpJSON(ctx context.Context, appointmentID string) (an
 		return nil, err
 	}
 	return f.JSON(), nil
+}
+
+// apptDoctorFullRows batches the admin list's doctor include: one Doctor
+// `WHERE id IN (...)` plus one User name lookup instead of two queries per
+// row. A missing doctor maps to nil, as the single-row version.
+func (s *Server) apptDoctorFullRows(ctx context.Context, doctorIDs []string) (map[string]map[string]any, error) {
+	out := make(map[string]map[string]any, len(doctorIDs))
+	if len(doctorIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(doctorIDs)), ",")
+	args := make([]any, len(doctorIDs))
+	for i, id := range doctorIDs {
+		args[i] = id
+	}
+	type fullDoctor struct {
+		id, userID, specialty, bio, availability, verificationStatus string
+		experience, totalReviews, price                              int
+		rating                                                       float64
+		languages, education, bankName, bankAccount, bankHolder      *string
+		licenseNumber, licenseIssuer                                 *string
+		awayUntil                                                    *time.Time
+		createdAt, updatedAt                                         time.Time
+	}
+	byID := map[string]*fullDoctor{}
+	userIDs := make([]string, 0, len(doctorIDs))
+	seenUser := map[string]bool{}
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT id, userId, specialty, bio, experience, rating, totalReviews, languages, education, price, "+
+			"bankName, bankAccount, bankHolder, availability, verificationStatus, licenseNumber, licenseIssuer, "+
+			"awayUntil, createdAt, updatedAt FROM `Doctor` WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var d fullDoctor
+		if err := rows.Scan(&d.id, &d.userID, &d.specialty, &d.bio, &d.experience, &d.rating, &d.totalReviews,
+			&d.languages, &d.education, &d.price, &d.bankName, &d.bankAccount, &d.bankHolder, &d.availability,
+			&d.verificationStatus, &d.licenseNumber, &d.licenseIssuer, &d.awayUntil, &d.createdAt, &d.updatedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		cp := d
+		byID[d.id] = &cp
+		if !seenUser[d.userID] {
+			seenUser[d.userID] = true
+			userIDs = append(userIDs, d.userID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	names := map[string]*string{}
+	if len(userIDs) > 0 {
+		up := strings.TrimSuffix(strings.Repeat("?,", len(userIDs)), ",")
+		uargs := make([]any, len(userIDs))
+		for i, id := range userIDs {
+			uargs[i] = id
+		}
+		urows, err := s.DB.QueryContext(ctx,
+			"SELECT id, name FROM `User` WHERE id IN ("+up+")", uargs...)
+		if err != nil {
+			return nil, err
+		}
+		for urows.Next() {
+			var uid string
+			var name *string
+			if err := urows.Scan(&uid, &name); err != nil {
+				urows.Close()
+				return nil, err
+			}
+			names[uid] = name
+		}
+		if err := urows.Err(); err != nil {
+			urows.Close()
+			return nil, err
+		}
+		urows.Close()
+	}
+	for _, id := range doctorIDs {
+		d, ok := byID[id]
+		if !ok {
+			continue
+		}
+		name, ok := names[d.userID]
+		if !ok {
+			return nil, sql.ErrNoRows
+		}
+		out[id] = map[string]any{
+			"id":                 d.id,
+			"userId":             d.userID,
+			"specialty":          d.specialty,
+			"bio":                d.bio,
+			"experience":         d.experience,
+			"rating":             d.rating,
+			"totalReviews":       d.totalReviews,
+			"languages":          d.languages,
+			"education":          d.education,
+			"price":              d.price,
+			"bankName":           d.bankName,
+			"bankAccount":        d.bankAccount,
+			"bankHolder":         d.bankHolder,
+			"availability":       d.availability,
+			"verificationStatus": d.verificationStatus,
+			"licenseNumber":      d.licenseNumber,
+			"licenseIssuer":      d.licenseIssuer,
+			"awayUntil":          jsTime(d.awayUntil),
+			"createdAt":          jsTimeValue(d.createdAt),
+			"updatedAt":          jsTimeValue(d.updatedAt),
+			"user":               map[string]any{"name": name},
+		}
+	}
+	return out, nil
 }
 
 // apptDoctorFullRow is the admin list's doctor include: every Doctor scalar.
@@ -1187,18 +1427,28 @@ func (s *Server) apptGetMy(ctx context.Context, user *UserCtx, page, limit int) 
 			return nil, err
 		}
 		out := make([]map[string]any, 0, len(rows))
+		userIDs := make([]string, 0, len(rows))
+		apptIDs := make([]string, 0, len(rows))
+		for _, a := range rows {
+			userIDs = append(userIDs, a.UserID)
+			apptIDs = append(apptIDs, a.ID)
+		}
+		briefs, err := s.apptUserBriefs(ctx, userIDs)
+		if err != nil {
+			return nil, err
+		}
+		followUps, err := s.apptFollowUpJSONs(ctx, apptIDs)
+		if err != nil {
+			return nil, err
+		}
 		for _, a := range rows {
 			m := a.JSON()
-			patient, err := s.apptUserBrief(ctx, a.UserID)
-			if err != nil {
-				return nil, err
-			}
-			fu, err := s.apptFollowUpJSON(ctx, a.ID)
-			if err != nil {
-				return nil, err
+			patient, ok := briefs[a.UserID]
+			if !ok {
+				return nil, sql.ErrNoRows
 			}
 			m["user"] = patient
-			m["followUp"] = fu
+			m["followUp"] = followUps[a.ID]
 			out = append(out, m)
 		}
 		return apptListPayload(out, total, page, take), nil
@@ -1212,19 +1462,29 @@ func (s *Server) apptGetMy(ctx context.Context, user *UserCtx, page, limit int) 
 			return nil, err
 		}
 		out := make([]map[string]any, 0, len(rows))
+		userIDs := make([]string, 0, len(rows))
+		doctorIDs := make([]string, 0, len(rows))
+		for _, a := range rows {
+			userIDs = append(userIDs, a.UserID)
+			doctorIDs = append(doctorIDs, a.DoctorID)
+		}
+		briefs, err := s.apptUserBriefs(ctx, userIDs)
+		if err != nil {
+			return nil, err
+		}
+		docs, err := s.apptDoctorFullRows(ctx, doctorIDs)
+		if err != nil {
+			return nil, err
+		}
 		for _, a := range rows {
 			m := a.JSON()
-			u, err := s.apptUserBrief(ctx, a.UserID)
-			if err != nil {
-				return nil, err
+			u, ok := briefs[a.UserID]
+			if !ok {
+				return nil, sql.ErrNoRows
 			}
 			// Admin sees the patient's brief without the phone number.
 			m["user"] = map[string]any{"id": u["id"], "name": u["name"], "avatar": u["avatar"]}
-			doc, err := s.apptDoctorFullRow(ctx, a.DoctorID)
-			if err != nil {
-				return nil, err
-			}
-			m["doctor"] = doc
+			m["doctor"] = docs[a.DoctorID]
 			out = append(out, m)
 		}
 		return apptListPayload(out, total, page, take), nil
@@ -1238,18 +1498,24 @@ func (s *Server) apptGetMy(ctx context.Context, user *UserCtx, page, limit int) 
 		return nil, err
 	}
 	out := make([]map[string]any, 0, len(rows))
+	doctorIDs := make([]string, 0, len(rows))
+	apptIDs := make([]string, 0, len(rows))
+	for _, a := range rows {
+		doctorIDs = append(doctorIDs, a.DoctorID)
+		apptIDs = append(apptIDs, a.ID)
+	}
+	docs, err := s.apptDoctorAllowlists(ctx, doctorIDs)
+	if err != nil {
+		return nil, err
+	}
+	followUps, err := s.apptFollowUpJSONs(ctx, apptIDs)
+	if err != nil {
+		return nil, err
+	}
 	for _, a := range rows {
 		m := a.JSON()
-		doc, err := s.apptDoctorAllowlist(ctx, a.DoctorID)
-		if err != nil {
-			return nil, err
-		}
-		fu, err := s.apptFollowUpJSON(ctx, a.ID)
-		if err != nil {
-			return nil, err
-		}
-		m["doctor"] = doc
-		m["followUp"] = fu
+		m["doctor"] = docs[a.DoctorID]
+		m["followUp"] = followUps[a.ID]
 		out = append(out, m)
 	}
 	return apptListPayload(out, total, page, take), nil
