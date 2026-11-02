@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -147,6 +148,15 @@ func TestRateLimitMiddleware429AndHeaders(t *testing.T) {
 	}
 	if got := r3.Header().Get("RateLimit-Reset"); got == "" {
 		t.Fatal("RateLimit-Reset header missing on 429")
+	}
+	// RFC 9110 15.5.2: generic clients and proxies back off on Retry-After,
+	// not on the draft RateLimit-* fields. It must be a positive integer.
+	retryAfter := r3.Header().Get("Retry-After")
+	if retryAfter == "" {
+		t.Fatal("Retry-After header missing on 429")
+	}
+	if secs, err := strconv.Atoi(retryAfter); err != nil || secs <= 0 {
+		t.Fatalf("Retry-After = %q; want a positive integer", retryAfter)
 	}
 }
 

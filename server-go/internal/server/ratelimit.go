@@ -38,6 +38,11 @@ func (s *Server) limiter(cfg rateLimitConfig) func(http.Handler) http.Handler {
 			w.Header().Set("RateLimit-Remaining", fmt.Sprintf("%d", max(0, cfg.max-count)))
 			w.Header().Set("RateLimit-Reset", fmt.Sprintf("%d", reset))
 			if count > cfg.max {
+				// RFC 9110 15.5.2: a 429 carries Retry-After so a well-behaved
+				// client backs off instead of retrying into the same window.
+				// The RateLimit-* fields above describe the window; this is the
+				// one generic HTTP clients and proxies actually honour.
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", reset))
 				s.Fail(w, http.StatusTooManyRequests, cfg.message)
 				return
 			}
