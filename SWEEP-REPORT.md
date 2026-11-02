@@ -57,17 +57,26 @@ The repo was close to done but its docs and a few guards lied: counts had drifte
 | `env -u GOROOT go test -count=1 ./internal/config/ ./internal/db/ ./internal/ai/` | 0 | all ok |
 | `env -u GOROOT TEST_DATABASE_URL=mysql://root:@127.0.0.1:3306/mindease_test go test -count=1 -timeout 10m ./internal/server/` | 0 | ok 41–148s across runs (unit + 40+ integration: refresh, lockout, slot claim, join, ICS, reschedule, thread UNION ALL + cursor, conversations merge, stats shape, care versioning, reviews incl. `before` cursor, role guards, export, mood, UUID7, 2FA, reminders, reports, trajectory, admin exports) |
 | `env -u GOROOT go test -race -cover ./...` (server-realtime) | 0 | main 27.2%, hub 83.1% |
-| `docker compose up / make up / make e2e` | not run | no docker binary in this environment |
-| `make perf-smoke / perf-load` | not run | needs compose stack (no docker) |
-| fresh-clone `make setup && make up` | not run | no second machine/docker; `.env.example` + `make setup` path inspected only |
+| `npm run db:setup` (native MySQL + Redis, no Docker) | 0 | schema current at 20261103; seed created admin/patient/dr1-dr8 and refreshed 169 open slots in the next 7 days |
+| API `npm run dev:api` + `GET /api/health/db` | 0 | `{"db":"connected","schema":"ok","status":"ok","tables":28}` |
+| realtime `npm run dev:realtime` + `GET :8080/health` | 0 | `{"status":"ok","redisChannel":"mindease:events","dropped":{...0}}` |
+| web `WEB_PORT=3301 npm run dev:web` | 0 | `/` and `/login` 200; page title `MindEase - Mental Health Consultation Platform` |
+| `E2E_PORT=3301 npm run e2e` | 0 | **15 passed in 1.5m** — 3 cached sign-ins + all 12 journeys, including Journey 10's booking→review→reply→report→chat chain |
+| `npm run check` | 0 | 13 gates; all self-tests pass; 28 lint warnings, 0 errors; 14 counts agree |
+| `npm test` | 0 | 52 client tests, Go API + realtime (`-race`, 27.2%/83.1% coverage) |
+| `docker compose up` / `npm run up` | not run | no Docker on this machine; the native path above is the documented zero-install route |
+| `perf/k6` load runs | not run | k6 not installed; the compose `perf` profile is the only wiring |
+| fresh-clone `npm run setup` | partially | setup-env/deps run here, but not on a second machine from a clean clone |
 
 Note: Go commands require `env -u GOROOT` here because the shell exports `GOROOT=D:\laragon\bin\go\go1.27.0` while `go` is 1.26.5; with the stale GOROOT the 1.27.3 toolchain miscompiles stdlib. Unsetting recovers the installed toolchain.
+
+The native verification ran with MySQL 9.6 and Redis 8.10 from Laragon, `go run` for both Go services and `next dev` for the client — no containers. The Playwright config gained `E2E_PORT` because :3000 was occupied by an unrelated project on this machine; recordings below are from :3301.
 
 ## Deferred (item | severity | why | cost)
 
 - Deep-OFFSET keysets on admin lists (audit-logs, users, review-reports, appointments) | low | all clamped and safe; OFFSET caps bound worst case; no user impact at current scale | add optional `before` cursor per list like reviews ~2h + integration tests.
 - `GET /messages/contacts` unbounded join + in-Go dedup | low | smoke-tested empty path in e2e Journey 9; real chain covered by Journey 10; needs UNION ALL rewrite + test | ~3h with local MySQL.
-- E2E on fresh seeded stack | medium | needs docker; 12 tests in 11 journeys pinned by `check-numbers`, Journey 10 covers lifecycle | `make up && make e2e` on CI runner ~30min.
+- E2E inside the Docker/CI job | low | the suite now passes against a native stack (15/15); what remains unproven is the container build path itself | CI `docker` job already runs it after seed ~30min.
 
 ## Reviewer-visible delta
 
@@ -81,8 +90,9 @@ Note: Go commands require `env -u GOROOT` here because the shell exports `GOROOT
 
 ## What was not verified
 
-- Docker stack boot, seed, Playwright journeys, and k6 perf (no docker binary).
-- Fresh-clone end to end on a second machine.
+- The Docker/Compose path (`npm run up`, image builds) — no Docker binary on this machine.
+- k6 load numbers — k6 is not installed; the historical figures in docs/performance.md are unchanged and comparative.
+- Fresh-clone end to end on a *second* machine (the native path was run on this one).
 - Live Midtrans/SMTP/S3/WhatsApp/VAPID paths (no credentials; simulator/fallback paths only).
 - Second-process session acceptance and replica failover.
 
