@@ -6,7 +6,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /realtime .
 
-FROM alpine:3.20
+FROM alpine:3.24
 # ca-certificates is not optional. main.go enables TLS for a `rediss://` URL or
 # an explicit `?tls=true`, which is what a managed Redis hands out, and go-redis
 # verifies the server certificate against the system root store. On a bare
