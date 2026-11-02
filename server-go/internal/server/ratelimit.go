@@ -60,7 +60,7 @@ func (s *Server) generalLimiter() func(http.Handler) http.Handler {
 	limit := s.limiter(rateLimitConfig{
 		name:    "general",
 		window:  15 * time.Minute,
-		max:     300,
+		max:     s.Cfg.RateLimitGeneralMax,
 		message: "Too many requests, please slow down",
 		key: func(r *http.Request) string {
 			return "ip:" + remoteIP(r, s.Cfg.IsProd)

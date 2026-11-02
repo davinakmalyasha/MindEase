@@ -19,7 +19,7 @@ func (s *Server) registerAuth(api chi.Router) {
 	authRate := s.limiter(rateLimitConfig{
 		name:           "auth",
 		window:         15 * time.Minute,
-		max:            20,
+		max:            s.Cfg.RateLimitAuthMax,
 		skipSuccessful: true,
 		message:        "Too many login attempts, please try again after 15 minutes",
 	})

@@ -81,6 +81,16 @@ type Config struct {
 	MetricsAddr       string
 	MetricsToken      string
 	PprofEnabled      bool
+
+	// Rate-limit ceilings, per IP unless a route keys on the account. The
+	// defaults are the production values (300 general / 20 auth per 15 min).
+	// They are configurable because the browser suite is one local run with
+	// hundreds of requests from one IP: with the production ceiling hard-coded,
+	// a reviewer's second `npm run e2e` inside fifteen minutes fails on 429s
+	// rather than on anything the suite tests. Production deployments should
+	// keep the defaults.
+	RateLimitGeneralMax int
+	RateLimitAuthMax    int
 }
 
 func Load() (*Config, error) {
@@ -166,6 +176,12 @@ func Load() (*Config, error) {
 	c.MetricsAddr = strings.TrimSpace(os.Getenv("METRICS_ADDR"))
 	c.MetricsToken = strings.TrimSpace(os.Getenv("METRICS_TOKEN"))
 	c.PprofEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("PPROF_ENABLED")), "true")
+	if c.RateLimitGeneralMax, err = boundedInt("RATE_LIMIT_GENERAL_MAX", 300, 1, 1_000_000); err != nil {
+		return nil, err
+	}
+	if c.RateLimitAuthMax, err = boundedInt("RATE_LIMIT_AUTH_MAX", 20, 1, 1_000_000); err != nil {
+		return nil, err
+	}
 	if c.PprofEnabled && c.MetricsAddr == "" {
 		return nil, fmt.Errorf("[config] PPROF_ENABLED=true requires METRICS_ADDR; pprof is never served on the public API listener.")
 	}

@@ -1,5 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// The web port is configurable so the suite can run on a machine where :3000
+// is already taken by another project — which is exactly what happened on the
+// development laptop this was verified on, and what would otherwise force a
+// reviewer to stop an unrelated server to run the tests.
+const WEB_PORT = process.env.E2E_PORT || "3000";
+const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
+
 export default defineConfig({
     testDir: "./e2e",
     // 60s was enough for every journey except the two that build their own
@@ -13,7 +20,7 @@ export default defineConfig({
     retries: 0,
     reporter: [["list"]],
     use: {
-        baseURL: "http://localhost:3000",
+        baseURL: WEB_ORIGIN,
         trace: "retain-on-failure",
         // No `permissions: ["notifications"]` here, deliberately.
         //
@@ -32,7 +39,7 @@ export default defineConfig({
             cookies: [],
             origins: [
                 {
-                    origin: "http://localhost:3000",
+                    origin: WEB_ORIGIN,
                     localStorage: [
                         { name: "mindease-cookie-consent", value: "accepted" },
                     ],
@@ -68,15 +75,24 @@ export default defineConfig({
             cwd: "../server-go",
             url: "http://localhost:5000/api/health",
             reuseExistingServer: true,
+            // The suite is one IP making hundreds of requests in two minutes, so
+            // it exhausts the production ceilings (300 general / 20 auth per
+            // 15 min) and a second run inside the window fails on 429s instead of
+            // on anything it tests. Raised here for the test server only; the
+            // defaults in `internal/config` are unchanged.
+            env: {
+                RATE_LIMIT_GENERAL_MAX: "100000",
+                RATE_LIMIT_AUTH_MAX: "1000",
+            },
             // A cold `go run` compiles the module before the first request;
             // the old ts-node note measured 119s on the same hardware, and
             // this budget covers either toolchain on a slow machine.
             timeout: 180_000,
         },
         {
-            command: "npm run dev -- --port 3000",
+            command: `npm run dev -- --port ${WEB_PORT}`,
             cwd: ".",
-            url: "http://localhost:3000",
+            url: WEB_ORIGIN,
             reuseExistingServer: true,
             timeout: 120_000,
         },
