@@ -40,3 +40,24 @@ func TestADKSessionHeaderDefaults(t *testing.T) {
 		t.Fatal("zero transport must fall back to mindease-shared at send time")
 	}
 }
+
+func TestAgentRememberContent(t *testing.T) {
+	cases := []struct {
+		msg   string
+		want  string
+		wantOK bool
+	}{
+		{"remember my dog Bruno", "my dog Bruno", true},
+		{"Please remember this: E2E note juniper-1", "E2E note juniper-1", true},
+		{"Please remember my appointment is Tuesday", "my appointment is Tuesday", true},
+		{"do you remember me?", "", false},
+		{"I can't remember anything", "", false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := agentRememberContent(tc.msg, strings.ToLower(tc.msg))
+		if ok != tc.wantOK || got != tc.want {
+			t.Fatalf("remember(%q) = %q, %v; want %q, %v", tc.msg, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}

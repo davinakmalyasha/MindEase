@@ -200,6 +200,25 @@ func (s *Server) agentToneContext(ctx context.Context, userID string) (string, s
 	return moodAvg, latest
 }
 
+// agentRememberContent extracts an explicit remember instruction and the
+// content to keep. Prefix forms ("remember ...", "please remember ...",
+// "ingat ...") and the "remember this/that:" form count; a bare recall
+// question ("do you remember me?") returns false so it is never filed away.
+func agentRememberContent(clean, lowered string) (string, bool) {
+	// Markers first: "please remember this: X" must yield X, not "this: X".
+	for _, marker := range []string{"remember this:", "remember that:"} {
+		if i := strings.Index(lowered, marker); i >= 0 {
+			return strings.TrimSpace(clean[i+len(marker):]), true
+		}
+	}
+	for _, p := range []string{"please remember ", "remember ", "tolong ingat ", "ingat "} {
+		if strings.HasPrefix(lowered, p) {
+			return strings.TrimSpace(clean[len(p):]), true
+		}
+	}
+	return "", false
+}
+
 // agentDeterministic is the no-model path: keyword tools + canned reply.
 // It guarantees the agent endpoints are useful and testable with no key, and
 // is the degraded branch when the ADK run fails (expired key, budget spent).
@@ -209,10 +228,12 @@ func (s *Server) agentDeterministic(ctx context.Context, userID, clean string, _
 	memUsed := false
 	lowered := strings.ToLower(clean)
 
-	// Remember requests are explicit only: "remember ..." saves the rest.
-	if consent && (strings.HasPrefix(lowered, "remember ") || strings.HasPrefix(lowered, "ingat ")) {
-		content := strings.TrimSpace(clean[len(strings.Split(clean, " ")[0])+1:])
-		if content != "" {
+	// Remember requests are explicit only, so a recall question ("do you
+	// remember me?") never files something away. Besides the bare leading
+	// form ("remember ..."), "please remember ..." and the "remember this:"
+	// form count — that is how people actually phrase it in chat.
+	if consent {
+		if content, ok := agentRememberContent(clean, lowered); ok && content != "" {
 			if m, err := s.agentMemoryCreate(ctx, userID, content); err == nil {
 				tools = append(tools, agentToolResult{Name: "memory_note", OK: true, Summary: "saved note [" + m.ID + "]"})
 				return "Got it — I'll remember that for next time.", "fallback", tools, nil, true
