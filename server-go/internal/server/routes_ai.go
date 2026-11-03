@@ -687,6 +687,36 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 
 	var result map[string]any
 	cached := false
+	// Consent gates the model, not the cached text's label. When the patient
+	// has not opted in, serve the platform summary without calling out — and
+	// without persisting anything, so granting consent later generates fresh.
+	// Revoking keeps the old cached row intact but stops serving it.
+	var aiConsent bool
+	_ = s.DB.QueryRowContext(ctx, "SELECT aiReadConsent FROM `User` WHERE id = ?", appointment.UserID).Scan(&aiConsent)
+	if !aiConsent {
+		var answersRaw *string
+		if data != nil {
+			answersRaw = data.AnswersJSON
+		}
+		answers := aiParseAnswers(answersRaw)
+		fallback := aiBuildFallbackBriefing(moodHistory, answers, assessments)
+		s.audit(ctx, "clinical.read", &userID, ptr("Briefing"), &appointmentID, map[string]any{
+			"subjectId": appointment.UserID,
+			"via":       "POST /api/ai/briefing",
+			"cached":    false,
+			"consent":   false,
+		})
+		return map[string]any{
+			"briefing":         fallback,
+			"cached":           false,
+			"ai":               aiProvenance("fallback", "consent-off"),
+			"moodHistory":      aiMoodHistoryJSON(moodHistory),
+			"answers":          answers,
+			"assessments":      aiAssessmentsJSON(assessments),
+			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
+			"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
+		}, nil
+	}
 	if data != nil && data.BriefingText != nil && *data.BriefingText != "" {
 		cached = true
 		source := "model"
@@ -922,9 +952,10 @@ func (s *Server) aiGetMoodHistory(ctx context.Context, userID string, days int) 
 }
 
 func (s *Server) aiGetLatestAssessments(ctx context.Context, userID string) ([]aiAssessmentLite, error) {
-	// `[phq9, gad7].filter(Boolean)` - the instrument order is the payload's.
-	out := make([]aiAssessmentLite, 0, 2)
-	for _, assessmentType := range []string{"phq9", "gad7"} {
+	// All four instruments; the briefing cites whatever exists. Short forms
+	// carry their own 0-6 denominator via aiMaxForAssessment.
+	out := make([]aiAssessmentLite, 0, 4)
+	for _, assessmentType := range []string{"phq9", "gad7", "phq2", "gad2"} {
 		var row aiAssessmentLite
 		err := s.DB.QueryRowContext(ctx,
 			"SELECT id, type, score, severity, createdAt FROM `Assessment` "+
@@ -1300,10 +1331,13 @@ func aiBuildFallbackBriefing(moodHistory []aiMoodRow, answers []aiAnswer, assess
 }
 
 // aiMaxForAssessment is the instrument's own maximum, so a clinician reads a
-// real denominator: PHQ-9 is out of 27 and GAD-7 out of 21.
+// real denominator: PHQ-9 is out of 27, GAD-7 out of 21, the 2-item forms out of 6.
 func aiMaxForAssessment(assessmentType string) string {
-	if strings.ToLower(assessmentType) == "gad7" {
+	switch strings.ToLower(assessmentType) {
+	case "gad7":
 		return "21"
+	case "phq2", "gad2":
+		return "6"
 	}
 	return "27"
 }

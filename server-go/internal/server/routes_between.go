@@ -218,7 +218,7 @@ func (s *Server) handleFeedbackCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.JSON(w, http.StatusCreated, map[string]any{"status": "success", "data": map[string]any{
-		"id": apptID, "listening": scores["listening"], "goals": scores["goals"], "approach": scores["approach"], "overall": scores["overall"], "comment": comment,
+		"appointmentId": apptID, "listening": scores["listening"], "goals": scores["goals"], "approach": scores["approach"], "overall": scores["overall"], "comment": comment,
 	}})
 }
 
