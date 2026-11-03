@@ -112,7 +112,7 @@ func TestAIBuildCitationsNamesRealRows(t *testing.T) {
 	assessments := []aiAssessmentLite{{ID: assessID, Type: "phq9", Score: 14, Severity: "moderate"}}
 	answers := []aiAnswer{{Question: "How have you been?", Answer: "Low energy all week."}}
 
-	got := aiBuildCitations(moods, answers, assessments, "appt-1")
+	got := aiBuildCitations(moods, answers, assessments, "appt-1", nil, nil, nil)
 	if len(got) != 3 {
 		t.Fatalf("citations = %d; want 3 (mood, assessment, pre-session)", len(got))
 	}
@@ -133,30 +133,33 @@ func TestAIBuildCitationsNamesRealRows(t *testing.T) {
 }
 
 func TestAIBuildCitationsEmptyYieldsEmpty(t *testing.T) {
-	if got := aiBuildCitations(nil, nil, nil, "appt-1"); len(got) != 0 {
+	if got := aiBuildCitations(nil, nil, nil, "appt-1", nil, nil, nil); len(got) != 0 {
 		t.Fatalf("citations for empty inputs = %#v; want none, never fabricated", got)
 	}
 }
 
 func TestAIInsufficientData(t *testing.T) {
-	if !aiInsufficientData(nil, nil, nil) {
+	if !aiInsufficientData(nil, nil, nil, nil, nil) {
 		t.Fatal("empty inputs must report insufficient data")
 	}
 	notes := "ok"
-	if aiInsufficientData([]aiMoodRow{{ID: "x", Mood: 4, MoodDate: "2026-10-28", Notes: &notes}}, nil, nil) {
+	if aiInsufficientData([]aiMoodRow{{ID: "x", Mood: 4, MoodDate: "2026-10-28", Notes: &notes}}, nil, nil, nil, nil) {
 		t.Fatal("one mood entry is sufficient data")
 	}
-	if aiInsufficientData(nil, []aiAnswer{{Question: "Q?", Answer: "A."}}, nil) {
+	if aiInsufficientData(nil, []aiAnswer{{Question: "Q?", Answer: "A."}}, nil, nil, nil) {
 		t.Fatal("one answer is sufficient data")
 	}
-	if aiInsufficientData(nil, nil, []aiAssessmentLite{{ID: "y", Type: "gad7", Score: 5, Severity: "mild"}}) {
+	if aiInsufficientData(nil, nil, []aiAssessmentLite{{ID: "y", Type: "gad7", Score: 5, Severity: "mild"}}, nil, nil) {
 		t.Fatal("one assessment is sufficient data")
+	}
+	if aiInsufficientData(nil, nil, nil, []aiThoughtLite{{ID: "t", Situation: "late meeting"}}, nil) {
+		t.Fatal("one thought record is sufficient data")
 	}
 }
 
 func TestAICopilotDraftFallbackIsLabeled(t *testing.T) {
 	s := testServer() // no AI client: not_configured
-	draft, source, reason := s.aiCopilotDraft(context.Background(), nil, "Clinical", nil, nil, nil)
+	draft, source, reason := s.aiCopilotDraft(context.Background(), nil, "Clinical", nil, nil, nil, nil, nil, nil)
 	if source != "fallback" || reason != "not_configured" {
 		t.Fatalf("source/reason = %q/%q; want fallback/not_configured", source, reason)
 	}
@@ -182,7 +185,7 @@ func TestAICopilotDraftEmptyModelOutputFallsBack(t *testing.T) {
 	cfg.AiRequestTimeoutMs = 2000
 	s := New(cfg, nil, nil, itLog)
 
-	draft, source, reason := s.aiCopilotDraft(context.Background(), nil, "Clinical", nil, nil, nil)
+	draft, source, reason := s.aiCopilotDraft(context.Background(), nil, "Clinical", nil, nil, nil, nil, nil, nil)
 	if source != "fallback" || reason != "error" {
 		t.Fatalf("source/reason = %q/%q; want fallback/error", source, reason)
 	}
@@ -216,7 +219,7 @@ func TestAICopilotDraftFencesPatientText(t *testing.T) {
 	}}
 	moods := []aiMoodRow{{ID: "m1", Mood: 2, Notes: &notes, MoodDate: "2026-10-28"}}
 
-	draft, source, _ := s.aiCopilotDraft(context.Background(), nil, "Clinical", moods, answers, nil)
+	draft, source, _ := s.aiCopilotDraft(context.Background(), nil, "Clinical", moods, answers, nil, nil, nil, nil)
 	if source != "model" {
 		t.Fatalf("source = %q; want model", source)
 	}

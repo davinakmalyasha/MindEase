@@ -684,6 +684,18 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 	if err != nil {
 		return nil, err
 	}
+	thoughts, err := s.aiGetRecentThoughts(ctx, appointment.UserID, 5)
+	if err != nil {
+		return nil, err
+	}
+	homework, err := s.aiGetHomeworkSummary(ctx, appointment.UserID)
+	if err != nil {
+		return nil, err
+	}
+	alliance, err := s.aiGetLatestAlliance(ctx, appointment.UserID)
+	if err != nil {
+		return nil, err
+	}
 
 	var result map[string]any
 	cached := false
@@ -699,7 +711,7 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 			answersRaw = data.AnswersJSON
 		}
 		answers := aiParseAnswers(answersRaw)
-		fallback := aiBuildFallbackBriefing(moodHistory, answers, assessments)
+		fallback := aiBuildFallbackBriefing(moodHistory, answers, assessments, thoughts, homework, alliance)
 		s.audit(ctx, "clinical.read", &userID, ptr("Briefing"), &appointmentID, map[string]any{
 			"subjectId": appointment.UserID,
 			"via":       "POST /api/ai/briefing",
@@ -713,8 +725,8 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 			"moodHistory":      aiMoodHistoryJSON(moodHistory),
 			"answers":          answers,
 			"assessments":      aiAssessmentsJSON(assessments),
-			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
-			"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
+			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID, thoughts, homework, alliance),
+			"insufficientData": aiInsufficientData(moodHistory, answers, assessments, thoughts, alliance),
 		}, nil
 	}
 	if data != nil && data.BriefingText != nil && *data.BriefingText != "" {
@@ -733,8 +745,8 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 			"moodHistory":      aiMoodHistoryJSON(moodHistory),
 			"answers":          aiParseJSON(data.AnswersJSON, []any{}),
 			"assessments":      aiAssessmentsJSON(assessments),
-			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
-			"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
+			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID, thoughts, homework, alliance),
+			"insufficientData": aiInsufficientData(moodHistory, answers, assessments, thoughts, alliance),
 		}
 	} else {
 		var answersRaw *string
@@ -743,7 +755,7 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 		}
 		answers := aiParseAnswers(answersRaw)
 		briefingText, source, reason := s.aiDoctorBriefing(
-			ctx, appointment.PatientName, appointment.DoctorSpecialty, moodHistory, answers, assessments)
+			ctx, appointment.PatientName, appointment.DoctorSpecialty, moodHistory, answers, assessments, thoughts, homework, alliance)
 
 		now := time.Now().UTC()
 		if _, err := s.DB.ExecContext(ctx,
@@ -763,8 +775,8 @@ func (s *Server) aiGetBriefing(ctx context.Context, appointmentID, userID string
 			"moodHistory":      aiMoodHistoryJSON(moodHistory),
 			"answers":          answers,
 			"assessments":      aiAssessmentsJSON(assessments),
-			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
-			"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
+			"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID, thoughts, homework, alliance),
+			"insufficientData": aiInsufficientData(moodHistory, answers, assessments, thoughts, alliance),
 		}
 	}
 
@@ -850,9 +862,21 @@ func (s *Server) aiGetCopilotDraft(ctx context.Context, appointmentID, userID st
 	if err != nil {
 		return nil, err
 	}
+	thoughts, err := s.aiGetRecentThoughts(ctx, appointment.UserID, 5)
+	if err != nil {
+		return nil, err
+	}
+	homework, err := s.aiGetHomeworkSummary(ctx, appointment.UserID)
+	if err != nil {
+		return nil, err
+	}
+	alliance, err := s.aiGetLatestAlliance(ctx, appointment.UserID)
+	if err != nil {
+		return nil, err
+	}
 
 	draft, source, reason := s.aiCopilotDraft(
-		ctx, appointment.PatientName, appointment.DoctorSpecialty, moodHistory, answers, assessments)
+		ctx, appointment.PatientName, appointment.DoctorSpecialty, moodHistory, answers, assessments, thoughts, homework, alliance)
 
 	actor := userID
 	targetType := "CopilotDraft"
@@ -864,9 +888,110 @@ func (s *Server) aiGetCopilotDraft(ctx context.Context, appointmentID, userID st
 	return map[string]any{
 		"draft":            draft,
 		"ai":               aiProvenance(source, reason),
-		"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID),
-		"insufficientData": aiInsufficientData(moodHistory, answers, assessments),
+		"sources":          aiBuildCitations(moodHistory, answers, assessments, appointmentID, thoughts, homework, alliance),
+		"insufficientData": aiInsufficientData(moodHistory, answers, assessments, thoughts, alliance),
 	}, nil
+}
+
+/* ------------------------------------------------------------------ *
+ * Between-session reads for the briefing/copilot agent (read-only)
+ * ------------------------------------------------------------------ */
+
+// aiGetRecentThoughts returns the latest thought situations (prose stays out
+// of citations; the prompt quotes only the situation line).
+func (s *Server) aiGetRecentThoughts(ctx context.Context, userID string, limit int) ([]aiThoughtLite, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT id, situation, createdAt FROM `ThoughtRecord` WHERE userId = ? ORDER BY createdAt DESC LIMIT ?",
+		userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []aiThoughtLite{}
+	for rows.Next() {
+		var t aiThoughtLite
+		if err := rows.Scan(&t.ID, &t.Situation, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// aiGetHomeworkSummary counts practice by state and names the next due steps
+// in the patient's own words (titles only, capped).
+func (s *Server) aiGetHomeworkSummary(ctx context.Context, userID string) (*aiHomeworkSummary, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT s.title, s.done, s.dueDate FROM `CareStep` s "+
+			"JOIN `CareGoal` g ON g.id = s.careGoalId "+
+			"JOIN `CarePlan` p ON p.id = g.carePlanId WHERE p.userId = ?",
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sum := &aiHomeworkSummary{}
+	now := time.Now().UTC()
+	type due struct {
+		title string
+		when  time.Time
+	}
+	var upcoming []due
+	for rows.Next() {
+		var title string
+		var done bool
+		var dueDate *time.Time
+		if err := rows.Scan(&title, &done, &dueDate); err != nil {
+			return nil, err
+		}
+		if done {
+			sum.Done++
+			continue
+		}
+		if dueDate == nil {
+			sum.Open++
+			continue
+		}
+		if dueDate.Before(now) {
+			sum.Overdue++
+		} else if dueDate.Before(now.Add(7 * 24 * time.Hour)) {
+			sum.DueSoon++
+			upcoming = append(upcoming, due{title: title, when: *dueDate})
+		} else {
+			sum.Open++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Earliest first, at most 3 titles so the prompt stays bounded.
+	for i := 0; i < len(upcoming); i++ {
+		for j := i + 1; j < len(upcoming); j++ {
+			if upcoming[j].when.Before(upcoming[i].when) {
+				upcoming[i], upcoming[j] = upcoming[j], upcoming[i]
+			}
+		}
+	}
+	for i := 0; i < len(upcoming) && i < 3; i++ {
+		sum.NextDue = append(sum.NextDue, upcoming[i].title)
+	}
+	return sum, nil
+}
+
+// aiGetLatestAlliance returns the most recent SessionFeedback total (0-40).
+func (s *Server) aiGetLatestAlliance(ctx context.Context, userID string) (*aiAllianceLite, error) {
+	var listening, goals, approach, overall int
+	var createdAt time.Time
+	err := s.DB.QueryRowContext(ctx,
+		"SELECT listening, goals, approach, overall, createdAt FROM `SessionFeedback` WHERE userId = ? ORDER BY createdAt DESC LIMIT 1",
+		userID).Scan(&listening, &goals, &approach, &overall, &createdAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &aiAllianceLite{Total: listening + goals + approach + overall, CreatedAt: createdAt}, nil
 }
 
 /* ------------------------------------------------------------------ *
@@ -1283,8 +1408,9 @@ func aiBuildMatchReasons(doctor aiDoctorMatch, criteriaSpecialty *string) []stri
 
 // aiBuildFallbackBriefing is generateDoctorBriefing's degraded paragraph,
 // assembled locally. It says what it is and quotes nothing: a clinician must
-// not read a template as a synthesis.
-func aiBuildFallbackBriefing(moodHistory []aiMoodRow, answers []aiAnswer, assessments []aiAssessmentLite) string {
+// not read a template as a synthesis. Thought, practice and alliance appear
+// as counts, never prose.
+func aiBuildFallbackBriefing(moodHistory []aiMoodRow, answers []aiAnswer, assessments []aiAssessmentLite, thoughts []aiThoughtLite, homework *aiHomeworkSummary, alliance *aiAllianceLite) string {
 	avg := "n/a"
 	if len(moodHistory) > 0 {
 		sum := 0
@@ -1327,7 +1453,22 @@ func aiBuildFallbackBriefing(moodHistory []aiMoodRow, answers []aiAnswer, assess
 		fmt.Sprintf("The patient has logged %d mood entries in the past 14 days with an average of %s/5.", len(moodHistory), avg) +
 		screening +
 		concernClause +
+		thoughtClause(homework, alliance, thoughts) +
 		"Consider exploring sleep quality, stress triggers, and coping strategies."
+}
+
+func thoughtClause(homework *aiHomeworkSummary, alliance *aiAllianceLite, thoughts []aiThoughtLite) string {
+	extra := ""
+	if len(thoughts) > 0 {
+		extra += fmt.Sprintf(" %d thought records attached.", len(thoughts))
+	}
+	if homework != nil && (homework.Open+homework.DueSoon+homework.Overdue+homework.Done) > 0 {
+		extra += fmt.Sprintf(" Practice: %d open, %d done.", homework.Open+homework.DueSoon+homework.Overdue, homework.Done)
+	}
+	if alliance != nil {
+		extra += fmt.Sprintf(" Latest alliance %d/40.", alliance.Total)
+	}
+	return extra
 }
 
 // aiMaxForAssessment is the instrument's own maximum, so a clinician reads a

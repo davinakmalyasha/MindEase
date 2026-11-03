@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -152,7 +153,9 @@ func supportHistoryField(body map[string]any) (string, string) {
 
 // supportChatReply mirrors SupportService.chat with the AI branch degraded to
 // the fixed knowledge base: crisis first, then escalation, then canned answer.
-func (s *Server) supportChatReply(ctx context.Context, message string, history []ai.Message) (reply string, crisis bool, escalated bool, source string) {
+// Appointment context is ground truth for the model so it stops inventing
+// times; it is fetched by the handler (which knows the user) and passed in.
+func (s *Server) supportChatReply(ctx context.Context, message string, history []ai.Message, appointmentContext string) (reply string, crisis bool, escalated bool, source string) {
 	clean := s.wellnessSanitize(message)
 
 	// Deterministic safety first: the model is never the thing that notices a
@@ -164,7 +167,7 @@ func (s *Server) supportChatReply(ctx context.Context, message string, history [
 		return supportEscalationReply, false, true, "fallback"
 	}
 
-	if reply, source, _ := s.aiSupportChat(ctx, history, clean); source == "model" && reply != "" {
+	if reply, source, _ := s.aiSupportChat(ctx, history, clean, appointmentContext); source == "model" && reply != "" {
 		return reply, false, false, "model"
 	}
 
@@ -195,13 +198,38 @@ func (s *Server) handleSupportChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reply, crisis, escalated, source := s.supportChatReply(
-		r.Context(), message, supportHistoryMessages(body))
+		r.Context(), message, supportHistoryMessages(body), s.supportAppointmentContext(r.Context(), CurrentUser(r).ID))
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
 		"reply":     reply,
 		"crisis":    crisis,
 		"escalated": escalated,
 		"source":    source,
 	}})
+}
+
+// supportAppointmentContext is ground truth for the model: the next confirmed
+// session, or nothing. Read-only; failures degrade to no context.
+func (s *Server) supportAppointmentContext(ctx context.Context, userID string) string {
+	var date time.Time
+	var start sql.NullString
+	var doctor sql.NullString
+	err := s.DB.QueryRowContext(ctx,
+		"SELECT ap.appointmentDate, ap.startTime, u.name FROM `Appointment` ap "+
+			"JOIN `Doctor` d ON d.id = ap.doctorId JOIN `User` u ON u.id = d.userId "+
+			"WHERE ap.userId = ? AND ap.status = 'confirmed' AND ap.appointmentDate >= CURDATE() "+
+			"ORDER BY ap.appointmentDate ASC LIMIT 1", userID).Scan(&date, &start, &doctor)
+	if err != nil {
+		return ""
+	}
+	name := "your psychologist"
+	if doctor.Valid && strings.TrimSpace(doctor.String) != "" {
+		name = doctor.String
+	}
+	when := date.Format("2006-01-02")
+	if start.Valid && start.String != "" {
+		when += " at " + start.String
+	}
+	return "Next confirmed session: " + when + " with " + name + ". If asked about booking, refer to /appointments."
 }
 
 // supportSOSLimiter is the port of the SOS limiter in support.routes.ts: the

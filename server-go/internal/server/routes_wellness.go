@@ -1072,7 +1072,34 @@ func (s *Server) handleWellnessSummarizeJournal(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	summary, source, reason := s.aiJournalSummary(r.Context(), contents, oldest, newest)
+	// Read-only context so the reflection keeps an appropriate tone without
+	// scoring the patient. Failures degrade to no context, never to an error.
+	var moodAvg, latestAssessment string
+	if rows2, err := s.DB.QueryContext(r.Context(),
+		"SELECT mood FROM `MoodEntry` WHERE userId = ? ORDER BY createdAt DESC LIMIT 7", user.ID); err == nil {
+		total, n := 0, 0
+		for rows2.Next() {
+			var m int
+			if err := rows2.Scan(&m); err == nil {
+				total += m
+				n++
+			}
+		}
+		rows2.Close()
+		if n > 0 {
+			moodAvg = aiToFixed1(float64(total) / float64(n))
+		}
+	}
+	var aType string
+	var aScore int
+	var aSev string
+	if err := s.DB.QueryRowContext(r.Context(),
+		"SELECT type, score, severity FROM `Assessment` WHERE userId = ? ORDER BY createdAt DESC LIMIT 1",
+		user.ID).Scan(&aType, &aScore, &aSev); err == nil {
+		latestAssessment = fmt.Sprintf("%s %d (%s)", strings.ToUpper(aType), aScore, aSev)
+	}
+
+	summary, source, reason := s.aiJournalSummary(r.Context(), contents, oldest, newest, moodAvg, latestAssessment)
 	s.JSON(w, http.StatusOK, map[string]any{"status": "success", "data": map[string]any{
 		"summary": summary,
 		"count":   len(contents),

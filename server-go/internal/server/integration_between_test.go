@@ -235,6 +235,90 @@ func TestIntegrationFeedbackConsentCaseload(t *testing.T) {
 	_ = strings.Contains(text, "patients")
 }
 
+func TestIntegrationBriefingAgentGathersConsentGates(t *testing.T) {
+	s := newIntegrationServer(t)
+	h := s.Mount()
+
+	pID := seedUser(t, uniqueEmail(t), "Patient@123", "patient")
+	dEmail := uniqueEmail(t)
+	_, dDoctorID := seedDoctor(t, dEmail, "Dr. Agent")
+	apptID := seedCompletedAppointment(t, pID, dDoctorID)
+
+	p := newTestClient(t, h)
+	p.login(getEmailForUser(t, pID), "Patient@123")
+	d := newTestClient(t, h)
+	d.login(dEmail, "Doctor@123")
+
+	// Build the between-session record: thought, homework with due date, alliance.
+	rec, _, text := p.request(http.MethodPost, "/api/wellness/thought-records", map[string]any{
+		"situation": "Review meeting ran late", "thought": "I am failing",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("thought for briefing: %d %s", rec.Code, text)
+	}
+	rec, body, text := p.request(http.MethodGet, "/api/care-plan", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("care plan: %d %s", rec.Code, text)
+	}
+	planID := dataMap(t, body)["id"].(string)
+	rec, body, text = p.request(http.MethodPost, "/api/care-plan/"+planID+"/goals", map[string]any{"title": "Practice grounding"})
+	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+		t.Fatalf("goal: %d %s", rec.Code, text)
+	}
+	goalID := dataMap(t, body)["id"].(string)
+	tomorrow := time.Now().UTC().Add(24 * time.Hour).Format("2006-01-02")
+	rec, _, text = p.request(http.MethodPost, "/api/care-plan/goals/"+goalID+"/steps", map[string]any{"title": "Box breathing 5 min", "dueDate": tomorrow})
+	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+		t.Fatalf("step: %d %s", rec.Code, text)
+	}
+	rec, _, text = p.request(http.MethodPost, "/api/appointments/"+apptID+"/feedback",
+		map[string]any{"listening": 8, "goals": 7, "approach": 9, "overall": 8})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("feedback for briefing: %d %s", rec.Code, text)
+	}
+
+	// Consent on: the briefing gathers all four and cites them.
+	rec, _, text = p.request(http.MethodPut, "/api/account/consents", map[string]any{"purpose": "ai-read", "granted": true})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("consent on: %d %s", rec.Code, text)
+	}
+	rec, body, text = d.request(http.MethodPost, "/api/ai/briefing", map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("briefing with consent: %d %s", rec.Code, text)
+	}
+	bdata := dataMap(t, body)
+	srcs, _ := bdata["sources"].([]any)
+	kinds := map[string]bool{}
+	for _, s := range srcs {
+		if m, ok := s.(map[string]any); ok {
+			kinds[m["kind"].(string)] = true
+		}
+	}
+	for _, k := range []string{"thought", "homework", "alliance"} {
+		if !kinds[k] {
+			t.Fatalf("briefing sources missing %s: %v", k, kinds)
+		}
+	}
+	if bdata["insufficientData"] == true {
+		t.Fatal("briefing with thought+homework+alliance must not be insufficient-data")
+	}
+
+	// Consent off: same record, fallback with consent-off, nothing persisted as model.
+	rec, _, text = p.request(http.MethodPut, "/api/account/consents", map[string]any{"purpose": "ai-read", "granted": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("consent off: %d %s", rec.Code, text)
+	}
+	rec, body, text = d.request(http.MethodPost, "/api/ai/briefing", map[string]any{"appointmentId": apptID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("briefing without consent: %d %s", rec.Code, text)
+	}
+	bdata = dataMap(t, body)
+	ai, _ := bdata["ai"].(map[string]any)
+	if ai["source"] != "fallback" || ai["degradedReason"] != "consent-off" {
+		t.Fatalf("consent-off briefing ai = %v; want fallback/consent-off", ai)
+	}
+}
+
 func TestIntegrationBetweenJobs(t *testing.T) {
 	s := newIntegrationServer(t)
 
