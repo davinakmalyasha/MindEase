@@ -17,7 +17,7 @@ papered over.
 Counts are derived from the tree by `scripts/check-numbers.js`, which fails the
 build if this table disagrees with the repository.
 
-The end-to-end suite is `client/e2e/journeys.spec.ts`: 12 Playwright tests in 11 describe blocks, plus three cached sign-ins in `auth.setup.ts`. It runs against
+The end-to-end suite is `client/e2e/journeys.spec.ts`: 14 Playwright tests in 12 describe blocks, plus three cached sign-ins in `auth.setup.ts`. It runs against
 the real stack — MySQL, Redis, the Go API, the Next client — and is a required
 step in CI's `docker` job.
 

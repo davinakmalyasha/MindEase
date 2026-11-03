@@ -27,6 +27,11 @@ import (
 // before the runner, crisis text never reaches the model, and memory tools
 // are consent-gated inside their handlers. A nil key or any runner error
 // degrades to the deterministic fallback in agent_memory.go.
+//
+// Briefing/copilot deliberately stay on direct single-shot completions
+// (ai.go via aiComplete): their inputs are fixed SQL gathers with citations,
+// so there is no tool choice for an agent to make. They share the same model
+// plumbing (s.AI against the OpenCode Go gateway).
 
 const adkAgentName = "ease"
 const adkAppName = "mindease"

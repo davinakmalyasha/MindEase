@@ -623,3 +623,72 @@ test.describe("Journey 10: review lifecycle", () => {
         await expect(page.getByText(chatMessage).first()).toBeVisible({ timeout: 15_000 });
     });
 });
+
+/**
+ * The support agent, end to end through the browser.
+ *
+ * API-level coverage already pins the tool contracts (memory CRUD, consent
+ * gating, doctor search, SSE framing, crisis short-circuit), so this journey
+ * asserts what only the browser can: the chat opens, staged status renders
+ * while the agent works, doctor cards link into the directory, an explicit
+ * remember request is persisted (verified over the API, never by asserting on
+ * model prose), and a crisis disclosure gets hotlines with no model involved.
+ *
+ * No assertion here depends on the model's wording, so the journey passes
+ * with a live key (model path) and without one (deterministic fallback).
+ */
+test.describe("Journey 11: Agent helps in chat", () => {
+    test("finds a psychologist and remembers a note", async ({ page }) => {
+        await registerUser(page, "patient");
+
+        // Consent on over HTTP so the memory_* tools are available to the agent.
+        const csrfRes = await page.request.get(`${API}/csrf-token`);
+        const csrf = (await csrfRes.json()).data.csrfToken;
+        const consent = await page.request.put(`${API}/account/consents`, {
+            headers: { "X-CSRF-Token": csrf },
+            data: { purpose: "ai-read", granted: true },
+        });
+        expect(consent.ok(), "ai-read consent").toBeTruthy();
+
+        await page.getByRole("button", { name: "Open support chat" }).click();
+        const input = page.getByLabel("Type your question");
+        await expect(input).toBeVisible({ timeout: 10_000 });
+
+        // Doctor search: the agent calls search_doctors and the UI renders
+        // booking cards from the structured result, never from parsed prose.
+        await input.fill("Can you find me a psychologist for anxiety?");
+        await page.getByRole("button", { name: "Send message" }).click();
+        await expect(page.getByTestId("agent-status")).toBeVisible({ timeout: 15_000 });
+        const card = page.getByTestId("support-chat-panel").locator('a[href^="/doctors/"]').first();
+        await expect(card).toBeVisible({ timeout: 90_000 });
+        await expect(page.getByTestId("chat-message-assistant")).toHaveCount(2, { timeout: 90_000 });
+
+        // Memory note: assert persistence over the API, not model wording.
+        const marker = `juniper-${Date.now()}`;
+        await input.fill(`Please remember this: E2E note ${marker}`);
+        await page.getByRole("button", { name: "Send message" }).click();
+        await expect(page.getByTestId("chat-message-assistant")).toHaveCount(3, { timeout: 90_000 });
+
+        const memRes = await page.request.get(`${API}/agent/memories`);
+        expect(memRes.ok(), "memory list").toBeTruthy();
+        const memories = ((await memRes.json()).data?.memories ?? []) as { preview: string }[];
+        expect(
+            memories.some((m) => m.preview.includes(marker)),
+            "the remembered note is listed"
+        ).toBeTruthy();
+    });
+
+    test("answers crisis with hotlines, no model", async ({ page }) => {
+        await registerUser(page, "patient");
+
+        await page.getByRole("button", { name: "Open support chat" }).click();
+        const input = page.getByLabel("Type your question");
+        await expect(input).toBeVisible({ timeout: 10_000 });
+
+        // Deterministic safety path: crisis text never reaches the model, so
+        // the hotlines render fast and identically with or without a key.
+        await input.fill("I want to kill myself");
+        await page.getByRole("button", { name: "Send message" }).click();
+        await expect(page.getByTestId("support-chat-panel").getByText("119 ext 8")).toBeVisible({ timeout: 30_000 });
+    });
+});

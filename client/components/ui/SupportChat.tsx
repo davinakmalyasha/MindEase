@@ -265,7 +265,7 @@ export default function SupportChat() {
             </button>
 
             {open && (
-                <div className="fixed bottom-24 right-6 z-[90] w-[calc(100vw-3rem)] max-w-sm bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col h-[560px] max-h-[calc(100vh-8rem)]">
+                <div data-testid="support-chat-panel" className="fixed bottom-24 right-6 z-[90] w-[calc(100vw-3rem)] max-w-sm bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col h-[560px] max-h-[calc(100vh-8rem)]">
                     <div className="px-5 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 flex items-center justify-between">
                         <div>
                             <p className="font-black text-white">MindEase Support</p>
@@ -284,6 +284,7 @@ export default function SupportChat() {
                             {messages.map((m, i) => (
                                 <motion.div
                                     key={i}
+                                    data-testid={`chat-message-${m.role}`}
                                     initial={reduceMotion ? false : { opacity: 0, y: 8 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ duration: 0.18 }}
@@ -341,6 +342,7 @@ export default function SupportChat() {
                             {busy && (
                                 <motion.div
                                     key="status"
+                                    data-testid="agent-status"
                                     initial={reduceMotion ? false : { opacity: 0, y: 6 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0 }}
