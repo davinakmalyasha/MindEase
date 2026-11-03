@@ -389,7 +389,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
 | `REFRESH_SECRET` | .env | Refresh tokens (7d) — **must differ from `JWT_SECRET`** |
 | `TWO_FACTOR_SECRET` | .env, compose | Pending 2FA tickets (5m) — **required in production**, must differ from `JWT_SECRET` |
 | `AI_API_KEY` | .env | Enables model calls; unset serves the deterministic fallbacks |
-| `AI_PROVIDER` / `AI_BASE_URL` / `AI_MODEL` | .env | Provider defaults: `commandcode`, `https://api.commandcode.ai/provider/v1`, `deepseek/deepseek-v4.1-flash` |
+| `AI_PROVIDER` / `AI_BASE_URL` / `AI_MODEL` | .env | Provider defaults: `opencode-go`, `https://opencode.ai/inference/go/openai/v1`, `deepseek-v4.1-flash` — root `.env` holds only `AI_API_KEY` |
 | `GOOGLE_CLIENT_ID` | .env | Google SSO |
 | `SMTP_HOST/PORT/USER/PASS` | .env | OTP and notification email over SMTP; development logs the code when unset |
 | `REDIS_URL` | .env, compose | Realtime event bus + caching (silently disabled when down) |

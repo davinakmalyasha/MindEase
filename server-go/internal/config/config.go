@@ -39,8 +39,9 @@ type Config struct {
 	GoogleClientID string
 	RedisURL       string
 
-	// AI provider (OpenAI-compatible). Defaults to Command Code's gateway and
-	// the DeepSeek V4.1 Flash model; AI_API_KEY enables real calls.
+	// AI provider (OpenAI-compatible). OpenCode Go gateway with DeepSeek
+	// V4.1 Flash; AI_API_KEY enables real calls. The root .env holds only the
+	// key — base URL and model are hardcoded so local setup is one paste.
 	AIProvider string
 	AIBaseURL  string
 	AIAPIKey   string
@@ -117,9 +118,9 @@ func Load() (*Config, error) {
 
 	c.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
 	c.RedisURL = os.Getenv("REDIS_URL")
-	c.AIProvider = valueOr("AI_PROVIDER", "commandcode")
-	c.AIBaseURL = valueOr("AI_BASE_URL", "https://api.commandcode.ai/provider/v1")
-	c.AIModel = valueOr("AI_MODEL", "deepseek/deepseek-v4.1-flash")
+	c.AIProvider = valueOr("AI_PROVIDER", "opencode-go")
+	c.AIBaseURL = valueOr("AI_BASE_URL", "https://opencode.ai/inference/go/openai/v1")
+	c.AIModel = valueOr("AI_MODEL", "deepseek-v4.1-flash")
 	c.AIAPIKey = strings.TrimSpace(os.Getenv("AI_API_KEY"))
 
 	c.AiRequestTimeoutMs = positiveInt("AI_REQUEST_TIMEOUT_MS", 20_000)

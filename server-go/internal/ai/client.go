@@ -1,5 +1,5 @@
 // Package ai is a small client for an OpenAI-compatible chat-completions
-// provider. The deployment points it at Command Code's gateway and the
+// provider. The deployment points at the OpenCode Go gateway and the
 // DeepSeek V4.1 Flash model; nothing in the client depends on either name.
 package ai
 
@@ -65,6 +65,7 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.APIKey)
+	request.Header.Set("User-Agent", "MindEase/0.6.1-support")
 
 	response, err := c.HTTP.Do(request)
 	if err != nil {
