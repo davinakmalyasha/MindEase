@@ -205,7 +205,7 @@ func (s *Server) agentToneContext(ctx context.Context, userID string) (string, s
 // is the degraded branch when the ADK run fails (expired key, budget spent).
 func (s *Server) agentDeterministic(ctx context.Context, userID, clean string, _ []ai.Message, appointmentContext string, consent bool) (string, string, []agentToolResult, []map[string]any, bool) {
 	tools := []agentToolResult{}
-	doctors := []map[string]any{}
+	var doctors []map[string]any
 	memUsed := false
 	lowered := strings.ToLower(clean)
 
