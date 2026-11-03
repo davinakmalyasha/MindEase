@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/adk/v2/session"
 
 	"github.com/davinakmalyasha/MindEase/server-go/internal/ai"
 	"github.com/davinakmalyasha/MindEase/server-go/internal/config"
@@ -30,6 +32,13 @@ type Server struct {
 	// deterministic fallback with source "fallback".
 	AI        *ai.Client
 	aiBreaker *aiBreaker
+
+	// adkSessions is the shared ADK session service for the support agent.
+	// One per Server keeps conversation history isolated between tests and
+	// restarts; the runner is built per request so tools close over the
+	// current invocation's collector.
+	adkSessions session.Service
+	adkMu       sync.Mutex
 
 	// openAPIDoc is built once from the mounted route table before serving.
 	openAPIDoc map[string]any

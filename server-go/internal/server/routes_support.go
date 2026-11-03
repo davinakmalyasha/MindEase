@@ -179,7 +179,7 @@ type supportChatFullOut struct {
 	MemoriesUsed bool
 }
 
-// supportChatFull is the testable core: safety first, then the agent loop.
+// supportChatFull is the testable core: safety first, then the ADK agent.
 // Crisis text never leaves the server; escalation never consults the model.
 func (s *Server) supportChatFull(ctx context.Context, userID, message string, history []ai.Message, appointmentContext string) (supportChatFullOut, string) {
 	clean := s.wellnessSanitize(message)
@@ -193,7 +193,7 @@ func (s *Server) supportChatFull(ctx context.Context, userID, message string, hi
 	// back to mindease-shared when absent, so this is optimization, not a
 	// correctness dependency — but per-user caches far better.
 	ctx = ai.WithSession(ctx, userID)
-	reply, source, tools, doctors, memUsed := s.agentRun(ctx, userID, clean, history, appointmentContext)
+	reply, source, tools, doctors, memUsed := s.adkSupportChat(ctx, userID, clean, appointmentContext)
 	actor := userID
 	target := "SupportChat"
 	s.audit(ctx, "support.chat", &actor, &target, nil, map[string]any{"source": source, "tools": len(tools), "doctors": len(doctors)})
