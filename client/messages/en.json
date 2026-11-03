@@ -100,7 +100,12 @@
     "closeNavigation": "Close navigation menu",
     "toolkit": "Toolkit",
     "thoughts": "Thought records",
-    "caseload": "Caseload"
+    "caseload": "Caseload",
+    "sectionCare": "Daily care",
+    "sectionPlans": "My plans",
+    "sectionSessions": "Sessions",
+    "sectionPractice": "Practice",
+    "sectionSystem": "Account"
   },
   "mood": {
     "title": "Mood Tracker",
@@ -308,7 +313,9 @@
       "outcome_no-answer": "No answer",
       "outcome_other": "Other",
       "followUpLabel": "Check in by (optional)",
-      "slaHint": "Urgent: seen in 4h, resolved in 24h. Elevated: seen in 24h, resolved in 72h. Overdue never escalates by itself."
+      "slaHint": "Urgent: seen in 4h, resolved in 24h. Elevated: seen in 24h, resolved in 72h. Overdue never escalates by itself.",
+      "openHours": "Open {hours}h",
+      "cancel": "Cancel"
     },
     "safetyPlan": {
       "title": "My safety plan",

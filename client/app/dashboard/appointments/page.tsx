@@ -142,7 +142,12 @@ export default function AppointmentHistory() {
                 </div>
             ) : appointments.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4">
-                    {appointments.map((app: any, idx: number) => (
+                    {(() => {
+                        const completedIds = (appointments as any[])
+                            .filter((a: any) => a.status === "completed")
+                            .map((a: any) => a.id);
+                        const latestCompleted = completedIds.length > 0 ? completedIds[0] : null;
+                        return (appointments as any[]).map((app: any, idx: number) => (
                         <motion.div
                                 key={app.id}
                                 initial={{ opacity: 0, y: 10 }}
@@ -372,9 +377,11 @@ export default function AppointmentHistory() {
                                             >
                                                 <Star className="w-4 h-4" /> Rate
                                             </button>
-                                            <div className="mt-3 w-full">
-                                                <SessionFeedback appointmentId={app.id} />
-                                            </div>
+                                            {app.id === latestCompleted && (
+                                                <div className="mt-3 w-full">
+                                                    <SessionFeedback appointmentId={app.id} />
+                                                </div>
+                                            )}
                                             </>
                                         )}
 
@@ -422,7 +429,8 @@ export default function AppointmentHistory() {
                                     </div>
                                 </div>
                             </motion.div>
-                        ))}
+                        ));
+                        })()}
                     </div>
                 ) : (
                     <div className="bg-white border border-dashed border-gray-200 rounded-[2.5rem] py-20 text-center">

@@ -100,7 +100,12 @@
     "closeNavigation": "Tutup menu navigasi",
     "toolkit": "Perangkat",
     "thoughts": "Catatan pikiran",
-    "caseload": "Beban kasus"
+    "caseload": "Beban kasus",
+    "sectionCare": "Perawatan harian",
+    "sectionPlans": "Rencana saya",
+    "sectionSessions": "Sesi",
+    "sectionPractice": "Praktik",
+    "sectionSystem": "Akun"
   },
   "mood": {
     "title": "Pelacak Suasana Hati",
@@ -308,7 +313,9 @@
       "outcome_no-answer": "Tidak menjawab",
       "outcome_other": "Lainnya",
       "followUpLabel": "Check-in sebelum (opsional)",
-      "slaHint": "Mendesak: dilihat 4 jam, selesai 24 jam. Meningkat: dilihat 24 jam, selesai 72 jam. Keterlambatan tidak memicu eskalasi otomatis."
+      "slaHint": "Mendesak: dilihat 4 jam, selesai 24 jam. Meningkat: dilihat 24 jam, selesai 72 jam. Keterlambatan tidak memicu eskalasi otomatis.",
+      "openHours": "Buka {hours} jam",
+      "cancel": "Batal"
     },
     "safetyPlan": {
       "title": "Rencana keamanan saya",

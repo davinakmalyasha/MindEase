@@ -129,22 +129,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     const navList = (
         <nav aria-label={t("mainNavigation")} className="flex-1 px-3 py-6 space-y-1 overflow-y-auto custom-scrollbar">
-            {NAV_ITEMS.map((item) => (
-                <Link
-                    key={item.id}
-                    href={item.href}
-                    aria-current={isActive(item.href) ? "page" : undefined}
-                    className={cn(
-                        "flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all group",
-                        isActive(item.href)
-                            ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200"
-                            : "text-gray-500 hover:bg-indigo-50 hover:text-indigo-600"
-                    )}
-                >
-                    <item.icon className="w-[18px] h-[18px]" />
-                    {item.label}
-                </Link>
-            ))}
+            {(() => {
+                const sections: { title?: string; ids: string[] }[] =
+                    user?.role === "doctor"
+                        ? [
+                              { ids: ["dashboard", "riskQueue", "caseload", "myAppointments"] },
+                              { title: t("sectionPractice"), ids: ["mySchedule", "aiBriefings", "analytics"] },
+                              { title: t("sectionSystem"), ids: ["messages", "notifications", "profile", "security"] },
+                          ]
+                        : user?.role === "admin"
+                          ? [{ ids: NAV_ITEMS.map((i) => i.id) }]
+                          : [
+                                { title: t("sectionSessions"), ids: ["dashboard", "findSpecialist", "myAppointments"] },
+                                { title: t("sectionCare"), ids: ["moodTracker", "assessments", "journal", "thoughts", "toolkit"] },
+                                { title: t("sectionPlans"), ids: ["carePlan", "safetyPlan"] },
+                                { title: t("sectionSystem"), ids: ["messages", "notifications", "profile", "security"] },
+                            ];
+                const byId = new Map(NAV_ITEMS.map((i) => [i.id, i]));
+                return sections.flatMap((sec, si) => {
+                    const items = sec.ids.map((id) => byId.get(id)).filter(Boolean) as typeof NAV_ITEMS;
+                    if (items.length === 0) return [];
+                    return [
+                        ...(sec.title
+                            ? [
+                                  <p key={`sec-${si}`} className="px-4 pt-4 pb-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                                      {sec.title}
+                                  </p>,
+                              ]
+                            : []),
+                        ...items.map((item) => (
+                            <Link
+                                key={item.id}
+                                href={item.href}
+                                aria-current={isActive(item.href) ? "page" : undefined}
+                                className={cn(
+                                    "flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all group",
+                                    isActive(item.href)
+                                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200"
+                                        : "text-gray-500 hover:bg-indigo-50 hover:text-indigo-600"
+                                )}
+                            >
+                                <item.icon className="w-[18px] h-[18px]" />
+                                {item.label}
+                            </Link>
+                        )),
+                    ];
+                });
+            })()}
         </nav>
     );
 

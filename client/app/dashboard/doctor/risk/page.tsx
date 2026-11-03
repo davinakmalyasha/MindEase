@@ -207,6 +207,11 @@ export default function RiskQueuePage() {
                                                     {t("followUpBadge")}
                                                 </span>
                                             )}
+                                            {!item.resolvedAt && !item.isOverdue && (
+                                                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-bold text-gray-500">
+                                                    {t("openHours", { hours: Math.round(item.hoursOpen) })}
+                                                </span>
+                                            )}
                                         </div>
                                         <p className="mt-2 font-extrabold text-gray-900">
                                             {item.patient.name ?? t("unnamedPatient")}
@@ -306,33 +311,31 @@ export default function RiskQueuePage() {
                                 </div>
 
                                 {resolving === item.id && (
-                                    <div className="mt-3 space-y-2">
-                                        <div className="flex flex-wrap gap-2">
-                                            <input
+                                    <div className="mt-3 space-y-3 rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
+                                        <div>
+                                            <label htmlFor={`resolve-note-${item.id}`} className="mb-1 block text-xs font-bold text-gray-600">
+                                                {t("notePlaceholder")}
+                                            </label>
+                                            <textarea
+                                                id={`resolve-note-${item.id}`}
                                                 value={note}
                                                 onChange={(e) => setNote(e.target.value)}
                                                 placeholder={t("notePlaceholder")}
                                                 maxLength={1000}
-                                                aria-label={t("notePlaceholder")}
-                                                className="min-w-0 flex-1 rounded-2xl border border-gray-200 px-3 py-2 text-sm"
+                                                rows={2}
+                                                className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-2 text-sm"
                                             />
-                                            <button
-                                                type="button"
-                                                disabled={resolve.isPending}
-                                                onClick={() => onResolve(item.id)}
-                                                className="rounded-2xl bg-gray-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-                                            >
-                                                {t("confirmResolve")}
-                                            </button>
                                         </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            <label className="text-xs font-bold text-gray-500">
-                                                {t("outcomeLabel")}
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div>
+                                                <label htmlFor={`resolve-outcome-${item.id}`} className="mb-1 block text-xs font-bold text-gray-600">
+                                                    {t("outcomeLabel")}
+                                                </label>
                                                 <select
+                                                    id={`resolve-outcome-${item.id}`}
                                                     value={outcome}
                                                     onChange={(e) => setOutcome(e.target.value)}
-                                                    aria-label={t("outcomeLabel")}
-                                                    className="ml-2 rounded-xl border border-gray-200 px-2 py-1.5 text-xs"
+                                                    className="w-full rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm"
                                                 >
                                                     <option value="">{t("outcomePlaceholder")}</option>
                                                     <option value="contacted">{t("outcome_contacted")}</option>
@@ -342,17 +345,41 @@ export default function RiskQueuePage() {
                                                     <option value="no-answer">{t("outcome_no-answer")}</option>
                                                     <option value="other">{t("outcome_other")}</option>
                                                 </select>
-                                            </label>
-                                            <label className="text-xs font-bold text-gray-500">
-                                                {t("followUpLabel")}
+                                            </div>
+                                            <div>
+                                                <label htmlFor={`resolve-follow-${item.id}`} className="mb-1 block text-xs font-bold text-gray-600">
+                                                    {t("followUpLabel")}
+                                                </label>
                                                 <input
+                                                    id={`resolve-follow-${item.id}`}
                                                     type="date"
                                                     value={followUp}
                                                     onChange={(e) => setFollowUp(e.target.value)}
-                                                    aria-label={t("followUpLabel")}
-                                                    className="ml-2 rounded-xl border border-gray-200 px-2 py-1.5 text-xs"
+                                                    className="w-full rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm"
                                                 />
-                                            </label>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setResolving(null);
+                                                    setNote("");
+                                                    setOutcome("");
+                                                    setFollowUp("");
+                                                }}
+                                                className="rounded-2xl bg-white px-4 py-2 text-xs font-bold text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
+                                            >
+                                                {t("cancel")}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={resolve.isPending}
+                                                onClick={() => onResolve(item.id)}
+                                                className="rounded-2xl bg-gray-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                                            >
+                                                {t("confirmResolve")}
+                                            </button>
                                         </div>
                                     </div>
                                 )}
