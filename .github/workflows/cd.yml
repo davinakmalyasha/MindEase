@@ -4,7 +4,7 @@ name: CD
 #
 # This repository is a portfolio project and is not deployed. The workflow is
 # kept ready so a deployment is a deliberate dispatch rather than a side effect
-# of a merge; AGENTS.md forbids mutating production without explicit approval,
+# of a merge; mutating production without explicit approval is forbidden,
 # so the deploy jobs run in a `production` environment with required reviewers.
 # Create that environment with required reviewers in repo settings before the
 # first dispatch.
@@ -336,8 +336,8 @@ jobs:
           # The previous version piped the whole block into `tee`, and every probe
           # ended in `|| echo "FAILED"`. That means curl never failed the script
           # and `tee` exits 0 unconditionally - so this step reported green while
-          # printing four FAILED lines into the step summary. It is the step
-          # AGENTS.md requires after every deployment, and it could not fail.
+          # printing four FAILED lines into the step summary. It is the health
+          # check required after every deployment, and it could not fail.
           fail=0
           probe() {
             local name="$1" url="$2" code

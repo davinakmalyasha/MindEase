@@ -130,7 +130,7 @@ toolchain for the repository, and the realtime service picks up the 1.27.3
 security fixes (`crypto/tls`, `net/http`, `os`) it does not get today.
 
 The local machine has `go1.26.5` on PATH while `GOROOT` points at a separate
-`go1.27.0` install — the skew AGENTS.md already records. Phase 1 starts by
+`go1.27.0` install — the skew recorded during the port. Phase 1 starts by
 installing 1.27.3, clearing `GOROOT`, and leaving `GOTOOLCHAIN=auto` so the
 `toolchain` pin is enforced by the tool itself.
 

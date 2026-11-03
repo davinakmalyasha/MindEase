@@ -196,8 +196,8 @@ dispatched and will run against production whether or not anyone approved it. Th
 `cd.yml` header says this is the one piece of setup that matters. Create it in
 repo settings → Environments → `production` → Required reviewers.
 
-This is a real gap rather than a formality. `AGENTS.md` forbids mutating
-production without explicit approval; the environment gate is the mechanism that
+This is a real gap rather than a formality. Mutating production without
+explicit approval is forbidden; the environment gate is the mechanism that
 enforces it, and it is opt-in on GitHub's side.
 
 **Everything else is first-time manual setup, and the workflow assumes it exists:**

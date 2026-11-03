@@ -24,7 +24,7 @@ its own, and every AI answer is labelled as AI.
 <p align="center"><sub>Recorded from the seeded local stack by <code>client/scripts/demo.js</code>.</sub></p>
 
 > **Solo portfolio build, not deployed.** If you read one file, make it
-> [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md); if you run one command, make it
+> [ARCHITECTURE.md](ARCHITECTURE.md); if you run one command, make it
 > `npm run setup`, then `npm run dev`.
 
 - [What you can do](#what-you-can-do) · [The screens](#the-screens) · [Why it is built this way](#why-it-is-built-this-way) · [Three checks that fail the build](#three-checks-that-fail-the-build) · [Scale](#scale) · [Quick start](#quick-start) · [Testing](#testing) · [Documentation](#documentation) · [Architecture](#architecture) · [Environment](#environment-reference) · [Deployment](#deployment-not-configured) · [API docs](#api-documentation) · [Security](#security-features) · [Known limitations](#known-limitations) · [CI/CD](#cicd)
@@ -124,10 +124,6 @@ Numbers measured from the tree, not estimated.
 Route, table, migration, test and journey counts above are gated by
 `npm run numbers` (fails on drift). Line counts are measured at release time
 via the same command and will move with code.
-
-**Also worth reading:** [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) — the two
-bugs this repository's own clinical safety path contained, how a 400-test suite
-missed both, and which parts of the design I still do not believe.
 
 ### Measured performance
 
@@ -325,7 +321,6 @@ statements/branches/functions/lines, and Playwright has no instrumentation. See
 | | |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the services fit together, and the reasoning behind the layering |
-| [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | What was wrong in this repository, how it was found, and what I still do not believe |
 | [docs/security.md](docs/security.md) | Threat model, what is deliberately not protected, and the controls that carry the weight |
 | [docs/data-model.md](docs/data-model.md) | 32 tables, an ER diagram, and the decisions that are not obvious from the schema |
 | [docs/testing.md](docs/testing.md) | The gates, the three suites, and how to add a test |
@@ -335,7 +330,7 @@ statements/branches/functions/lines, and Playwright has no instrumentation. See
 | [docs/glossary.md](docs/glossary.md) | The domain terms the code uses without defining |
 | [docs/roadmap.md](docs/roadmap.md) | Direction, including what is deliberately not planned |
 | [docs/adr/](docs/adr/) | Why the realtime service, the provenance type, the payment abstraction and the scaling boundary are shaped as they are |
-| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
+| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | |
 
 ## Architecture
 

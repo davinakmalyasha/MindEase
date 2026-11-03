@@ -298,7 +298,7 @@ sequenceDiagram
      parameter is validated as version 7 specifically. There is no sequential
      integer id left to expose. The migration that did it was destructive by
      necessity (a key's type cannot be changed in place); it is documented in
-     `docs/roadmap.md` and `ENGINEERING-NOTES.md`.
+     `docs/roadmap.md`.
      because a requirement that has been abandoned without saying so is worse
      than one that was never met.
    - What *is* enforced today is requirement 5.1: every read, update and
