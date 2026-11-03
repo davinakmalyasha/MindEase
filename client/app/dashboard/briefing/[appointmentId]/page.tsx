@@ -353,7 +353,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                             )}
 
                             <p className="text-[10px] text-gray-400 italic mt-4">
-                                * Briefings are generated from the patient&apos;s last 14 days of mood entries and their pre-session answers.
+                                * Briefings are generated from the patient&apos;s recent mood, screenings, practice and reflections.
                             </p>
                             <div className="mt-6">
                                 <AIDisclaimer compact />
@@ -448,7 +448,7 @@ export default function BriefingPage({ params }: { params: Promise<{ appointment
                                 {assessments.map((a: any) => (
                                     <div key={a.type} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
                                         <div>
-                                            <p className="text-sm font-black text-gray-900 uppercase">{a.type === "phq9" ? "PHQ-9" : "GAD-7"}</p>
+                                            <p className="text-sm font-black text-gray-900 uppercase">{String(a.type || "").toUpperCase()}</p>
                                             <p className="text-[11px] text-gray-400 font-medium">
                                                 {new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                                             </p>
