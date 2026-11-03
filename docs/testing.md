@@ -240,7 +240,7 @@ real client against a real server surfaces.
 | `realtime` | `go vet`, golangci-lint, build, `go test -race` with a coverage profile |
 | `client` | lint, unit tests, coverage (gated), production build |
 | `compose` | `docker compose config` |
-| `docker` | builds the four images, boots the stack, probes health, seeds, runs the 12 Playwright tests in production mode |
+| `docker` | builds the four images, boots the stack, probes health, seeds, runs the 14 Playwright tests in production mode |
 
 Four static analyzers that scanned the Node tree — auth coverage, read-audit
 markers, optimistic-write patterns and schema index acknowledgements — retired
