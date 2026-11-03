@@ -189,6 +189,10 @@ func (s *Server) supportChatFull(ctx context.Context, userID, message string, hi
 	if clinicalEscalationPattern.MatchString(clean) {
 		return supportChatFullOut{Reply: supportEscalationReply, Escalated: true, Source: "fallback"}, "escalation"
 	}
+	// Stable per-account session for Go routing/caching. The client falls
+	// back to mindease-shared when absent, so this is optimization, not a
+	// correctness dependency — but per-user caches far better.
+	ctx = ai.WithSession(ctx, userID)
 	reply, source, tools, doctors, memUsed := s.agentRun(ctx, userID, clean, history, appointmentContext)
 	actor := userID
 	target := "SupportChat"

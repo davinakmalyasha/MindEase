@@ -81,3 +81,32 @@ func TestChatHonoursContextDeadline(t *testing.T) {
 		t.Fatalf("err = %v; want a context deadline", err)
 	}
 }
+
+func TestChatSendsSessionHeader(t *testing.T) {
+	var got, ua string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("x-opencode-session")
+		ua = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer server.Close()
+	client := New(server.URL, "test-key", "deepseek-v4.1-flash", 5*time.Second)
+
+	if _, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "Hi"}}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if got != "mindease-shared" {
+		t.Fatalf("default session = %q; want mindease-shared", got)
+	}
+	if ua == "" {
+		t.Fatal("User-Agent must identify the client to the Go gateway")
+	}
+
+	if _, err := client.Chat(WithSession(context.Background(), "user-123"), []Message{{Role: "user", Content: "Hi"}}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if got != "user-123" {
+		t.Fatalf("session = %q; want user-123", got)
+	}
+}

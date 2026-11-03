@@ -113,7 +113,7 @@ Numbers measured from the tree, not estimated.
 |---|---|
 | **48,211** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,863 migration SQL, 25,662 Go |
 | **148** | API routes · **32** tables · **23** migrations |
-| **151** | Go tests in 23 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
+| **152** | Go tests in 23 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by

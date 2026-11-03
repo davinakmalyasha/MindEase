@@ -20,6 +20,30 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+type ctxKey string
+
+// sessionKey carries the stable OpenCode Go session id. The Go gateway
+// rejects requests without x-opencode-session (400 MissingSessionID), so the
+// client always sends one: per-conversation when the caller provides it via
+// WithSession, otherwise a shared fallback that routes but caches poorly.
+const sessionKey ctxKey = "opencode-session"
+
+// WithSession returns ctx carrying the stable session id for one
+// conversation (user id for chat, appointment id for briefing/copilot).
+func WithSession(ctx context.Context, id string) context.Context {
+	if strings.TrimSpace(id) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionKey, strings.TrimSpace(id))
+}
+
+func sessionOf(ctx context.Context) string {
+	if sid, ok := ctx.Value(sessionKey).(string); ok && strings.TrimSpace(sid) != "" {
+		return strings.TrimSpace(sid)
+	}
+	return "mindease-shared"
+}
+
 type Client struct {
 	BaseURL string
 	APIKey  string
@@ -66,6 +90,7 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.APIKey)
 	request.Header.Set("User-Agent", "MindEase/0.6.1-support")
+	request.Header.Set("x-opencode-session", sessionOf(ctx))
 
 	response, err := c.HTTP.Do(request)
 	if err != nil {
