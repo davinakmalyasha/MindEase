@@ -89,7 +89,7 @@ build. [CONTRIBUTING.md](CONTRIBUTING.md) has the commands.
 
 | Gate | What it caught |
 |---|---|
-| **Schema drift is a build failure.** The database is built from all 22 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
+| **Schema drift is a build failure.** The database is built from all 23 migrations, and `/api/health/db` answers 503 with `schema: drift` when a table the binary expects is missing. | `RiskAlert.resolvedById` was declared and written but created by no migration: the triage queue threw a validation error against any properly built database, and survived because the suite had never been run against one. |
 | **The realtime contract is pinned on both sides.** `server-realtime/hub/*_test.go` pins the JWT claims, the origin allowlist and the event envelope; the browser suite drives the REST side that publishes those events. One contract, checked where it is implemented. | Drift between the Go event table, the TypeScript event union and the client fan-out. The old cross-language test died with the Node tree; the Go hub tests and the twelve journeys hold the same boundary now. |
 | **Documented numbers are checked against the tree.** `scripts/check-numbers.js` re-derives every count quoted in the documentation and fails the build on a disagreement. | Fifteen counts that drifted after a previous pass corrected them all: a stale test count in two CI comments, a per-file table summing to 415 under a heading that said 427, a badge reading a version no manifest pinned. |
 
@@ -112,8 +112,8 @@ Numbers measured from the tree, not estimated.
 | | |
 |---|---|
 | **48,211** | lines of TypeScript, Go and SQL — 19,637 application, 1,049 tests, 1,863 migration SQL, 25,662 Go |
-| **143** | API routes · **31** tables · **22** migrations |
-| **145** | Go tests in 21 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
+| **148** | API routes · **32** tables · **23** migrations |
+| **151** | Go tests in 23 files · **52** client unit tests · **12** Playwright tests in 11 journeys |
 | **5** | ADRs · **5** long-running services in compose (plus a one-shot migrate and a `perf` profile) |
 
 Route, table, migration, test and journey counts above are gated by

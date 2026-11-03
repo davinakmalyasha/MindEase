@@ -149,6 +149,7 @@ var expectedTables = []string{
 	"CarePlan", "CareGoal", "CareStep", "SafetyPlan", "AuditLog", "JobLock",
 	"FollowUp", "WaitlistEntry", "Package", "PackagePurchase", "PaymentOrder",
 	"PushSubscription", "Referral", "ThoughtRecord", "SessionFeedback", "Consent",
+	"AiMemory",
 }
 
 func (s *Server) healthDBHandler(w http.ResponseWriter, r *http.Request) {
