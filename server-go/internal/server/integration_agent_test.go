@@ -112,7 +112,7 @@ func TestIntegrationAgentMemorySearchStream(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("memory delete: %d %s", rec.Code, text)
 	}
-	rec, body, text = p.request(http.MethodPut, "/api/account/consents", map[string]any{"purpose": "ai-read", "granted": false})
+	rec, _, text = p.request(http.MethodPut, "/api/account/consents", map[string]any{"purpose": "ai-read", "granted": false})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("consent off: %d %s", rec.Code, text)
 	}

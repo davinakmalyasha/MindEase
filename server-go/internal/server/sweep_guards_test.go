@@ -7,7 +7,7 @@ func TestSweepAdminClampPage(t *testing.T) {
 	if p != 1 || l != 10 {
 		t.Fatalf("negatives: got page=%d limit=%d", p, l)
 	}
-	p, l = adminClampPage(1, 200, 20, 50)
+	_, l = adminClampPage(1, 200, 20, 50)
 	if l != 50 {
 		t.Fatalf("ceiling: got limit=%d", l)
 	}

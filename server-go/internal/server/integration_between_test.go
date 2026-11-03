@@ -152,7 +152,7 @@ func TestIntegrationThoughtRecordCRUD(t *testing.T) {
 	id := dataMap(t, body)["id"].(string)
 
 	// Owner can list; stranger cannot read/update.
-	rec, body, _ = p.request(http.MethodGet, "/api/wellness/thought-records", nil)
+	rec, _, _ = p.request(http.MethodGet, "/api/wellness/thought-records", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("thought list: %d", rec.Code)
 	}
@@ -160,7 +160,7 @@ func TestIntegrationThoughtRecordCRUD(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("stranger update: %d; want 404", rec.Code)
 	}
-	rec, body, text = p.request(http.MethodPut, "/api/wellness/thought-records/"+id, map[string]any{"moodAfter": 4})
+	rec, _, text = p.request(http.MethodPut, "/api/wellness/thought-records/"+id, map[string]any{"moodAfter": 4})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("thought update: %d %s", rec.Code, text)
 	}

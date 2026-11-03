@@ -159,16 +159,6 @@ func supportHistoryField(body map[string]any) (string, string) {
 	return "", ""
 }
 
-// supportChatReply mirrors SupportService.chat with the agent branch degraded
-// to the fixed knowledge base: crisis first, then escalation, then agentic
-// answer with tools. Appointment context is ground truth for the model so it
-// stops inventing times; it is fetched by the handler (which knows the user)
-// and passed in. Memory tools are consent-gated inside the agent loop.
-func (s *Server) supportChatReply(ctx context.Context, message string, history []ai.Message, appointmentContext string) (reply string, crisis bool, escalated bool, source string) {
-	out, _ := s.supportChatFull(ctx, CurrentUserID(ctx), message, history, appointmentContext)
-	return out.Reply, out.Crisis, out.Escalated, out.Source
-}
-
 type supportChatFullOut struct {
 	Reply        string
 	Crisis       bool
@@ -198,15 +188,6 @@ func (s *Server) supportChatFull(ctx context.Context, userID, message string, hi
 	target := "SupportChat"
 	s.audit(ctx, "support.chat", &actor, &target, nil, map[string]any{"source": source, "tools": len(tools), "doctors": len(doctors)})
 	return supportChatFullOut{Reply: reply, Source: source, Tools: tools, Doctors: doctors, MemoriesUsed: memUsed}, "agent"
-}
-
-// CurrentUserID extracts the user id for the agent path without the HTTP
-// layer; handlers pass CurrentUser(r).ID directly.
-func CurrentUserID(ctx context.Context) string {
-	if u, ok := ctx.Value(userContextKey).(*UserCtx); ok && u != nil {
-		return u.ID
-	}
-	return ""
 }
 
 func (s *Server) handleSupportChat(w http.ResponseWriter, r *http.Request) {

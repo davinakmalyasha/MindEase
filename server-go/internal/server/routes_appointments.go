@@ -260,27 +260,6 @@ func apptClampInt(raw string, fallback, minV, maxV int) int {
 	return v
 }
 
-// apptPageParam mirrors `parseInt(query) || fallback`.
-func apptPageParam(raw string, fallback int) int {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return fallback
-	}
-	f, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-		return fallback
-	}
-	if f == 0 {
-		return fallback
-	}
-	if f > 1e9 {
-		return 1e9
-	}
-	if f < -1e9 {
-		return -1e9
-	}
-	return int(f)
-}
 
 // apptControllerErr maps a service failure to a response the way the Node
 // controller does: a typed AppError keeps its status and message, anything
@@ -684,62 +663,7 @@ func (s *Server) apptDoctorAllowlists(ctx context.Context, doctorIDs []string) (
 	return out, rows.Err()
 }
 
-// apptDoctorAllowlist is the patient-facing doctor include: public profile
-// fields only. License numbers and bank columns are never exposed here;
-// the admin list uses apptDoctorFullRow instead.
-func (s *Server) apptDoctorAllowlist(ctx context.Context, doctorID string) (map[string]any, error) {
-	var (
-		id, specialty, bio, availability, verificationStatus string
-		experience, totalReviews, price                      int
-		rating                                               float64
-		licenseIssuer                                        *string
-		awayUntil                                            *time.Time
-		userID                                               string
-		name, avatar, phone                                  *string
-	)
-	err := s.DB.QueryRowContext(ctx,
-		"SELECT d.id, d.specialty, d.bio, d.experience, d.rating, d.totalReviews, d.price, d.availability, "+
-			"d.verificationStatus, d.licenseIssuer, d.awayUntil, u.id, u.name, u.avatar, u.phone_number "+
-			"FROM `Doctor` d JOIN `User` u ON u.id = d.userId WHERE d.id = ?", doctorID).
-		Scan(&id, &specialty, &bio, &experience, &rating, &totalReviews, &price, &availability,
-			&verificationStatus, &licenseIssuer, &awayUntil, &userID, &name, &avatar, &phone)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"id":                 id,
-		"specialty":          specialty,
-		"bio":                bio,
-		"experience":         experience,
-		"rating":             rating,
-		"totalReviews":       totalReviews,
-		"price":              price,
-		"availability":       availability,
-		"verificationStatus": verificationStatus,
-		"licenseIssuer":      licenseIssuer,
-		"awayUntil":          jsTime(awayUntil),
-		"user": map[string]any{
-			"id": userID, "name": name, "avatar": avatar, "phone_number": phone,
-		},
-	}, nil
-}
 
-// apptUserBrief is the appointment list's patient include:
-// `{ select: { id, name, avatar, phone_number } }`.
-func (s *Server) apptUserBrief(ctx context.Context, userID string) (map[string]any, error) {
-	briefs, err := s.apptUserBriefs(ctx, []string{userID})
-	if err != nil {
-		return nil, err
-	}
-	b, ok := briefs[userID]
-	if !ok {
-		return nil, sql.ErrNoRows
-	}
-	return b, nil
-}
 
 // apptUserBriefs batches the patient include for a page of appointments: one
 // `WHERE id IN (...)` instead of one query per row. A missing row is an error,
@@ -977,58 +901,6 @@ func (s *Server) apptDoctorFullRows(ctx context.Context, doctorIDs []string) (ma
 	return out, nil
 }
 
-// apptDoctorFullRow is the admin list's doctor include: every Doctor scalar.
-func (s *Server) apptDoctorFullRow(ctx context.Context, doctorID string) (map[string]any, error) {
-	var (
-		id, userID, specialty, bio, availability, verificationStatus string
-		experience, totalReviews, price                              int
-		rating                                                       float64
-		languages, education, bankName, bankAccount, bankHolder      *string
-		licenseNumber, licenseIssuer                                 *string
-		awayUntil                                                    *time.Time
-		createdAt, updatedAt                                         time.Time
-		name                                                         *string
-	)
-	err := s.DB.QueryRowContext(ctx,
-		"SELECT id, userId, specialty, bio, experience, rating, totalReviews, languages, education, price, "+
-			"bankName, bankAccount, bankHolder, availability, verificationStatus, licenseNumber, licenseIssuer, "+
-			"awayUntil, createdAt, updatedAt FROM `Doctor` WHERE id = ?", doctorID).
-		Scan(&id, &userID, &specialty, &bio, &experience, &rating, &totalReviews, &languages, &education,
-			&price, &bankName, &bankAccount, &bankHolder, &availability, &verificationStatus,
-			&licenseNumber, &licenseIssuer, &awayUntil, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := s.DB.QueryRowContext(ctx, "SELECT name FROM `User` WHERE id = ?", userID).Scan(&name); err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"id":                 id,
-		"userId":             userID,
-		"specialty":          specialty,
-		"bio":                bio,
-		"experience":         experience,
-		"rating":             rating,
-		"totalReviews":       totalReviews,
-		"languages":          languages,
-		"education":          education,
-		"price":              price,
-		"bankName":           bankName,
-		"bankAccount":        bankAccount,
-		"bankHolder":         bankHolder,
-		"availability":       availability,
-		"verificationStatus": verificationStatus,
-		"licenseNumber":      licenseNumber,
-		"licenseIssuer":      licenseIssuer,
-		"awayUntil":          jsTime(awayUntil),
-		"createdAt":          jsTimeValue(createdAt),
-		"updatedAt":          jsTimeValue(updatedAt),
-		"user":               map[string]any{"name": name},
-	}, nil
-}
 
 /* ------------------------------------------------------------------ *
  * POST /appointments/book

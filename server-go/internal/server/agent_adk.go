@@ -123,12 +123,6 @@ type adkSearchDoctorsResult struct {
 	Doctors []adkDoctorHit `json:"doctors,omitempty" jsonschema:"Top matching psychologists with booking links"`
 }
 
-type adkCollector struct {
-	tools        []agentToolResult
-	doctors      []map[string]any
-	memoriesUsed bool
-}
-
 func (s *Server) adkSessionsSvc() session.Service {
 	s.adkMu.Lock()
 	defer s.adkMu.Unlock()
