@@ -220,9 +220,12 @@ func (s *Server) agentDeterministic(ctx context.Context, userID, clean string, _
 		}
 	}
 
-	// Doctor search intent without clicking filters.
-	if strings.Contains(lowered, "doctor") || strings.Contains(lowered, "dokter") || strings.Contains(lowered, "psikolog") ||
-		strings.Contains(lowered, "book") || strings.Contains(lowered, "cari") || strings.Contains(lowered, "recommend") || strings.Contains(lowered, "specialist") {
+	// Doctor search intent without clicking filters. "psychologist" and "find"
+	// are listed literally: the mood fallback matches `log` with boundaries,
+	// but "psychologist" contains neither "doctor" nor "book", so without its
+	// own entry a doctor question falls through to the canned topics.
+	if strings.Contains(lowered, "doctor") || strings.Contains(lowered, "psychologist") || strings.Contains(lowered, "dokter") || strings.Contains(lowered, "psikolog") ||
+		strings.Contains(lowered, "book") || strings.Contains(lowered, "find") || strings.Contains(lowered, "cari") || strings.Contains(lowered, "recommend") || strings.Contains(lowered, "specialist") {
 		criteria := aiFallbackMatchCriteria(clean)
 		doctors = s.agentSearchDoctors(ctx, criteria)
 		tools = append(tools, agentToolResult{Name: "search_doctors", OK: true, Summary: fmt.Sprintf("%d match(es)", len(doctors)), Doctors: doctors})

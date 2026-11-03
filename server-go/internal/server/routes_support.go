@@ -74,7 +74,9 @@ var supportFallbackAnswers = []struct {
 		`You can cancel or reschedule pending and confirmed appointments from "My Appointments" in your dashboard. Rescheduled sessions return to pending for your doctor to re-confirm.`,
 	},
 	{
-		regexp.MustCompile(`(?i)(mood|suasana hati|wellness|tracker|log)`),
+		// NOTE: `log` needs boundaries: without them it fires inside
+		// "psychologist", sending every doctor question to the mood answer.
+		regexp.MustCompile(`(?i)(mood|suasana hati|wellness|tracker|\blog\b)`),
 		"The mood tracker lets you log how you feel on a 1–5 scale daily. MindEase computes your 30-day average, logging streak, and emotional trend, and can suggest personalized wellness activities.",
 	},
 	{
