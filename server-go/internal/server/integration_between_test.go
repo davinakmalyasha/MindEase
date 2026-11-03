@@ -207,7 +207,7 @@ func TestIntegrationFeedbackConsentCaseload(t *testing.T) {
 	}
 
 	// Consent: default false, set true, audited.
-	rec, body, _ = p.request(http.MethodGet, "/api/account/consents", nil)
+	rec, _, _ = p.request(http.MethodGet, "/api/account/consents", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("consent list: %d", rec.Code)
 	}
